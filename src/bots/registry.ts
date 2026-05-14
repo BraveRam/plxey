@@ -88,8 +88,6 @@ export class BotRegistry {
       const chatId = msg.chat.id;
       const chatKey = `${botId}_${chatId}`;
 
-      if (this.pendingForward.has(chatKey)) return;
-
       const botEntry = this.bots.get(botId);
       const tenantId = botEntry!.tenantId;
       const conv = await this.getOrCreateConversation(tenantId, connId, chatId);
@@ -106,14 +104,19 @@ export class BotRegistry {
         return { text: null };
       });
 
-      // Model decided to transfer to admin — forward immediately
+      // Model decided to transfer to admin — only forward once
+      const replyKey = `${botId}_${ownerTelegramId}`;
+
       if (result.transfer) {
-        const replyKey = `${botId}_${ownerTelegramId}`;
-        this.ownerReplies.set(replyKey, { chatId, businessConnectionId: connId });
-        this.pendingForward.add(chatKey);
-        const kb = new InlineKeyboard().text("✏️ Reply", `oreply_${replyKey}`);
-        await ctx.api.sendMessage(Number(ownerTelegramId), `💬 ${question}`, { reply_markup: kb });
-        await ctx.api.sendMessage(chatId, "I've sent your request to the admin. They'll get back to you shortly.", { business_connection_id: connId });
+        if (!this.pendingForward.has(chatKey)) {
+          this.ownerReplies.set(replyKey, { chatId, businessConnectionId: connId });
+          this.pendingForward.add(chatKey);
+          const kb = new InlineKeyboard().text("✏️ Reply", `oreply_${replyKey}`);
+          await ctx.api.sendMessage(Number(ownerTelegramId), `💬 ${question}`, { reply_markup: kb });
+          await ctx.api.sendMessage(chatId, "I've sent your request to the admin. They'll get back to you shortly.", { business_connection_id: connId });
+        } else {
+          await ctx.api.sendMessage(chatId, "The admin has already been notified. They'll respond when available.", { business_connection_id: connId });
+        }
         return;
       }
 
