@@ -13,6 +13,7 @@
         "grammy": "^1.42.0",
         "hono": "^4.12.18",
         "pdf-parse": "^2.4.5",
+        "zod": "^4.4.3",
       },
       "devDependencies": {
         "@types/bun": "latest",

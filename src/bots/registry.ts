@@ -105,15 +105,6 @@ export class BotRegistry {
         return;
       }
 
-      const transferKeywords = ["human", "transfer", "real person", "talk to admin", "talk to agent", "speak to human", "speak to admin", "speak to agent"];
-      const wantsHuman = transferKeywords.some(k => question.toLowerCase().includes(k));
-
-      if (wantsHuman) {
-        this.transfers.set(convKey, { ownerTelegramId, step: "awaiting_message" });
-        await ctx.api.sendMessage(chatId, "What message would you like me to send to the admin?", { business_connection_id: connId });
-        return;
-      }
-
       const botEntry = this.bots.get(botId);
       const tenantId = botEntry!.tenantId;
       const conv = await this.getOrCreateConversation(tenantId, connId, chatId);
@@ -123,23 +114,30 @@ export class BotRegistry {
         role: "user", content: question, telegramMessageId: String(msg.message_id),
       });
 
-      // Load history from DB
       const dbHistory = await this.loadHistory(conv.id);
 
-      const answer = await askAI(question, businessName, systemPrompt, dbHistory).catch((err) => {
+      const result = await askAI(question, businessName, systemPrompt, dbHistory).catch((err) => {
         console.error(`AI error for bot ${botId}:`, err);
-        return null;
+        return { text: null };
       });
 
-      if (answer !== null) {
+      // Model decided to transfer to admin
+      if (result.transfer) {
+        this.transfers.set(convKey, { ownerTelegramId, step: "awaiting_message" });
+        await ctx.api.sendMessage(chatId, "What message would you like me to send to the admin?", { business_connection_id: connId });
+        return;
+      }
+
+      // Model answered
+      if (result.text !== null) {
         await db.insert(messages).values({
           conversationId: conv.id, tenantId,
-          role: "assistant", content: answer,
+          role: "assistant", content: result.text,
         });
         await db.update(conversations).set({ lastMessageAt: new Date() }).where(eq(conversations.id, conv.id));
 
         try {
-          await ctx.api.sendMessage(chatId, answer, { business_connection_id: connId });
+          await ctx.api.sendMessage(chatId, result.text, { business_connection_id: connId });
         } catch (e) {
           console.error(`BUSINESS_PEER_INVALID for bot ${botId}, conn ${connId}:`, e);
           await ctx.api.sendMessage(
@@ -150,6 +148,7 @@ export class BotRegistry {
         return;
       }
 
+      // Model returned UNSURE — forward to owner
       const replyKey = `${botId}_${ownerTelegramId}`;
       this.ownerReplies.set(replyKey, { chatId, businessConnectionId: connId });
 

@@ -1,4 +1,5 @@
-import { generateText } from "ai";
+import { generateText, tool } from "ai";
+import { z } from "zod";
 
 const DEMO_KNOWLEDGE = `
 DEMO KNOWLEDGE:
@@ -22,23 +23,36 @@ export async function askAI(
   businessName: string,
   systemPrompt: string,
   history: HistoryEntry[] = [],
-): Promise<string | null> {
-  const { text } = await generateText({
+): Promise<{ text: string | null; transfer?: { reason: string } }> {
+  const result = await generateText({
     model: process.env.AI_MODEL || "deepseek/deepseek-v4-flash",
     system:
       systemPrompt.replace("{business_name}", businessName) +
       "\n\n" + DEMO_KNOWLEDGE +
-      "\n\nIf you cannot answer the question confidently, respond with exactly: UNSURE" +
-      "\n\nIMPORTANT: The conversation history is provided below. Pay attention to it — if the user previously told you their name or other details, remember them. The 'provided documentation' refers to DEMO KNOWLEDGE above, but the conversation itself is also a source of information about the user.",
+      "\n\nThe conversation history is below. Use it for context. If you cannot answer, respond with UNSURE." +
+      "\n\nIf the customer asks to speak to a human, or if you genuinely cannot help, use the transfer_to_admin tool.",
     temperature: 0.3,
     maxTokens: 500,
+    tools: {
+      transfer_to_admin: tool({
+        description: "Transfer the customer to a human admin when you cannot answer or they ask for one",
+        parameters: z.object({
+          reason: z.string().describe("Why this needs a human admin"),
+        }),
+      }),
+    },
     messages: [
       ...history.slice(-10),
       { role: "user", content: question },
     ],
   });
 
-  const trimmed = text.trim();
-  if (trimmed === "UNSURE") return null;
-  return trimmed;
+  if (result.toolCalls?.length) {
+    const args = result.toolCalls[0].args as { reason: string };
+    return { text: null, transfer: { reason: args.reason } };
+  }
+
+  const trimmed = result.text.trim();
+  if (trimmed === "UNSURE") return { text: null };
+  return { text: trimmed };
 }
