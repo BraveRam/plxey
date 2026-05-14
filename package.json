@@ -1,0 +1,24 @@
+{
+  "name": "tg-business",
+  "module": "index.ts",
+  "type": "module",
+  "private": true,
+  "devDependencies": {
+    "@types/bun": "latest",
+    "drizzle-kit": "^0.31.10"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "dependencies": {
+    "@ai-sdk/openai": "^3.0.63",
+    "@grammyjs/conversations": "^2.1.1",
+    "@neondatabase/serverless": "^1.1.0",
+    "ai": "^6.0.182",
+    "backblaze-b2-sdk": "^1.2.0",
+    "drizzle-orm": "^0.45.2",
+    "grammy": "^1.42.0",
+    "hono": "^4.12.18",
+    "pdf-parse": "^2.4.5"
+  }
+}
