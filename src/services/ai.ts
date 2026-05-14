@@ -48,8 +48,14 @@ export async function askAI(
   });
 
   if (result.toolCalls?.length) {
-    const args = result.toolCalls[0].args as { reason: string };
-    return { text: null, transfer: { reason: args.reason } };
+    const tc = result.toolCalls[0];
+    const raw = JSON.stringify(tc);
+    let reason = "Customer requested transfer";
+    try {
+      const parsed = typeof tc.args === "string" ? JSON.parse(tc.args) : tc.args ?? {};
+      reason = parsed.reason ?? reason;
+    } catch {}
+    return { text: null, transfer: { reason } };
   }
 
   const trimmed = result.text.trim();
