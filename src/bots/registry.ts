@@ -141,7 +141,6 @@ export class BotRegistry {
       }
 
       // Model returned UNSURE — forward to owner
-      const replyKey = `${botId}_${ownerTelegramId}`;
       this.ownerReplies.set(replyKey, { chatId, businessConnectionId: connId });
 
       const kb = new InlineKeyboard().text("✏️ Reply", `oreply_${replyKey}`);
