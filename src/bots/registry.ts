@@ -24,15 +24,10 @@ interface HistoryEntry {
   content: string;
 }
 
-interface TransferState {
-  ownerTelegramId: string;
-  step: "awaiting_message";
-}
-
 export class BotRegistry {
   private bots = new Map<string, BotEntry>();
   private ownerReplies = new Map<string, OwnerReplyState>();
-  private transfers = new Map<string, TransferState>();
+  private pendingForward = new Set<string>();
 
   async get(botId: string): Promise<Bot<Context> | null> {
     const existing = this.bots.get(botId);
@@ -91,19 +86,9 @@ export class BotRegistry {
       const question = msg.text;
       const connId = msg.business_connection_id;
       const chatId = msg.chat.id;
-      const convKey = `${botId}_${chatId}`;
+      const chatKey = `${botId}_${chatId}`;
 
-      // Check for pending transfer — forward customer's message to owner with Reply button
-      const pendingTransfer = this.transfers.get(convKey);
-      if (pendingTransfer) {
-        this.transfers.delete(convKey);
-        const replyKey = `${botId}_${ownerTelegramId}`;
-        this.ownerReplies.set(replyKey, { chatId, businessConnectionId: connId });
-        const kb = new InlineKeyboard().text("✏️ Reply", `oreply_${replyKey}`);
-        await ctx.api.sendMessage(Number(ownerTelegramId), `💬 Customer says:\n\n${question}`, { reply_markup: kb });
-        await ctx.api.sendMessage(chatId, "✅ Sent to the admin. They'll get back to you.", { business_connection_id: connId });
-        return;
-      }
+      if (this.pendingForward.has(chatKey)) return;
 
       const botEntry = this.bots.get(botId);
       const tenantId = botEntry!.tenantId;
@@ -121,10 +106,14 @@ export class BotRegistry {
         return { text: null };
       });
 
-      // Model decided to transfer to admin
+      // Model decided to transfer to admin — forward immediately
       if (result.transfer) {
-        this.transfers.set(convKey, { ownerTelegramId, step: "awaiting_message" });
-        await ctx.api.sendMessage(chatId, "What message would you like me to send to the admin?", { business_connection_id: connId });
+        const replyKey = `${botId}_${ownerTelegramId}`;
+        this.ownerReplies.set(replyKey, { chatId, businessConnectionId: connId });
+        this.pendingForward.add(chatKey);
+        const kb = new InlineKeyboard().text("✏️ Reply", `oreply_${replyKey}`);
+        await ctx.api.sendMessage(Number(ownerTelegramId), `💬 ${question}`, { reply_markup: kb });
+        await ctx.api.sendMessage(chatId, "I've sent your request to the admin. They'll get back to you shortly.", { business_connection_id: connId });
         return;
       }
 
@@ -187,6 +176,7 @@ export class BotRegistry {
           business_connection_id: state.businessConnectionId,
         });
         this.ownerReplies.delete(replyKey);
+        this.pendingForward.delete(`${entry.botId}_${state.chatId}`);
         await ctx.reply("✅ Sent to customer.");
       } catch (e) {
         console.error(`BUSINESS_PEER_INVALID forwarding reply for bot ${entry.botId}:`, e);
@@ -234,8 +224,8 @@ export class BotRegistry {
       for (const [key] of this.ownerReplies) {
         if (key.startsWith(`${botId}_`)) this.ownerReplies.delete(key);
       }
-      for (const [key] of this.transfers) {
-        if (key.startsWith(`${botId}_`)) this.transfers.delete(key);
+      for (const key of [...this.pendingForward]) {
+        if (key.startsWith(`${botId}_`)) this.pendingForward.delete(key);
       }
     }
     this.bots.delete(botId);
