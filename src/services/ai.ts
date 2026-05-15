@@ -1,4 +1,4 @@
-import { generateText, tool } from "ai";
+import { generateText, stepCountIs, tool } from "ai";
 import { z } from "zod";
 
 const DEMO_KNOWLEDGE = `
@@ -18,47 +18,56 @@ interface HistoryEntry {
   content: string;
 }
 
+interface SendAdminMessageResult {
+  ok: boolean;
+  error?: string;
+}
+
+interface AskAIOptions {
+  sendAdminMessage?: (input: { message: string; reason: string }) => Promise<SendAdminMessageResult>;
+}
+
 export async function askAI(
   question: string,
   businessName: string,
   systemPrompt: string,
   history: HistoryEntry[] = [],
-): Promise<{ text: string | null; transfer?: { reason: string } }> {
+  options: AskAIOptions = {},
+): Promise<{ text: string | null }> {
+  const tools = options.sendAdminMessage
+    ? {
+        send_admin_message: tool({
+          description:
+            "Send a concrete customer message to the human admin. Only call this when you have the exact message text to pass along.",
+          inputSchema: z.object({
+            message: z.string().describe("The exact customer message to send to the admin"),
+            reason: z.string().describe("Why this needs the human admin"),
+          }),
+          execute: async ({ message, reason }) => {
+            return options.sendAdminMessage!({ message, reason });
+          },
+        }),
+      }
+    : undefined;
+
   const result = await generateText({
     model: process.env.AI_MODEL || "deepseek/deepseek-v4-flash",
     system:
       systemPrompt.replace("{business_name}", businessName) +
-      "\n\n" + DEMO_KNOWLEDGE +
-      "\n\nThe conversation history is below. Use it for context. If you cannot answer, respond with UNSURE." +
-      "\n\nIf the customer asks to speak to a human, or if you genuinely cannot help, use the transfer_to_admin tool.",
+      "\n\n" +
+      DEMO_KNOWLEDGE +
+      "\n\nUse the conversation history for context." +
+      "\n\nIf the customer asks to leave a message for the admin but does not provide the actual message, ask what they would like you to tell the admin. Do not call a tool yet." +
+      "\n\nIf the customer gives the actual message to pass to the admin, call send_admin_message with the exact message." +
+      "\n\nIf the customer cancels, says never mind, says they will leave the message later, or only says thanks/ok, do not call send_admin_message." +
+      "\n\nNever claim a message was sent to the admin unless send_admin_message returned ok: true. If the tool fails, apologize and say the admin could not be reached right now.",
     temperature: 0.3,
-    maxTokens: 500,
-    tools: {
-      transfer_to_admin: tool({
-        description: "Transfer the customer to a human admin when you cannot answer or they ask for one",
-        parameters: z.object({
-          reason: z.string().describe("Why this needs a human admin"),
-        }),
-      }),
-    },
-    messages: [
-      ...history.slice(-10),
-      { role: "user", content: question },
-    ],
+    maxOutputTokens: 500,
+    stopWhen: stepCountIs(3),
+    tools,
+    messages: [...history.slice(-10), { role: "user", content: question }],
   });
 
-  if (result.toolCalls?.length) {
-    const tc = result.toolCalls[0];
-    const raw = JSON.stringify(tc);
-    let reason = "Customer requested transfer";
-    try {
-      const parsed = typeof tc.args === "string" ? JSON.parse(tc.args) : tc.args ?? {};
-      reason = parsed.reason ?? reason;
-    } catch {}
-    return { text: null, transfer: { reason } };
-  }
-
   const trimmed = result.text.trim();
-  if (trimmed === "UNSURE") return { text: null };
   return { text: trimmed };
 }

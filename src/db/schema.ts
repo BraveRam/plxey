@@ -87,6 +87,20 @@ export const conversations = pgTable("conversations", {
   bcIdx: index("conversations_bc_idx").on(t.businessConnectionId),
 }));
 
+export const adminReplyTargets = pgTable("admin_reply_targets", {
+  token: text("token").primaryKey(),
+  tenantBotId: uuid("tenant_bot_id").notNull().references(() => tenantBots.id, { onDelete: "cascade" }),
+  telegramChatId: text("telegram_chat_id").notNull(),
+  businessConnectionId: text("business_connection_id").notNull(),
+  selectedByOwnerTelegramId: text("selected_by_owner_telegram_id"),
+  selectedAt: timestamp("selected_at", { withTimezone: true }),
+  usedAt: timestamp("used_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (t) => ({
+  botIdx: index("admin_reply_targets_bot_idx").on(t.tenantBotId),
+  ownerIdx: index("admin_reply_targets_owner_idx").on(t.selectedByOwnerTelegramId, t.selectedAt),
+}));
+
 export const messages = pgTable("messages", {
   id: uuid("id").defaultRandom().primaryKey(),
   tenantId: uuid("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),

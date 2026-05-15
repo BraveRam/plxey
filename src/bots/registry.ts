@@ -4,6 +4,11 @@ import { db } from "../db";
 import { tenants, tenantBots, conversations, messages } from "../db/schema";
 import { decrypt } from "../lib/crypto";
 import { askAI } from "../services/ai";
+import {
+  createReplyCallbackData,
+  DbAdminReplyTargets,
+  type AdminReplyTargets,
+} from "./admin-reply-targets";
 
 interface BotEntry {
   bot: Bot<Context>;
@@ -14,11 +19,6 @@ interface BotEntry {
   botUsername: string;
 }
 
-interface OwnerReplyState {
-  chatId: number;
-  businessConnectionId: string;
-}
-
 interface HistoryEntry {
   role: "user" | "assistant";
   content: string;
@@ -26,8 +26,8 @@ interface HistoryEntry {
 
 export class BotRegistry {
   private bots = new Map<string, BotEntry>();
-  private ownerReplies = new Map<string, OwnerReplyState>();
-  private pendingForward = new Set<string>();
+
+  constructor(private ownerReplyTargets: AdminReplyTargets = new DbAdminReplyTargets()) {}
 
   async get(botId: string): Promise<Bot<Context> | null> {
     const existing = this.bots.get(botId);
@@ -81,44 +81,55 @@ export class BotRegistry {
   private attachHandlers(bot: Bot<Context>, botId: string, ownerTelegramId: string, systemPrompt: string, businessName: string): void {
     bot.on("business_message", async (ctx) => {
       const msg = ctx.update.business_message;
-      if (!msg?.text) return;
+      if (typeof msg?.text !== "string") return;
 
-      const question = msg.text;
+      const question: string = msg.text;
       const connId = msg.business_connection_id;
+      if (!connId) return;
       const chatId = msg.chat.id;
-      const chatKey = `${botId}_${chatId}`;
 
       const botEntry = this.bots.get(botId);
-      const tenantId = botEntry!.tenantId;
+      if (!botEntry) {
+        console.error(`No bot entry loaded for bot ${botId}`);
+        return;
+      }
+      const tenantId = botEntry.tenantId;
       const conv = await this.getOrCreateConversation(tenantId, connId, chatId);
+      const dbHistory = await this.loadHistory(conv.id);
 
       await db.insert(messages).values({
         conversationId: conv.id, tenantId,
         role: "user", content: question, telegramMessageId: String(msg.message_id),
       });
 
-      const dbHistory = await this.loadHistory(conv.id);
+      await this.sendTypingAction(ctx, chatId, connId, botId);
 
-      const result = await askAI(question, businessName, systemPrompt, dbHistory).catch((err) => {
+      const result: Awaited<ReturnType<typeof askAI>> = await askAI(
+        question,
+        businessName,
+        systemPrompt,
+        dbHistory,
+        {
+          sendAdminMessage: async ({ message }) => {
+            try {
+              const replyToken = await this.ownerReplyTargets.create({ botId, chatId, businessConnectionId: connId });
+              const kb = new InlineKeyboard().text("✏️ Reply", createReplyCallbackData(replyToken));
+              await ctx.api.sendMessage(
+                Number(ownerTelegramId),
+                `💬 ${message}`,
+                { reply_markup: kb },
+              );
+              return { ok: true };
+            } catch (err) {
+              console.error(`Failed to send admin message for bot ${botId}:`, err);
+              return { ok: false, error: "admin_message_send_failed" };
+            }
+          },
+        },
+      ).catch((err): Awaited<ReturnType<typeof askAI>> => {
         console.error(`AI error for bot ${botId}:`, err);
         return { text: null };
       });
-
-      // Model decided to transfer to admin — only forward once
-      const replyKey = `${botId}_${ownerTelegramId}`;
-
-      if (result.transfer) {
-        if (!this.pendingForward.has(chatKey)) {
-          this.ownerReplies.set(replyKey, { chatId, businessConnectionId: connId });
-          this.pendingForward.add(chatKey);
-          const kb = new InlineKeyboard().text("✏️ Reply", `oreply_${replyKey}`);
-          await ctx.api.sendMessage(Number(ownerTelegramId), `💬 ${question}`, { reply_markup: kb });
-          await ctx.api.sendMessage(chatId, "I've sent your request to the admin. They'll get back to you shortly.", { business_connection_id: connId });
-        } else {
-          await ctx.api.sendMessage(chatId, "The admin has already been notified. They'll respond when available.", { business_connection_id: connId });
-        }
-        return;
-      }
 
       // Model answered
       if (result.text !== null) {
@@ -139,19 +150,16 @@ export class BotRegistry {
         }
         return;
       }
-
-      // Model returned UNSURE — forward to owner
-      this.ownerReplies.set(replyKey, { chatId, businessConnectionId: connId });
-
-      const kb = new InlineKeyboard().text("✏️ Reply", `oreply_${replyKey}`);
-      await ctx.api.sendMessage(
-        Number(ownerTelegramId),
-        `💬 Customer question for @${businessName}:\n\n${question}`,
-        { reply_markup: kb },
-      );
     });
 
     bot.callbackQuery(/^oreply_(.+)$/, async (ctx) => {
+      const token = ctx.match[1];
+      const ownerId = ctx.from?.id ? String(ctx.from.id) : null;
+      if (!token || !ownerId || !(await this.ownerReplyTargets.activate(ownerId, token))) {
+        await ctx.answerCallbackQuery({ text: "This reply target is no longer available.", show_alert: true });
+        return;
+      }
+
       await ctx.answerCallbackQuery();
       await ctx.editMessageText("Send your reply to forward to the customer.");
     });
@@ -160,14 +168,12 @@ export class BotRegistry {
       if (!ctx.from) return;
       const ownerId = String(ctx.from.id);
 
-      const entry = this.findByOwner(ownerId);
-      if (!entry) {
+      if (!this.findByOwner(ownerId)) {
         await ctx.reply("I'm a customer support bot.");
         return;
       }
 
-      const replyKey = `${entry.botId}_${ownerId}`;
-      const state = this.ownerReplies.get(replyKey);
+      const state = await this.ownerReplyTargets.getActive(ownerId);
       if (!state) return;
 
       const text = ctx.message.text;
@@ -177,11 +183,10 @@ export class BotRegistry {
         await ctx.api.sendMessage(state.chatId, text, {
           business_connection_id: state.businessConnectionId,
         });
-        this.ownerReplies.delete(replyKey);
-        this.pendingForward.delete(`${entry.botId}_${state.chatId}`);
+        await this.ownerReplyTargets.markUsed(state.token);
         await ctx.reply("✅ Sent to customer.");
       } catch (e) {
-        console.error(`BUSINESS_PEER_INVALID forwarding reply for bot ${entry.botId}:`, e);
+        console.error(`BUSINESS_PEER_INVALID forwarding reply for bot ${state.botId}:`, e);
         await ctx.reply(
           "⚠️ Couldn't send. Make sure the bot has Business Mode enabled in @BotFather and is added as admin to your Telegram Business account.",
         );
@@ -189,7 +194,26 @@ export class BotRegistry {
     });
   }
 
-  private async getOrCreateConversation(tenantId: string, businessConnectionId: string, chatId: number) {
+  private async sendTypingAction(
+    ctx: Context,
+    chatId: number,
+    businessConnectionId: string,
+    botId: string,
+  ): Promise<void> {
+    try {
+      await ctx.api.sendChatAction(chatId, "typing", {
+        business_connection_id: businessConnectionId,
+      });
+    } catch (err) {
+      console.error(`Failed to send typing action for bot ${botId}:`, err);
+    }
+  }
+
+  private async getOrCreateConversation(
+    tenantId: string,
+    businessConnectionId: string,
+    chatId: number,
+  ): Promise<typeof conversations.$inferSelect> {
     const existing = await db.query.conversations.findFirst({
       where: and(
         eq(conversations.tenantId, tenantId),
@@ -201,6 +225,7 @@ export class BotRegistry {
     const [conv] = await db.insert(conversations).values({
       tenantId, businessConnectionId, telegramChatId: String(chatId),
     }).returning();
+    if (!conv) throw new Error("Failed to create conversation");
     return conv;
   }
 
@@ -223,12 +248,9 @@ export class BotRegistry {
   remove(botId: string): void {
     const entry = this.bots.get(botId);
     if (entry) {
-      for (const [key] of this.ownerReplies) {
-        if (key.startsWith(`${botId}_`)) this.ownerReplies.delete(key);
-      }
-      for (const key of [...this.pendingForward]) {
-        if (key.startsWith(`${botId}_`)) this.pendingForward.delete(key);
-      }
+      void this.ownerReplyTargets.clearBot(botId).catch((err) => {
+        console.error(`Failed to clear reply targets for bot ${botId}:`, err);
+      });
     }
     this.bots.delete(botId);
   }
