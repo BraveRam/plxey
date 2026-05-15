@@ -26,24 +26,18 @@ export const processPdf = inngest.createFunction(
     };
 
     try {
-      const pdfBuffer = await step.run("download", () =>
-        downloadFileById(b2FileId));
-
-      const text = await step.run("parse", async () => {
+      const text = await step.run("extract", async () => {
+        const pdfBuffer = await downloadFileById(b2FileId);
         const parser = new PDFParse({ data: pdfBuffer as never });
         const result = await parser.getText();
         return result.text.replace(/\0/g, "");
       });
 
-      const chunks = await step.run("chunk", () =>
-        splitText(text));
-
       const modelId = process.env.EMBEDDING_MODEL ?? "openai/text-embedding-3-small";
 
-      const { embeddings } = await step.run("embed", () =>
-        embedMany({ model: modelId, values: chunks }));
-
-      await step.run("store", async () => {
+      await step.run("process", async () => {
+        const chunks = splitText(text);
+        const { embeddings } = await embedMany({ model: modelId, values: chunks });
         const rows = chunks.map((content, i) => ({
           tenantId,
           tenantBotId: botId,
@@ -56,18 +50,15 @@ export const processPdf = inngest.createFunction(
         await db.insert(documentChunks).values(rows);
       });
 
-      await step.run("mark-done", async () => {
+      await step.run("finish", async () => {
         await db
           .update(documents)
           .set({ status: "ready" })
           .where(eq(documents.id, documentId));
-      });
 
-      await step.run("notify", async () => {
         const doc = await db.query.documents.findFirst({
           where: eq(documents.id, documentId),
         });
-
         const ownerId = doc?.tenantId
           ? (await db.query.tenants.findFirst({ where: eq(tenants.id, doc.tenantId) }))?.telegramOwnerId
           : null;
