@@ -1,8 +1,11 @@
 import { Bot, type Context, session, InlineKeyboard, type SessionFlavor } from "grammy";
 import { type Conversation, type ConversationFlavor, conversations, createConversation } from "@grammyjs/conversations";
-import { api } from "../api/client";
 import { logger } from "../lib/logger";
 import { uploadFile, b2BucketId } from "@tg-business/storage";
+import {
+  getOrCreateTenant, listBots, createBot, updateBot, deleteBot,
+  listDocuments, deleteDocument,
+} from "../lib/api";
 
 type MyContext = Context & SessionFlavor<{ manageBotId?: string }>;
 type BotContext = MyContext & ConversationFlavor<MyContext>;
@@ -16,7 +19,7 @@ const cancelKb = new InlineKeyboard().text("Cancel", "cancel");
 // --- Helpers ---
 
 async function botsListKb(userId: string) {
-  const bots = await api.listBots(userId);
+    const bots = await listBots(userId);
 
   const kb = new InlineKeyboard();
   for (const b of bots) {
@@ -30,7 +33,7 @@ async function botsListKb(userId: string) {
 }
 
 async function showBotSettings(ctx: MyContext, botId: string) {
-  const bots = await api.listBots(String(ctx.from!.id));
+  const bots = await listBots(String(ctx.from!.id));
   const botRecord = bots.find(b => b.id === botId);
   if (!botRecord) {
     await ctx.editMessageText("Bot not found.", { reply_markup: menuKb });
@@ -86,7 +89,7 @@ async function createBotConversation(conversation: Conversation<MyContext, MyCon
 
     try {
       const userId = String(ctx.from!.id);
-      const botRecord = await api.createBot(token, userId);
+      const botRecord = await createBot(token, userId);
       logger.info({ botUsername: botRecord.botUsername, userId }, "onboarding: bot created");
       await ctx.reply(`✅ Bot @${botRecord.botUsername} connected!`, { reply_markup: menuKb });
       return;
@@ -108,7 +111,7 @@ async function customizePromptConversation(conversation: Conversation<MyContext,
     return;
   }
 
-  const bots = await api.listBots(String(ctx.from!.id));
+  const bots = await listBots(String(ctx.from!.id));
   const botRecord = bots.find(b => b.id === botId);
   if (!botRecord) {
     await ctx.editMessageText("Bot not found.", { reply_markup: menuKb });
@@ -135,7 +138,7 @@ async function customizePromptConversation(conversation: Conversation<MyContext,
       continue;
     }
 
-    await api.updateBot(botId, { systemPrompt: newPrompt });
+    await updateBot(botId, { systemPrompt: newPrompt });
     await ctx.reply("✅ Prompt updated!");
     await showBotSettings(ctx, botId);
     return;
@@ -155,7 +158,7 @@ async function uploadDocumentConversation(conversation: Conversation<MyContext, 
 
   let tenantId: string;
   try {
-    const tenant = await api.getOrCreateTenant(userId);
+    const tenant = await getOrCreateTenant(userId);
     tenantId = tenant.id;
   } catch {
     await ctx.editMessageText("Could not identify your account.", { reply_markup: menuKb });
@@ -163,7 +166,7 @@ async function uploadDocumentConversation(conversation: Conversation<MyContext, 
   }
 
   async function showDocsList() {
-    const docs = await api.listDocuments(tenantId);
+    const docs = await listDocuments(tenantId);
     const kb = new InlineKeyboard();
     for (const d of docs) {
       const statusIcon = d.status === "ready" ? "✅" : d.status === "failed" ? "❌" : "⏳";
@@ -223,7 +226,7 @@ async function uploadDocumentConversation(conversation: Conversation<MyContext, 
     if (delMatch) {
       await response.answerCallbackQuery();
       const docId = delMatch[1]!;
-      const docs = await api.listDocuments(tenantId);
+      const docs = await listDocuments(tenantId);
       const doc = docs.find(d => d.id === docId);
       await confirmDelete(docId, doc?.fileName ?? "unknown");
       continue;
@@ -234,7 +237,7 @@ async function uploadDocumentConversation(conversation: Conversation<MyContext, 
       await response.answerCallbackQuery();
       const docId = confirmDelMatch[1]!;
       try {
-        await api.deleteDocument(docId);
+        await deleteDocument(docId);
         await ctx.reply("✅ Document deleted.");
       } catch (err) {
         await ctx.reply("❌ Failed to delete.");
@@ -376,7 +379,7 @@ export async function createOnboardingBot(): Promise<Bot<BotContext>> {
     await ctx.answerCallbackQuery();
     const botId = ctx.match![1]!;
     ctx.session.manageBotId = botId;
-    await api.updateBot(botId, { status: "paused" });
+    await updateBot(botId, { status: "paused" });
     await showBotSettings(ctx, botId);
   });
 
@@ -384,7 +387,7 @@ export async function createOnboardingBot(): Promise<Bot<BotContext>> {
     await ctx.answerCallbackQuery();
     const botId = ctx.match![1]!;
     ctx.session.manageBotId = botId;
-    await api.updateBot(botId, { status: "active" });
+    await updateBot(botId, { status: "active" });
     await showBotSettings(ctx, botId);
   });
 
@@ -420,7 +423,7 @@ export async function createOnboardingBot(): Promise<Bot<BotContext>> {
     await ctx.answerCallbackQuery();
     const botId = ctx.match![1]!;
 
-    await api.deleteBot(botId);
+    await deleteBot(botId);
 
     const userId = String(ctx.from!.id);
     const { kb, bots } = await botsListKb(userId);
