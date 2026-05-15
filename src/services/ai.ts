@@ -1,5 +1,6 @@
 import { generateText, stepCountIs, tool } from "ai";
 import { z } from "zod";
+import { logger } from "../lib/logger";
 
 const DEMO_KNOWLEDGE = `
 DEMO KNOWLEDGE:
@@ -44,6 +45,7 @@ export async function askAI(
             reason: z.string().describe("Why this needs the human admin"),
           }),
           execute: async ({ message, reason }) => {
+            logger.info({ reason }, "send_admin_message tool called");
             return options.sendAdminMessage!({ message, reason });
           },
         }),
@@ -69,5 +71,9 @@ export async function askAI(
   });
 
   const trimmed = result.text.trim();
+  logger.info(
+    { hasResult: trimmed.length > 0, toolCalls: result.toolCalls?.length ?? 0, finishReason: result.finishReason },
+    "AI response",
+  );
   return { text: trimmed };
 }

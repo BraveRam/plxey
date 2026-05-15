@@ -4,6 +4,7 @@ import { db } from "../db";
 import { tenants, tenantBots, conversations, messages } from "../db/schema";
 import { decrypt } from "../lib/crypto";
 import { askAI } from "../services/ai";
+import { logger } from "../lib/logger";
 import {
   createReplyCallbackData,
   DbAdminReplyTargets,
@@ -45,6 +46,7 @@ export class BotRegistry {
     if (!tenant) return null;
 
     const bot = await this.createBot(row, token, tenant);
+    logger.info({ botId, botUsername: row.botUsername }, "bot loaded from DB");
     return bot;
   }
 
@@ -90,7 +92,7 @@ export class BotRegistry {
 
       const botEntry = this.bots.get(botId);
       if (!botEntry) {
-        console.error(`No bot entry loaded for bot ${botId}`);
+        logger.error({ botId }, "no bot entry loaded");
         return;
       }
       const tenantId = botEntry.tenantId;
@@ -121,13 +123,13 @@ export class BotRegistry {
               );
               return { ok: true };
             } catch (err) {
-              console.error(`Failed to send admin message for bot ${botId}:`, err);
+              logger.error({ err, botId }, "failed to send admin message");
               return { ok: false, error: "admin_message_send_failed" };
             }
           },
         },
       ).catch((err): Awaited<ReturnType<typeof askAI>> => {
-        console.error(`AI error for bot ${botId}:`, err);
+        logger.error({ err, botId }, "AI error");
         return { text: null };
       });
 
@@ -142,7 +144,7 @@ export class BotRegistry {
         try {
           await ctx.api.sendMessage(chatId, result.text, { business_connection_id: connId });
         } catch (e) {
-          console.error(`BUSINESS_PEER_INVALID for bot ${botId}, conn ${connId}:`, e);
+          logger.warn({ err: e, botId, connId }, "BUSINESS_PEER_INVALID sending answer");
           await ctx.api.sendMessage(
             Number(ownerTelegramId),
             `⚠️ Failed to reply to customer. Make sure the bot has Business Mode enabled in @BotFather and is added as admin to your Telegram Business account.\n\nCustomer asked: ${question}`,
@@ -186,7 +188,7 @@ export class BotRegistry {
         await this.ownerReplyTargets.markUsed(state.token);
         await ctx.reply("✅ Sent to customer.");
       } catch (e) {
-        console.error(`BUSINESS_PEER_INVALID forwarding reply for bot ${state.botId}:`, e);
+        logger.warn({ err: e, botId: state.botId }, "BUSINESS_PEER_INVALID forwarding owner reply");
         await ctx.reply(
           "⚠️ Couldn't send. Make sure the bot has Business Mode enabled in @BotFather and is added as admin to your Telegram Business account.",
         );
@@ -205,7 +207,7 @@ export class BotRegistry {
         business_connection_id: businessConnectionId,
       });
     } catch (err) {
-      console.error(`Failed to send typing action for bot ${botId}:`, err);
+      logger.warn({ err, botId }, "failed to send typing action");
     }
   }
 
@@ -249,7 +251,7 @@ export class BotRegistry {
     const entry = this.bots.get(botId);
     if (entry) {
       void this.ownerReplyTargets.clearBot(botId).catch((err) => {
-        console.error(`Failed to clear reply targets for bot ${botId}:`, err);
+        logger.error({ err, botId }, "failed to clear reply targets");
       });
     }
     this.bots.delete(botId);

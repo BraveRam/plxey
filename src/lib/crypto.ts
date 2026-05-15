@@ -1,14 +1,16 @@
 import { createHash } from "crypto";
+import { logger } from "./logger";
 
 const ALGORITHM = "AES-GCM";
 
-function deriveKey(): Uint8Array {
+function deriveKey(): Uint8Array<ArrayBuffer> {
   const raw = process.env.ENCRYPTION_KEY;
   if (raw) {
-    return new TextEncoder().encode(raw).slice(0, 32);
+    return new TextEncoder().encode(raw).slice(0, 32) as Uint8Array<ArrayBuffer>;
   }
+  logger.warn("ENCRYPTION_KEY not set — deriving key from BOT_TOKEN (insecure)");
   const hash = createHash("sha256").update(process.env.BOT_TOKEN || "dev-key-fallback").digest();
-  return new Uint8Array(hash);
+  return new Uint8Array(hash) as Uint8Array<ArrayBuffer>;
 }
 
 let cachedKey: CryptoKey | null = null;

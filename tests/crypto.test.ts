@@ -41,10 +41,12 @@ describe("encrypt/decrypt", () => {
 
   test("tampered ciphertext throws", async () => {
     const encrypted = await encrypt("hello");
-    const tampered = Buffer.from(encrypted, "base64").toJSON().data as number[];
-    tampered[tampered.length - 5] ^= 0xff; // flip bits
+    const buf = Buffer.from(encrypted, "base64");
+    const bytes = new Uint8Array(buf);
+    const idx = bytes.length - 5;
+    bytes[idx] = (bytes[idx] ?? 0) ^ 0xff;
 
-    const bad = Buffer.from(tampered).toString("base64");
+    const bad = Buffer.from(bytes).toString("base64");
     await expect(decrypt(bad)).rejects.toThrow();
   });
 });

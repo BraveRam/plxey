@@ -1,8 +1,10 @@
 import { Bot, type Context, session, InlineKeyboard, type SessionFlavor } from "grammy";
 import { type Conversation, type ConversationFlavor, conversations, createConversation } from "@grammyjs/conversations";
 import { api } from "../api/client";
+import { logger } from "../lib/logger";
 
-type MyContext = Context & SessionFlavor<{ manageBotId?: string }> & ConversationFlavor;
+type MyContext = Context & SessionFlavor<{ manageBotId?: string }>;
+type BotContext = MyContext & ConversationFlavor<MyContext>;
 
 const menuKb = new InlineKeyboard()
   .text("🤖 Create Bot", "create_bot")
@@ -58,7 +60,7 @@ async function showBotSettings(ctx: MyContext, botId: string) {
 
 // --- Conversations ---
 
-async function createBotConversation(conversation: Conversation<MyContext>, ctx: MyContext) {
+async function createBotConversation(conversation: Conversation<MyContext, MyContext>, ctx: MyContext) {
   await ctx.editMessageText(
     "Send me your bot token.\n\n" +
     "1. Create a bot via @BotFather\n" +
@@ -85,6 +87,7 @@ async function createBotConversation(conversation: Conversation<MyContext>, ctx:
     try {
       const userId = String(ctx.from!.id);
       const botRecord = await api.createBot(token, userId);
+      logger.info({ botUsername: botRecord.botUsername, userId }, "onboarding: bot created");
       await ctx.reply(`✅ Bot @${botRecord.botUsername} connected!`, { reply_markup: menuKb });
       return;
     } catch (err) {
@@ -99,7 +102,7 @@ async function createBotConversation(conversation: Conversation<MyContext>, ctx:
   }
 }
 
-async function customizePromptConversation(conversation: Conversation<MyContext>, ctx: MyContext) {
+async function customizePromptConversation(conversation: Conversation<MyContext, MyContext>, ctx: MyContext) {
   const botId = ctx.session.manageBotId;
   if (!botId) {
     await ctx.editMessageText("No bot selected.", { reply_markup: menuKb });
@@ -142,11 +145,11 @@ async function customizePromptConversation(conversation: Conversation<MyContext>
 
 // --- Bot creation ---
 
-export async function createOnboardingBot(): Promise<Bot<MyContext>> {
+export async function createOnboardingBot(): Promise<Bot<BotContext>> {
   const token = process.env.BOT_TOKEN;
   if (!token) throw new Error("BOT_TOKEN is required");
 
-  const bot = new Bot<MyContext>(token);
+  const bot = new Bot<BotContext>(token);
 
   bot.use(session({ initial: () => ({}) }));
   bot.use(conversations());
@@ -159,20 +162,7 @@ export async function createOnboardingBot(): Promise<Bot<MyContext>> {
 
   bot.command("start", async (ctx) => {
     await ctx.reply("Main menu:", { reply_markup: menuKb });
-  });
-
-  bot.callbackQuery("menu", async (ctx) => {
-    await ctx.answerCallbackQuery();
-    await ctx.editMessageText("Main menu:", { reply_markup: menuKb });
-  });
-
-  bot.callbackQuery("cancel", async (ctx) => {
-    await ctx.answerCallbackQuery();
-    await ctx.editMessageText("Main menu:", { reply_markup: menuKb });
-  });
-
-  bot.on("message:text", async (ctx) => {
-    await ctx.reply("Use /start for the menu.", { reply_markup: menuKb });
+    logger.debug({ userId: String(ctx.from?.id ?? "") }, "onboarding: /start");
   });
 
   // --- Create Bot ---

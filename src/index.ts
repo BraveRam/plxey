@@ -2,8 +2,11 @@ import { Hono } from "hono";
 import { createOnboardingBot } from "./bots/onboarding";
 import { registry } from "./bots/registry";
 import { api } from "./api/routes";
+import { logger, pinoLogger } from "./lib/logger";
 
 const app = new Hono();
+
+app.use(pinoLogger());
 
 app.route("/api", api);
 
@@ -15,7 +18,7 @@ app.post("/webhook/onboarding", async (c) => {
     await onboardingBot.handleUpdate(update);
     return c.text("OK");
   } catch (err) {
-    console.error("onboarding webhook error", err);
+    logger.error({ err }, "onboarding webhook error");
     return c.text("Error", 500);
   }
 });
@@ -29,7 +32,7 @@ app.post("/webhook/tenant/:id", async (c) => {
     await bot.handleUpdate(update);
     return c.text("OK");
   } catch (err) {
-    console.error("tenant webhook error", err);
+    logger.error({ err, botId: c.req.param("id") }, "tenant webhook error");
     return c.text("Error", 500);
   }
 });
@@ -42,20 +45,20 @@ async function start() {
     port: 3000,
   });
 
-  console.log(`Server running on http://localhost:${server.port}`);
+  logger.info({ port: server.port }, "server started");
 
   const webhookBase = process.env.PUBLIC_URL;
   if (webhookBase) {
     try {
       const onboardingUrl = `${webhookBase}/webhook/onboarding`;
       await onboardingBot.api.setWebhook(onboardingUrl, { drop_pending_updates: true });
-      console.log(`Onboarding bot webhook set → ${onboardingUrl}`);
+      logger.info({ url: onboardingUrl }, "onboarding bot webhook set");
     } catch (err) {
-      console.error("Failed to set onboarding webhook:", err);
+      logger.error({ err }, "failed to set onboarding webhook");
     }
   } else {
-    console.log("PUBLIC_URL not set. Set it to your ngrok URL and restart to register webhooks.");
+    logger.warn("PUBLIC_URL not set — webhooks not registered");
   }
 }
 
-start().catch(console.error);
+start().catch((err) => { logger.fatal({ err }, "server failed to start"); process.exit(1); });

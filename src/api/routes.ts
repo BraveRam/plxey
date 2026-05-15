@@ -5,6 +5,7 @@ import { db } from "../db";
 import { tenants, tenantBots } from "../db/schema";
 import { encrypt, decrypt } from "../lib/crypto";
 import { registry } from "../bots/registry";
+import { logger } from "../lib/logger";
 import { randomBytes } from "crypto";
 
 export const api = new Hono();
@@ -80,18 +81,19 @@ api.post("/bots", async (c) => {
   const encryptedToken = await encrypt(token);
 
   const [botRecord] = await db.insert(tenantBots).values({
-    tenantId: tenant.id,
+    tenantId: tenant!.id,
     botTokenEncrypted: encryptedToken,
     botUsername: botUser.username,
     webhookSecret,
   }).returning();
 
-  await registry.register(token, botRecord.id);
+  await registry.register(token, botRecord!.id);
 
-  const webhookUrl = `${webhookBase}/webhook/tenant/${botRecord.id}`;
+  const webhookUrl = `${webhookBase}/webhook/tenant/${botRecord!.id}`;
   await tempBot.api.setWebhook(webhookUrl, { drop_pending_updates: true });
 
-  return c.json(botRecord, 201);
+  logger.info({ botId: botRecord!.id, botUsername: botRecord!.botUsername }, "bot registered");
+  return c.json(botRecord!, 201);
 });
 
 // PATCH /bots/:id — update bot (pause, resume, prompt)
@@ -113,6 +115,7 @@ api.patch("/bots/:id", async (c) => {
   }
 
   if (status === "paused") {
+    logger.info({ botId: id }, "bot paused");
     registry.remove(id);
   } else if (status === "active") {
     const loaded = await registry.load(id);
@@ -145,6 +148,7 @@ api.delete("/bots/:id", async (c) => {
     await temp.api.setWebhook("");
   } catch {}
 
+  logger.info({ botId: id }, "bot deleted");
   await db.delete(tenantBots).where(eq(tenantBots.id, id));
 
   return c.json({ success: true });

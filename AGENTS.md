@@ -7,7 +7,7 @@ Multitenant Telegram Business support bot with AI.
 ```sh
 bun install          # install deps
 bun test             # run all tests (18 tests, tests/ dir)
-bun src/index.ts     # start dev server
+bun src/index.ts     # start dev server (LOG_LEVEL=debug for verbose, pino-pretty)
 bun drizzle-kit push # sync schema to Neon DB
 ```
 

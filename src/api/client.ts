@@ -1,3 +1,5 @@
+import { logger } from "../lib/logger";
+
 const BASE = `http://127.0.0.1:${process.env.PORT || 3000}`;
 
 async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
@@ -6,10 +8,11 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
     ...options,
   });
   if (!res.ok) {
-    const body = await res.json().catch(() => ({ error: res.statusText }));
+    const body = await res.json().catch(() => ({ error: res.statusText })) as { error?: string };
+    logger.warn({ path, method: options?.method ?? "GET", status: res.status }, "API client error");
     throw new Error(body.error || `API error: ${res.status}`);
   }
-  return res.json();
+  return res.json() as Promise<T>;
 }
 
 interface Tenant {
