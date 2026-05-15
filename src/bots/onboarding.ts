@@ -163,7 +163,6 @@ async function uploadDocumentConversation(conversation: Conversation<MyContext, 
 
     if (response.callbackQuery?.data === "doc_cancel" || response.callbackQuery?.data === "cancel") {
       await response.answerCallbackQuery();
-      ctx.session.manageBotId = botId;
       await showBotSettings(response, botId);
       return;
     }
@@ -242,7 +241,6 @@ async function uploadDocumentConversation(conversation: Conversation<MyContext, 
       const ingestData = await ingestRes.json() as { documentId: string };
       logger.info({ documentId: ingestData.documentId, fileName: doc.file_name }, "PDF queued for processing");
       await ctx.reply("✅ PDF queued for processing!");
-      ctx.session.manageBotId = botId;
       await showBotSettings(ctx, botId);
       return;
     } catch (err) {
