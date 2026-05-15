@@ -66,3 +66,7 @@ Two bot types:
 ## Tests
 
 All under `tests/`. Run with `bun test`. Integration tests require DB/AI — currently only unit tests for isolated modules.
+
+## Security
+
+Never put real environment variable values in tests, docs, or any committed file. Use `.env.example` for documentation and fake/placeholder values in tests. `.env` is gitignored — keep it that way.
