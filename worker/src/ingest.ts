@@ -2,7 +2,7 @@ import { Inngest } from "inngest";
 import { embedMany } from "ai";
 import { PDFParse } from "pdf-parse";
 import { db } from "./db";
-import { documents, documentChunks } from "../../src/db/schema";
+import { documents, documentChunks, tenants } from "../../src/db/schema";
 import { eq } from "drizzle-orm";
 import { downloadFileById } from "./b2";
 import { splitText } from "./chunker";
@@ -58,6 +58,31 @@ export const processPdf = inngest.createFunction(
         .update(documents)
         .set({ status: "ready" })
         .where(eq(documents.id, documentId));
+    });
+
+    await step.run("notify", async () => {
+      const doc = await db.query.documents.findFirst({
+        where: eq(documents.id, documentId),
+      });
+      const tenant = await db.query.tenants.findFirst({
+        where: eq(tenants.id, tenantId),
+      });
+
+      const ownerId = tenant?.telegramOwnerId;
+      const fileName = doc?.fileName ?? "untitled.pdf";
+      if (!ownerId) return;
+
+      const botToken = process.env.BOT_TOKEN;
+      if (!botToken) return;
+
+      await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          chat_id: Number(ownerId),
+          text: `✅ Document "${fileName}" processed and ready for answering questions.`,
+        }),
+      });
     });
   },
 );
