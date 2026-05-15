@@ -1,14 +1,10 @@
-import { Bot, type Context, session, InlineKeyboard, type SessionFlavor } from "grammy";
+import { Bot, type Context, InlineKeyboard, session, type SessionFlavor } from "grammy";
 import { type Conversation, type ConversationFlavor, conversations, createConversation } from "@grammyjs/conversations";
 import { logger } from "../lib/logger";
-import { uploadFile, b2BucketId } from "@tg-business/storage";
-import {
-  getOrCreateTenant, listBots, createBot, updateBot, deleteBot,
-  listDocuments, deleteDocument,
-} from "../lib/api";
+import { createBot, updateBot, deleteBot, listBots } from "../lib/api";
 
-type MyContext = Context & SessionFlavor<{ manageBotId?: string }>;
-type BotContext = MyContext & ConversationFlavor<MyContext>;
+type BaseCtx = Context & SessionFlavor<Record<string, never>>;
+type OnCtx = BaseCtx & ConversationFlavor<BaseCtx>;
 
 const menuKb = new InlineKeyboard()
   .text("🤖 Create Bot", "create_bot")
@@ -16,11 +12,8 @@ const menuKb = new InlineKeyboard()
 
 const cancelKb = new InlineKeyboard().text("Cancel", "cancel");
 
-// --- Helpers ---
-
 async function botsListKb(userId: string) {
-    const bots = await listBots(userId);
-
+  const bots = await listBots(userId);
   const kb = new InlineKeyboard();
   for (const b of bots) {
     const label = b.botUsername ? `@${b.botUsername}` : b.id.slice(0, 8);
@@ -32,7 +25,7 @@ async function botsListKb(userId: string) {
   return { kb, bots };
 }
 
-async function showBotSettings(ctx: MyContext, botId: string) {
+async function showBotSettings(ctx: OnCtx, botId: string) {
   const bots = await listBots(String(ctx.from!.id));
   const botRecord = bots.find(b => b.id === botId);
   if (!botRecord) {
@@ -48,22 +41,16 @@ async function showBotSettings(ctx: MyContext, botId: string) {
   } else {
     kb.text("▶️ Resume", `resume_${botId}`);
   }
-  kb.text("✏️ Prompt", "edit_prompt").row();
-  kb.text("📄 Documents", `documents_${botId}`).row();
   kb.text("🗑️ Delete", `delete_${botId}`).row();
   kb.text("🔙 Back", "manage");
 
   await ctx.editMessageText(
-    `🤖 @${botRecord.botUsername}\n` +
-    `Status: ${statusIcon}\n\n` +
-    `Prompt preview:\n${botRecord.systemPrompt.slice(0, 200)}${botRecord.systemPrompt.length > 200 ? "..." : ""}`,
+    `🤖 @${botRecord.botUsername}\nStatus: ${statusIcon}`,
     { reply_markup: kb }
   );
 }
 
-// --- Conversations ---
-
-async function createBotConversation(conversation: Conversation<MyContext, MyContext>, ctx: MyContext) {
+async function createBotConversation(conversation: Conversation<BaseCtx, BaseCtx>, ctx: BaseCtx) {
   await ctx.editMessageText(
     "Send me your bot token.\n\n" +
     "1. Create a bot via @BotFather\n" +
@@ -105,252 +92,27 @@ async function createBotConversation(conversation: Conversation<MyContext, MyCon
   }
 }
 
-async function customizePromptConversation(conversation: Conversation<MyContext, MyContext>, ctx: MyContext, botId: string) {
-  if (!botId) {
-    await ctx.editMessageText("No bot selected.", { reply_markup: menuKb });
-    return;
-  }
-
-  const bots = await listBots(String(ctx.from!.id));
-  const botRecord = bots.find(b => b.id === botId);
-  if (!botRecord) {
-    await ctx.editMessageText("Bot not found.", { reply_markup: menuKb });
-    return;
-  }
-
-  await ctx.editMessageText(
-    `Current prompt for @${botRecord.botUsername}:\n\n${botRecord.systemPrompt}\n\nSend your new prompt, or press Cancel.`,
-    { reply_markup: cancelKb }
-  );
-
-  while (true) {
-    const response = await conversation.wait();
-
-    if (response.callbackQuery?.data === "cancel") {
-      await response.answerCallbackQuery();
-      await showBotSettings(ctx, botId);
-      return;
-    }
-
-    const newPrompt = response.message?.text?.trim();
-    if (!newPrompt) {
-      await ctx.reply("Please send a text message.", { reply_markup: cancelKb });
-      continue;
-    }
-
-    await updateBot(botId, { systemPrompt: newPrompt });
-    await ctx.reply("✅ Prompt updated!");
-    await showBotSettings(ctx, botId);
-    return;
-  }
-}
-
-// --- Document upload conversation ---
-
-async function uploadDocumentConversation(conversation: Conversation<MyContext, MyContext>, ctx: MyContext, botId: string) {
-  if (!botId) {
-    await ctx.editMessageText("No bot selected.", { reply_markup: menuKb });
-    return;
-  }
-
-  const userId = String(ctx.from?.id ?? "");
-  if (!userId) return;
-
-  let tenantId: string;
-  try {
-    const tenant = await getOrCreateTenant(userId);
-    tenantId = tenant.id;
-  } catch {
-    await ctx.editMessageText("Could not identify your account.", { reply_markup: menuKb });
-    return;
-  }
-
-  async function showDocsList() {
-    const docs = await listDocuments(tenantId);
-    const kb = new InlineKeyboard();
-    for (const d of docs) {
-      const statusIcon = d.status === "ready" ? "✅" : d.status === "failed" ? "❌" : "⏳";
-      kb.text(`${statusIcon} ${d.fileName.slice(0, 25)}`, `docitem_${d.id}`)
-        .text("🗑️", `del_doc_${d.id}`).row();
-    }
-    kb.text("➕ Add Document", "add_doc").row();
-    kb.text("🔙 Back", "doc_back");
-
-    const text = docs.length === 0
-      ? "No documents yet."
-      : `📚 ${docs.length} document(s)`;
-
-    await ctx.editMessageText(text, { reply_markup: kb });
-  }
-
-  async function confirmDelete(docId: string, fileName: string) {
-    const confirmKb = new InlineKeyboard()
-      .text("✅ Yes, delete", `confirm_del_${docId}`)
-      .text("❌ No", "doc_cancel");
-    await ctx.editMessageText(`Delete "${fileName}" and all its data?`, { reply_markup: confirmKb });
-  }
-
-  await showDocsList();
-
-  while (true) {
-    const response = await conversation.wait();
-
-    if (response.callbackQuery?.data === "doc_back") {
-      await response.answerCallbackQuery();
-      await showBotSettings(response, botId);
-      return;
-    }
-
-    if (response.callbackQuery?.data === "doc_cancel") {
-      await response.answerCallbackQuery();
-      await showDocsList();
-      continue;
-    }
-
-    if (response.callbackQuery?.data === "add_doc") {
-      await response.answerCallbackQuery();
-      await ctx.editMessageText(
-        "Send me a PDF file to add as knowledge for this bot.",
-        { reply_markup: new InlineKeyboard().text("Cancel", "doc_cancel") },
-      );
-      continue;
-    }
-
-    const docMatch = response.callbackQuery?.data?.match(/^docitem_(.+)$/);
-    if (docMatch) {
-      await response.answerCallbackQuery({ text: "Tap 🗑️ to delete this document." });
-      continue;
-    }
-
-    const delMatch = response.callbackQuery?.data?.match(/^del_doc_(.+)$/);
-    if (delMatch) {
-      await response.answerCallbackQuery();
-      const docId = delMatch[1]!;
-      const docs = await listDocuments(tenantId);
-      const doc = docs.find(d => d.id === docId);
-      await confirmDelete(docId, doc?.fileName ?? "unknown");
-      continue;
-    }
-
-    const confirmDelMatch = response.callbackQuery?.data?.match(/^confirm_del_(.+)$/);
-    if (confirmDelMatch) {
-      await response.answerCallbackQuery();
-      const docId = confirmDelMatch[1]!;
-      try {
-        await deleteDocument(docId);
-        await ctx.reply("✅ Document deleted.");
-      } catch (err) {
-        await ctx.reply("❌ Failed to delete.");
-      }
-      await showDocsList();
-      continue;
-    }
-
-    // Treat any message as a document upload attempt
-    const doc = response.message?.document;
-    if (!doc || !doc.mime_type?.startsWith("application/pdf")) {
-      await ctx.reply("Please send a PDF file, or press Cancel.", {
-        reply_markup: new InlineKeyboard().text("Cancel", "doc_cancel"),
-      });
-      continue;
-    }
-
-    // --- Process PDF (same logic as before) ---
-
-    const workUrl = process.env.WORKER_URL;
-    if (!workUrl) {
-      await ctx.reply("RAG worker not configured.");
-      return;
-    }
-
-    await ctx.reply("📥 Downloading PDF...");
-
-    try {
-      const file = await ctx.api.getFile(doc.file_id);
-      const filePath = file.file_path;
-      if (!filePath) {
-        await ctx.reply("Could not access the file.");
-        await showDocsList();
-        continue;
-      }
-
-      const botToken = process.env.BOT_TOKEN!;
-      const pdfUrl = `https://api.telegram.org/file/bot${botToken}/${filePath}`;
-      const res = await fetch(pdfUrl);
-      const pdfBuffer = Buffer.from(await res.arrayBuffer());
-
-      await ctx.reply("📤 Uploading to storage...");
-
-      const b2Path = `tenants/${tenantId}/docs/${crypto.randomUUID()}.pdf`;
-      const { fileId, fileName: b2FileName } = await uploadFile(
-        b2BucketId(),
-        b2Path,
-        pdfBuffer,
-        "application/pdf",
-      );
-
-      await ctx.reply("🔍 Sending for processing...");
-
-      const ingestRes = await fetch(`${workUrl}/ingest`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          b2FileId: fileId,
-          b2FileName,
-          tenantId,
-          fileName: doc.file_name ?? "untitled.pdf",
-          mimeType: "application/pdf",
-        }),
-      });
-
-      if (!ingestRes.ok) {
-        const errBody = await ingestRes.json().catch(() => ({}));
-        throw new Error((errBody as { error?: string }).error ?? "ingest failed");
-      }
-
-      logger.info({ documentId: (await ingestRes.json() as { documentId: string }).documentId, fileName: doc.file_name }, "PDF queued for processing");
-      await ctx.reply("✅ PDF queued for processing!");
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "Unknown error";
-      logger.error({ err, fileName: doc.file_name }, "PDF ingestion failed");
-      await ctx.reply(`❌ Failed to process PDF: ${msg}`);
-    }
-
-    await showDocsList();
-  }
-}
-
-// --- Bot creation ---
-
-export async function createOnboardingBot(): Promise<Bot<BotContext>> {
+export async function createOnboardingBot(): Promise<Bot> {
   const token = process.env.BOT_TOKEN;
   if (!token) throw new Error("BOT_TOKEN is required");
 
-  const bot = new Bot<BotContext>(token);
+  const bot = new Bot<OnCtx>(token);
 
   bot.use(session({ initial: () => ({}) }));
   bot.use(conversations());
   bot.use(createConversation(createBotConversation, "createBot"));
-  bot.use(createConversation(customizePromptConversation, "customizePrompt"));
-  bot.use(createConversation(uploadDocumentConversation, "uploadDocument"));
 
   await bot.init();
-
-  // --- Main menu ---
 
   bot.command("start", async (ctx) => {
     await ctx.reply("Main menu:", { reply_markup: menuKb });
     logger.debug({ userId: String(ctx.from?.id ?? "") }, "onboarding: /start");
   });
 
-  // --- Create Bot ---
-
   bot.callbackQuery("create_bot", async (ctx) => {
     await ctx.answerCallbackQuery();
     await ctx.conversation.enter("createBot");
   });
-
-  // --- Manage ---
 
   bot.callbackQuery("manage", async (ctx) => {
     await ctx.answerCallbackQuery();
@@ -364,21 +126,15 @@ export async function createOnboardingBot(): Promise<Bot<BotContext>> {
     }
   });
 
-  // --- Bot settings ---
-
   bot.callbackQuery(/^bot_(.+)$/, async (ctx) => {
     await ctx.answerCallbackQuery();
     const botId = ctx.match![1]!;
-    ctx.session.manageBotId = botId;
     await showBotSettings(ctx, botId);
   });
-
-  // --- Pause / Resume ---
 
   bot.callbackQuery(/^pause_(.+)$/, async (ctx) => {
     await ctx.answerCallbackQuery();
     const botId = ctx.match![1]!;
-    ctx.session.manageBotId = botId;
     await updateBot(botId, { status: "paused" });
     await showBotSettings(ctx, botId);
   });
@@ -386,29 +142,13 @@ export async function createOnboardingBot(): Promise<Bot<BotContext>> {
   bot.callbackQuery(/^resume_(.+)$/, async (ctx) => {
     await ctx.answerCallbackQuery();
     const botId = ctx.match![1]!;
-    ctx.session.manageBotId = botId;
     await updateBot(botId, { status: "active" });
     await showBotSettings(ctx, botId);
   });
 
-  // --- Edit Prompt ---
-
-  bot.callbackQuery("edit_prompt", async (ctx) => {
-    await ctx.answerCallbackQuery();
-    const botId = ctx.session.manageBotId;
-    if (!botId) {
-      await ctx.editMessageText("No bot selected.", { reply_markup: menuKb });
-      return;
-    }
-    await ctx.conversation.enter("customizePrompt", botId);
-  });
-
-  // --- Delete ---
-
   bot.callbackQuery(/^delete_(.+)$/, async (ctx) => {
     await ctx.answerCallbackQuery();
     const botId = ctx.match![1]!;
-
     const confirmKb = new InlineKeyboard()
       .text("✅ Yes, delete", `confirm_delete_${botId}`)
       .text("❌ No", `bot_${botId}`);
@@ -422,7 +162,6 @@ export async function createOnboardingBot(): Promise<Bot<BotContext>> {
   bot.callbackQuery(/^confirm_delete_(.+)$/, async (ctx) => {
     await ctx.answerCallbackQuery();
     const botId = ctx.match![1]!;
-
     await deleteBot(botId);
 
     const userId = String(ctx.from!.id);
@@ -433,14 +172,10 @@ export async function createOnboardingBot(): Promise<Bot<BotContext>> {
     );
   });
 
-  // --- Documents per bot ---
-
-  bot.callbackQuery(/^documents_(.+)$/, async (ctx) => {
+  bot.callbackQuery("menu", async (ctx) => {
     await ctx.answerCallbackQuery();
-    const botId = ctx.match![1]!;
-    ctx.session.manageBotId = botId;
-    await ctx.conversation.enter("uploadDocument", botId);
+    await ctx.editMessageText("Main menu:", { reply_markup: menuKb });
   });
 
-  return bot;
+  return bot as unknown as Bot;
 }
