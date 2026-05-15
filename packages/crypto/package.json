@@ -1,0 +1,5 @@
+{
+  "name": "@tg-business/crypto",
+  "type": "module",
+  "main": "src/index.ts"
+}

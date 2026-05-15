@@ -6,9 +6,10 @@ Multitenant Telegram Business support bot with AI.
 
 ```sh
 bun install               # install deps
-bun test                  # run all tests (26 tests, tests/ dir)
-bun src/index.ts          # start dev server (LOG_LEVEL=debug for verbose, pino-pretty)
-bun worker/src/server.ts  # start RAG worker (INNGEST_DEV=1 for local dev)
+bun test                  # run all tests (26 tests)
+bun run bot               # start bot server (LOG_LEVEL=debug for verbose, pino-pretty)
+bun run api               # start API server
+bun run rag               # start RAG worker (INNGEST_DEV=1 for local dev)
 bun drizzle-kit push      # sync schema to Neon DB
 ```
 
@@ -18,43 +19,54 @@ Write a failing test first, then minimal code. Never production code without a f
 
 ## Architecture
 
-Single Hono server (`src/index.ts`) running on Bun. Two kinds of routes:
+### Services (3 deployable apps)
 
-- **Webhooks** (`/webhook/onboarding`, `/webhook/tenant/:id`) — Telegram bot updates
-- **API** (`/api/*`) — REST routes for tenants and bots (used by bot handlers internally via `fetch` + by the future mini-app)
+| App | Path | Port | Role |
+|-----|------|------|------|
+| **bot** | `apps/bot/src/index.ts` | 3000 | Telegram webhooks, BotRegistry, AI chat, PDF ingestion |
+| **api** | `apps/api/src/index.ts` | 3001 | REST CRUD for tenants, bots, documents |
+| **rag** | `apps/rag/src/server.ts` | 3002 | PDF processing pipeline (download → parse → chunk → embed → pgvector) |
 
-Two bot types:
-- **Onboarding bot** (`src/bots/onboarding.ts`) — inline menu + conversations, lets owners register bots, set prompts, manage
-- **Tenant bots** (`src/bots/registry.ts`) — per-tenant grammy Bot instances, lazy-loaded on webhook. Handle business messages via AI, fallback to owner, owner replies
+### Shared packages
 
-## Key modules
+| Package | Path | Used by | Contents |
+|---------|------|---------|----------|
+| `@tg-business/db` | `packages/db/` | all 3 | Drizzle schema + client |
+| `@tg-business/crypto` | `packages/crypto/` | bot, api | AES-GCM encrypt/decrypt |
+| `@tg-business/storage` | `packages/storage/` | bot, api, rag | B2 upload/download/delete |
+
+### Key modules
 
 | File | Role |
 |------|------|
-| `src/api/routes.ts` | REST API routes (tenants, bots CRUD) |
-| `src/api/client.ts` | fetch-based client the bot uses to call API |
-| `src/bots/registry.ts` | BotRegistry: lazy-load, cache, handler wiring |
-| `src/bots/onboarding.ts` | Onboarding bot with conversations |
-| `src/bots/admin-reply-targets.ts` | Reply target storage (DB + in-memory for tests) |
-| `src/services/ai.ts` | AI SDK integration, tools (send_admin_message) |
-| `src/lib/crypto.ts` | AES-GCM token encryption |
-| `src/db/schema.ts` | Drizzle schema (tenants, bots, conversations, messages, admin_reply_targets) |
-| `worker/src/server.ts` | RAG microservice entry (Hono + Inngest serve) |
-| `worker/src/ingest.ts` | Inngest processPdf function (download → parse → chunk → embed → store) |
-| `worker/src/chunker.ts` | Recursive text splitter with configurable size/overlap |
-| `worker/src/b2.ts` | Backblaze B2 wrapper (download by fileId, upload) |
-| `worker/src/db.ts` | DB client for worker (imports schema from src/db) |
+| `apps/bot/src/bots/registry.ts` | BotRegistry: lazy-load, cache, handler wiring |
+| `apps/bot/src/bots/onboarding.ts` | Onboarding bot with conversations |
+| `apps/bot/src/bots/admin-reply-targets.ts` | Reply target storage (DB + in-memory for tests) |
+| `apps/bot/src/services/ai.ts` | AI SDK integration, tools (get_information, send_admin_message) |
+| `apps/bot/src/services/retrieval.ts` | pgvector cosine similarity search |
+| `apps/bot/src/api/client.ts` | fetch-based client the bot uses to call API |
+| `apps/api/src/routes.ts` | REST API routes (tenants, bots, documents) |
+| `apps/rag/src/ingest.ts` | Inngest processPdf function |
+| `apps/rag/src/chunker.ts` | Recursive text splitter |
+
+## Communication
+
+```
+Telegram ←→ bot ──HTTP──→ api (CRUD)
+                   ──HTTP──→ rag (PDF ingest)
+Mini app  ──HTTP──→ api (CRUD)
+```
 
 ## Required env vars
 
 - `BOT_TOKEN` — onboarding bot token
 - `DATABASE_URL` — Neon Postgres connection string
-- `AI_GATEWAY_API_KEY` — for Vercel AI SDK gateway (`ai` package)
+- `AI_GATEWAY_API_KEY` — for Vercel AI SDK gateway
 - `PUBLIC_URL` — ngrok URL or production URL for webhooks
 - `ENCRYPTION_KEY` — 32+ chars for AES-GCM bot token encryption
-- `WORKER_URL` — RAG worker base URL (e.g. `http://localhost:3001`)
 - `B2_APPLICATION_KEY_ID`, `B2_APPLICATION_KEY`, `B2_BUCKET_ID` — Backblaze B2
 - `INNGEST_DEV` — set to `1` for local Inngest dev server
+- `EMBEDDING_MODEL` — default: `openai/text-embedding-3-small`
 
 ## DB
 
@@ -74,7 +86,7 @@ Two bot types:
 
 ## Tests
 
-All under `tests/`. Run with `bun test`. Integration tests require DB/AI — currently only unit tests for isolated modules.
+Tests in `apps/bot/tests/` and `apps/rag/tests/`. Run with `bun test` from root. Integration tests require DB/AI — currently only unit tests for isolated modules.
 
 ## Security
 

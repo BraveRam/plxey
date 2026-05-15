@@ -1,0 +1,8 @@
+{
+  "name": "@tg-business/storage",
+  "type": "module",
+  "main": "src/index.ts",
+  "dependencies": {
+    "backblaze-b2": "^1.7.1"
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "name": "@tg-business/db",
+  "type": "module",
+  "main": "src/index.ts",
+  "dependencies": {
+    "drizzle-orm": "^0.45.2",
+    "@neondatabase/serverless": "^1.1.0"
+  }
+}
