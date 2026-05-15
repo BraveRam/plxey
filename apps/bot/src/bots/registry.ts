@@ -256,7 +256,17 @@ export class BotRegistry {
 
   async get(botId: string): Promise<Bot<Context> | null> {
     const existing = this.bots.get(botId);
-    if (existing) return existing.bot;
+    if (existing) {
+      const row = await db.query.tenantBots.findFirst({
+        where: eq(tenantBots.id, botId),
+        columns: { status: true },
+      });
+      if (!row || row.status !== "active") {
+        this.bots.delete(botId);
+        return null;
+      }
+      return existing.bot;
+    }
 
     const row = await db.query.tenantBots.findFirst({
       where: eq(tenantBots.id, botId),
@@ -325,8 +335,26 @@ export class BotRegistry {
     // --- Owner management ---
 
     bot.command("start", async (ctx) => {
-      if (!this.findByOwner(String(ctx.from?.id ?? ""))) return;
-      await showManagementMenu(ctx, botId);
+      const ownerId = String(ctx.from?.id ?? "");
+      if (this.findByOwner(ownerId)) {
+        await showManagementMenu(ctx, botId);
+        return;
+      }
+
+      // Non-owner: direct them to the business
+      const botEntry = this.bots.get(botId);
+      if (botEntry?.connectedBusinessUserId) {
+        const kb = new InlineKeyboard().url(
+          "💬 Contact Business",
+          `tg://user?id=${botEntry.connectedBusinessUserId}`,
+        );
+        await ctx.reply(
+          "This is the customer support bot for this business. Click below to send them a message:",
+          { reply_markup: kb },
+        );
+      } else {
+        await ctx.reply("This is a customer support bot.");
+      }
     });
 
     bot.callbackQuery("biz_edit_prompt", async (ctx) => {
@@ -465,7 +493,19 @@ export class BotRegistry {
       const ownerId = String(ctx.from.id);
 
       if (!this.findByOwner(ownerId)) {
-        await ctx.reply("I'm a customer support bot.");
+        const botEntry = this.bots.get(botId);
+        if (botEntry?.connectedBusinessUserId) {
+          const kb = new InlineKeyboard().url(
+            "💬 Contact Business",
+            `tg://user?id=${botEntry.connectedBusinessUserId}`,
+          );
+          await ctx.reply(
+            "This is the customer support bot for this business. Click below to send them a message:",
+            { reply_markup: kb },
+          );
+        } else {
+          await ctx.reply("I'm a customer support bot.");
+        }
         return;
       }
 

@@ -27,7 +27,7 @@ app.post("/webhook/tenant/:id", async (c) => {
   try {
     const id = c.req.param("id");
     const bot = await registry.get(id);
-    if (!bot) return c.text("Bot not found", 404);
+    if (!bot) return c.text("Bot not active", 200);
     const update = await c.req.json();
     await bot.handleUpdate(update);
     return c.text("OK");
