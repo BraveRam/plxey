@@ -18,6 +18,7 @@ interface BotEntry {
   ownerTelegramId: string;
   systemPrompt: string;
   botUsername: string;
+  connectedBusinessUserId: string | null;
 }
 
 interface HistoryEntry {
@@ -64,6 +65,7 @@ export class BotRegistry {
       bot, token: rawToken, tenantId: row.tenantId,
       ownerTelegramId: tenant.telegramOwnerId, systemPrompt: row.systemPrompt,
       botUsername: row.botUsername ?? "",
+      connectedBusinessUserId: row.connectedBusinessUserId,
     });
     return bot;
   }
@@ -76,15 +78,53 @@ export class BotRegistry {
       bot, token, tenantId: row.tenantId,
       ownerTelegramId: tenant.telegramOwnerId, systemPrompt: row.systemPrompt,
       botUsername: row.botUsername ?? "",
+      connectedBusinessUserId: row.connectedBusinessUserId,
     });
     return bot;
   }
 
   private attachHandlers(bot: Bot<Context>, botId: string, ownerTelegramId: string, systemPrompt: string, businessName: string): void {
+    bot.on("business_connection", async (ctx) => {
+      const conn = ctx.update.business_connection;
+      if (!conn?.user) return;
+
+      const botEntry = this.bots.get(botId);
+      if (!botEntry) return;
+
+      const userId = String(conn.user.id);
+      if (botEntry.connectedBusinessUserId && botEntry.connectedBusinessUserId !== userId) {
+        logger.warn({ botId, expected: botEntry.connectedBusinessUserId, got: userId }, "business connection blocked — already connected to another user");
+        return;
+      }
+
+      if (!botEntry.connectedBusinessUserId) {
+        botEntry.connectedBusinessUserId = userId;
+        await db.update(tenantBots).set({ connectedBusinessUserId: userId }).where(eq(tenantBots.id, botId));
+        logger.info({ botId, userId }, "business connection authorized");
+      }
+    });
+
     bot.on("business_message").filter(
       async (ctx) => {
         const conn = await ctx.getBusinessConnection();
-        return ctx.from?.id !== conn.user.id;
+        if (ctx.from?.id === conn.user.id) return false;
+
+        const botEntry = this.bots.get(botId);
+        if (!botEntry) return false;
+
+        const userId = String(conn.user.id);
+        if (botEntry.connectedBusinessUserId && botEntry.connectedBusinessUserId !== userId) {
+          logger.warn({ botId, expected: botEntry.connectedBusinessUserId, got: userId }, "business message blocked — wrong business account");
+          return false;
+        }
+
+        if (!botEntry.connectedBusinessUserId) {
+          botEntry.connectedBusinessUserId = userId;
+          await db.update(tenantBots).set({ connectedBusinessUserId: userId }).where(eq(tenantBots.id, botId));
+          logger.info({ botId, userId }, "business connection authorized via first message");
+        }
+
+        return true;
       },
       async (ctx) => {
       const msg = ctx.update.business_message;
