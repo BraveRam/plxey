@@ -34,7 +34,7 @@ export const processPdf = inngest.createFunction(
     const chunks = await step.run("chunk", () =>
       splitText(text));
 
-    const modelId = process.env.EMBEDDING_MODEL ?? "google/text-embedding-004";
+    const modelId = process.env.EMBEDDING_MODEL ?? "openai/text-embedding-3-small";
 
     const { embeddings } = await step.run("embed", () =>
       embedMany({ model: modelId, values: chunks }));

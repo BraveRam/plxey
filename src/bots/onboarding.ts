@@ -9,9 +9,7 @@ type BotContext = MyContext & ConversationFlavor<MyContext>;
 
 const menuKb = new InlineKeyboard()
   .text("🤖 Create Bot", "create_bot")
-  .text("⚙️ Manage", "manage")
-  .row()
-  .text("📄 Documents", "documents");
+  .text("⚙️ Manage", "manage");
 
 const cancelKb = new InlineKeyboard().text("Cancel", "cancel");
 
@@ -48,6 +46,7 @@ async function showBotSettings(ctx: MyContext, botId: string) {
     kb.text("▶️ Resume", `resume_${botId}`);
   }
   kb.text("✏️ Prompt", "edit_prompt").row();
+  kb.text("📄 Documents", `documents_${botId}`).row();
   kb.text("🗑️ Delete", `delete_${botId}`).row();
   kb.text("🔙 Back", "manage");
 
@@ -144,6 +143,118 @@ async function customizePromptConversation(conversation: Conversation<MyContext,
   }
 }
 
+// --- Document upload conversation ---
+
+const docCancelKb = new InlineKeyboard().text("Cancel", "doc_cancel");
+
+async function uploadDocumentConversation(conversation: Conversation<MyContext, MyContext>, ctx: MyContext) {
+  const botId = ctx.session.manageBotId;
+  if (!botId) {
+    await ctx.editMessageText("No bot selected.", { reply_markup: menuKb });
+    return;
+  }
+
+  await ctx.editMessageText(
+    "Send me a PDF file to add as knowledge for this bot.",
+    { reply_markup: docCancelKb },
+  );
+
+  while (true) {
+    const response = await conversation.wait();
+
+    if (response.callbackQuery?.data === "doc_cancel" || response.callbackQuery?.data === "cancel") {
+      await response.answerCallbackQuery();
+      ctx.session.manageBotId = botId;
+      await showBotSettings(response, botId);
+      return;
+    }
+
+    const doc = response.message?.document;
+    if (!doc) {
+      await ctx.reply("Please send a PDF file.", { reply_markup: docCancelKb });
+      continue;
+    }
+
+    if (!doc.mime_type?.startsWith("application/pdf")) {
+      await ctx.reply("Only PDF files are supported.", { reply_markup: docCancelKb });
+      continue;
+    }
+
+    const userId = String(response.from?.id ?? ctx.from?.id);
+    if (!userId) return;
+
+    const workUrl = process.env.WORKER_URL;
+    if (!workUrl) {
+      await ctx.reply("RAG worker not configured.");
+      return;
+    }
+
+    let tenantId: string;
+    try {
+      const tenant = await api.getOrCreateTenant(userId);
+      tenantId = tenant.id;
+    } catch {
+      await ctx.reply("Could not identify your account.");
+      return;
+    }
+
+    await ctx.reply("📥 Downloading PDF...");
+
+    try {
+      const file = await ctx.api.getFile(doc.file_id);
+      const filePath = file.file_path;
+      if (!filePath) {
+        await ctx.reply("Could not access the file.");
+        return;
+      }
+
+      const botToken = process.env.BOT_TOKEN!;
+      const pdfUrl = `https://api.telegram.org/file/bot${botToken}/${filePath}`;
+      const res = await fetch(pdfUrl);
+      const pdfBuffer = Buffer.from(await res.arrayBuffer());
+
+      await ctx.reply("📤 Uploading to storage...");
+
+      const { fileId } = await uploadFile(
+        b2BucketId(),
+        `tenants/${tenantId}/docs/${crypto.randomUUID()}.pdf`,
+        pdfBuffer,
+        "application/pdf",
+      );
+
+      await ctx.reply("🔍 Sending for processing...");
+
+      const ingestRes = await fetch(`${workUrl}/ingest`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          b2FileId: fileId,
+          tenantId,
+          fileName: doc.file_name ?? "untitled.pdf",
+          mimeType: "application/pdf",
+        }),
+      });
+
+      if (!ingestRes.ok) {
+        const errBody = await ingestRes.json().catch(() => ({}));
+        throw new Error((errBody as { error?: string }).error ?? "ingest failed");
+      }
+
+      const ingestData = await ingestRes.json() as { documentId: string };
+      logger.info({ documentId: ingestData.documentId, fileName: doc.file_name }, "PDF queued for processing");
+      await ctx.reply("✅ PDF queued for processing!");
+      ctx.session.manageBotId = botId;
+      await showBotSettings(ctx, botId);
+      return;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Unknown error";
+      logger.error({ err, fileName: doc.file_name }, "PDF ingestion failed");
+      await ctx.reply(`❌ Failed to process PDF: ${msg}`);
+      return;
+    }
+  }
+}
+
 // --- Bot creation ---
 
 export async function createOnboardingBot(): Promise<Bot<BotContext>> {
@@ -156,6 +267,7 @@ export async function createOnboardingBot(): Promise<Bot<BotContext>> {
   bot.use(conversations());
   bot.use(createConversation(createBotConversation, "createBot"));
   bot.use(createConversation(customizePromptConversation, "customizePrompt"));
+  bot.use(createConversation(uploadDocumentConversation, "uploadDocument"));
 
   await bot.init();
 
@@ -251,85 +363,13 @@ export async function createOnboardingBot(): Promise<Bot<BotContext>> {
     );
   });
 
-  // --- Documents placeholder ---
+  // --- Documents per bot ---
 
-  bot.callbackQuery("documents", async (ctx) => {
-    await ctx.answerCallbackQuery({ text: "Coming soon!" });
-  });
-
-  // --- PDF ingestion ---
-
-  bot.on("message:document", async (ctx) => {
-    const doc = ctx.message.document;
-    if (!doc.mime_type?.startsWith("application/pdf")) return;
-
-    const userId = String(ctx.from?.id);
-    if (!userId) return;
-
-    const workUrl = process.env.WORKER_URL;
-    if (!workUrl) {
-      await ctx.reply("RAG worker not configured.");
-      return;
-    }
-
-    let tenantId: string;
-    try {
-      const tenant = await api.getOrCreateTenant(userId);
-      tenantId = tenant.id;
-    } catch {
-      await ctx.reply("Could not identify your account.");
-      return;
-    }
-
-    await ctx.reply("📥 Downloading PDF...");
-
-    try {
-      const file = await ctx.api.getFile(doc.file_id);
-      const filePath = file.file_path;
-      if (!filePath) {
-        await ctx.reply("Could not access the file.");
-        return;
-      }
-
-      const pdfUrl = `https://api.telegram.org/file/bot${token}/${filePath}`;
-      const res = await fetch(pdfUrl);
-      const pdfBuffer = Buffer.from(await res.arrayBuffer());
-
-      await ctx.reply("📤 Uploading to storage...");
-
-      const { fileId } = await uploadFile(
-        b2BucketId(),
-        `tenants/${tenantId}/docs/${crypto.randomUUID()}.pdf`,
-        pdfBuffer,
-        "application/pdf",
-      );
-
-      await ctx.reply("🔍 Sending for processing...");
-
-      const ingestRes = await fetch(`${workUrl}/ingest`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          b2FileId: fileId,
-          tenantId,
-          fileName: doc.file_name ?? "untitled.pdf",
-          mimeType: "application/pdf",
-        }),
-      });
-
-      if (!ingestRes.ok) {
-        const errBody = await ingestRes.json().catch(() => ({}));
-        throw new Error((errBody as { error?: string }).error ?? "ingest failed");
-      }
-
-      const ingestData = await ingestRes.json() as { documentId: string };
-      logger.info({ documentId: ingestData.documentId, fileName: doc.file_name }, "PDF queued for processing");
-      await ctx.reply("✅ PDF queued for processing. You'll be notified when it's ready.");
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "Unknown error";
-      logger.error({ err, fileName: doc.file_name }, "PDF ingestion failed");
-      await ctx.reply(`❌ Failed to process PDF: ${msg}`);
-    }
+  bot.callbackQuery(/^documents_(.+)$/, async (ctx) => {
+    await ctx.answerCallbackQuery();
+    const botId = ctx.match![1]!;
+    ctx.session.manageBotId = botId;
+    await ctx.conversation.enter("uploadDocument");
   });
 
   return bot;
