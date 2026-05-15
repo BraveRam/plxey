@@ -27,8 +27,7 @@ export const processPdf = inngest.createFunction(
       downloadFileById(b2FileId));
 
     const text = await step.run("parse", async () => {
-      const parser = new PDFParse({ data: pdfBuffer });
-      await parser.load();
+      const parser = new PDFParse({ data: pdfBuffer as never });
       const result = await parser.getText();
       return result.text;
     });
@@ -49,7 +48,7 @@ export const processPdf = inngest.createFunction(
         content,
         embedding: JSON.stringify(embeddings[i] as number[]),
         metadata: {},
-      }));
+      })) as unknown as (typeof documentChunks.$inferInsert)[];
       await db.insert(documentChunks).values(rows);
     });
 

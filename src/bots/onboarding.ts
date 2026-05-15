@@ -145,54 +145,110 @@ async function customizePromptConversation(conversation: Conversation<MyContext,
 
 // --- Document upload conversation ---
 
-const docCancelKb = new InlineKeyboard().text("Cancel", "doc_cancel");
-
 async function uploadDocumentConversation(conversation: Conversation<MyContext, MyContext>, ctx: MyContext, botId: string) {
   if (!botId) {
     await ctx.editMessageText("No bot selected.", { reply_markup: menuKb });
     return;
   }
 
-  await ctx.editMessageText(
-    "Send me a PDF file to add as knowledge for this bot.",
-    { reply_markup: docCancelKb },
-  );
+  const userId = String(ctx.from?.id ?? "");
+  if (!userId) return;
+
+  let tenantId: string;
+  try {
+    const tenant = await api.getOrCreateTenant(userId);
+    tenantId = tenant.id;
+  } catch {
+    await ctx.editMessageText("Could not identify your account.", { reply_markup: menuKb });
+    return;
+  }
+
+  async function showDocsList() {
+    const docs = await api.listDocuments(tenantId);
+    const kb = new InlineKeyboard();
+    for (const d of docs) {
+      const statusIcon = d.status === "ready" ? "✅" : d.status === "failed" ? "❌" : "⏳";
+      kb.text(`${statusIcon} ${d.fileName.slice(0, 30)}`, `docitem_${d.id}`).row();
+    }
+    kb.text("➕ Add Document", "add_doc").row();
+    kb.text("🔙 Back", "doc_back");
+
+    const text = docs.length === 0
+      ? "No documents yet."
+      : `📚 ${docs.length} document(s)`;
+
+    await ctx.editMessageText(text, { reply_markup: kb });
+  }
+
+  async function confirmDelete(docId: string) {
+    const confirmKb = new InlineKeyboard()
+      .text("✅ Yes, delete", `confirm_del_${docId}`)
+      .text("❌ No", "doc_cancel");
+    await ctx.editMessageText("Delete this document and its data?", { reply_markup: confirmKb });
+  }
+
+  await showDocsList();
 
   while (true) {
     const response = await conversation.wait();
 
-    if (response.callbackQuery?.data === "doc_cancel" || response.callbackQuery?.data === "cancel") {
+    if (response.callbackQuery?.data === "doc_back") {
       await response.answerCallbackQuery();
       await showBotSettings(response, botId);
       return;
     }
 
+    if (response.callbackQuery?.data === "doc_cancel") {
+      await response.answerCallbackQuery();
+      await showDocsList();
+      continue;
+    }
+
+    if (response.callbackQuery?.data === "add_doc") {
+      await response.answerCallbackQuery();
+      await ctx.editMessageText(
+        "Send me a PDF file to add as knowledge for this bot.",
+        { reply_markup: new InlineKeyboard().text("Cancel", "doc_cancel") },
+      );
+      continue;
+    }
+
+    const docMatch = response.callbackQuery?.data?.match(/^docitem_(.+)$/);
+    if (docMatch) {
+      await response.answerCallbackQuery();
+      const docId = docMatch[1]!;
+      await confirmDelete(docId);
+      continue;
+    }
+
+    const delMatch = response.callbackQuery?.data?.match(/^confirm_del_(.+)$/);
+    if (delMatch) {
+      await response.answerCallbackQuery();
+      const docId = delMatch[1]!;
+      try {
+        await api.deleteDocument(docId);
+        await ctx.reply("✅ Document deleted.");
+      } catch (err) {
+        await ctx.reply("❌ Failed to delete.");
+      }
+      await showDocsList();
+      continue;
+    }
+
+    // Treat any message as a document upload attempt
     const doc = response.message?.document;
-    if (!doc) {
-      await ctx.reply("Please send a PDF file.", { reply_markup: docCancelKb });
+    if (!doc || !doc.mime_type?.startsWith("application/pdf")) {
+      await ctx.reply("Please send a PDF file, or press Cancel.", {
+        reply_markup: new InlineKeyboard().text("Cancel", "doc_cancel"),
+      });
       continue;
     }
 
-    if (!doc.mime_type?.startsWith("application/pdf")) {
-      await ctx.reply("Only PDF files are supported.", { reply_markup: docCancelKb });
-      continue;
-    }
-
-    const userId = String(response.from?.id ?? ctx.from?.id);
-    if (!userId) return;
+    // --- Process PDF (same logic as before) ---
 
     const workUrl = process.env.WORKER_URL;
     if (!workUrl) {
       await ctx.reply("RAG worker not configured.");
-      return;
-    }
-
-    let tenantId: string;
-    try {
-      const tenant = await api.getOrCreateTenant(userId);
-      tenantId = tenant.id;
-    } catch {
-      await ctx.reply("Could not identify your account.");
       return;
     }
 
@@ -203,7 +259,8 @@ async function uploadDocumentConversation(conversation: Conversation<MyContext, 
       const filePath = file.file_path;
       if (!filePath) {
         await ctx.reply("Could not access the file.");
-        return;
+        await showDocsList();
+        continue;
       }
 
       const botToken = process.env.BOT_TOKEN!;
@@ -213,9 +270,10 @@ async function uploadDocumentConversation(conversation: Conversation<MyContext, 
 
       await ctx.reply("📤 Uploading to storage...");
 
-      const { fileId } = await uploadFile(
+      const b2Path = `tenants/${tenantId}/docs/${crypto.randomUUID()}.pdf`;
+      const { fileId, fileName: b2FileName } = await uploadFile(
         b2BucketId(),
-        `tenants/${tenantId}/docs/${crypto.randomUUID()}.pdf`,
+        b2Path,
         pdfBuffer,
         "application/pdf",
       );
@@ -227,6 +285,7 @@ async function uploadDocumentConversation(conversation: Conversation<MyContext, 
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           b2FileId: fileId,
+          b2FileName,
           tenantId,
           fileName: doc.file_name ?? "untitled.pdf",
           mimeType: "application/pdf",
@@ -238,17 +297,15 @@ async function uploadDocumentConversation(conversation: Conversation<MyContext, 
         throw new Error((errBody as { error?: string }).error ?? "ingest failed");
       }
 
-      const ingestData = await ingestRes.json() as { documentId: string };
-      logger.info({ documentId: ingestData.documentId, fileName: doc.file_name }, "PDF queued for processing");
+      logger.info({ documentId: (await ingestRes.json() as { documentId: string }).documentId, fileName: doc.file_name }, "PDF queued for processing");
       await ctx.reply("✅ PDF queued for processing!");
-      await showBotSettings(ctx, botId);
-      return;
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Unknown error";
       logger.error({ err, fileName: doc.file_name }, "PDF ingestion failed");
       await ctx.reply(`❌ Failed to process PDF: ${msg}`);
-      return;
     }
+
+    await showDocsList();
   }
 }
 

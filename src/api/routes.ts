@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { eq } from "drizzle-orm";
 import { Bot } from "grammy";
 import { db } from "../db";
-import { tenants, tenantBots } from "../db/schema";
+import { tenants, tenantBots, documents } from "../db/schema";
 import { encrypt, decrypt } from "../lib/crypto";
 import { registry } from "../bots/registry";
 import { logger } from "../lib/logger";
@@ -151,5 +151,42 @@ api.delete("/bots/:id", async (c) => {
   logger.info({ botId: id }, "bot deleted");
   await db.delete(tenantBots).where(eq(tenantBots.id, id));
 
+  return c.json({ success: true });
+});
+
+// GET /documents — list documents for a tenant
+api.get("/documents", async (c) => {
+  const tenantId = c.req.query("tenantId");
+  if (!tenantId) return c.json({ error: "tenantId required" }, 400);
+
+  const docs = await db.query.documents.findMany({
+    where: eq(documents.tenantId, tenantId),
+    orderBy: (d, { desc }) => [desc(d.createdAt)],
+  });
+
+  return c.json(docs);
+});
+
+// DELETE /documents/:id — delete document (DB + B2)
+api.delete("/documents/:id", async (c) => {
+  const id = c.req.param("id");
+
+  const doc = await db.query.documents.findFirst({
+    where: eq(documents.id, id),
+  });
+  if (!doc) return c.json({ error: "Document not found" }, 404);
+
+  if (doc.b2FileId && doc.b2FileName) {
+    try {
+      const { deleteFile, b2BucketId } = await import("../lib/b2");
+      await deleteFile(b2BucketId(), doc.b2FileId, doc.b2FileName);
+    } catch (err) {
+      logger.warn({ err, docId: id }, "failed to delete B2 file");
+    }
+  }
+
+  await db.delete(documents).where(eq(documents.id, id));
+
+  logger.info({ docId: id }, "document deleted");
   return c.json({ success: true });
 });

@@ -38,6 +38,11 @@ export async function uploadFile(
   return { fileId: resp.data.fileId as string, fileName: resp.data.fileName as string };
 }
 
+export async function deleteFile(bucketId: string, fileId: string, fileName: string): Promise<void> {
+  await ensureAuth();
+  await getClient().deleteFileVersion({ fileId, fileName });
+}
+
 export function b2BucketId(): string {
   const id = process.env.B2_BUCKET_ID;
   if (!id) throw new Error("B2_BUCKET_ID not configured");

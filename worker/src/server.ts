@@ -13,8 +13,9 @@ app.all("/api/inngest", async (c) => handler(c));
 
 app.post("/ingest", async (c) => {
   try {
-    const { b2FileId, tenantId, fileName, mimeType } = await c.req.json<{
+    const { b2FileId, b2FileName, tenantId, fileName, mimeType } = await c.req.json<{
       b2FileId: string;
+      b2FileName?: string;
       tenantId: string;
       fileName?: string;
       mimeType?: string;
@@ -32,15 +33,17 @@ app.post("/ingest", async (c) => {
         mimeType: mimeType ?? "application/pdf",
         status: "processing",
         source: "upload",
+        b2FileId,
+        b2FileName: b2FileName ?? null,
       })
       .returning();
 
     await inngest.send({
       name: "rag/pdf.ingest",
-      data: { b2FileId, documentId: doc.id, tenantId },
+      data: { b2FileId, documentId: doc!.id, tenantId },
     });
 
-    return c.json({ documentId: doc.id, status: "queued" }, 202);
+    return c.json({ documentId: doc!.id, status: "queued" }, 202);
   } catch (err) {
     return c.json({ error: err instanceof Error ? err.message : "unknown error" }, 500);
   }
@@ -72,7 +75,7 @@ app.post("/upload-and-ingest", async (c) => {
     const bucketId = process.env.B2_BUCKET_ID;
     if (!bucketId) return c.json({ error: "B2_BUCKET_ID not configured" }, 500);
 
-    const { fileId } = await uploadFile(bucketId, `tenants/${tenantId}/docs/${crypto.randomUUID()}.pdf`, Buffer.from(buffer), "application/pdf");
+    const { fileId, fileName: b2FileName } = await uploadFile(bucketId, `tenants/${tenantId}/docs/${crypto.randomUUID()}.pdf`, Buffer.from(buffer), "application/pdf");
 
     const [doc] = await db
       .insert(documents)
@@ -82,15 +85,17 @@ app.post("/upload-and-ingest", async (c) => {
         mimeType: "application/pdf",
         status: "processing",
         source: "upload",
+        b2FileId: fileId,
+        b2FileName,
       })
       .returning();
 
     await inngest.send({
       name: "rag/pdf.ingest",
-      data: { b2FileId: fileId, documentId: doc.id, tenantId },
+      data: { b2FileId: fileId, documentId: doc!.id, tenantId },
     });
 
-    return c.json({ documentId: doc.id, status: "queued" }, 202);
+    return c.json({ documentId: doc!.id, status: "queued" }, 202);
   } catch (err) {
     return c.json({ error: err instanceof Error ? err.message : "unknown error" }, 500);
   }

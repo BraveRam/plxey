@@ -20,13 +20,13 @@ async function ensureAuth(): Promise<void> {
   authorized = true;
 }
 
-export async function downloadFileById(fileId: string): Promise<Buffer> {
+export async function downloadFileById(fileId: string): Promise<Uint8Array> {
   await ensureAuth();
   const resp = await getClient().downloadFileById({
     fileId,
     responseType: "arraybuffer",
   });
-  return Buffer.from(resp.data as ArrayBuffer);
+  return new Uint8Array(resp.data as ArrayBuffer);
 }
 
 export async function uploadFile(

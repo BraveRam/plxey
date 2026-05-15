@@ -34,6 +34,16 @@ interface Bot {
   createdAt: string;
 }
 
+interface Document {
+  id: string;
+  tenantId: string;
+  fileName: string;
+  mimeType: string;
+  status: string;
+  source: string;
+  createdAt: string;
+}
+
 export const api = {
   getOrCreateTenant(telegramOwnerId: string): Promise<Tenant> {
     return apiFetch("/api/tenants", {
@@ -62,5 +72,13 @@ export const api = {
 
   deleteBot(botId: string): Promise<{ success: boolean }> {
     return apiFetch(`/api/bots/${botId}`, { method: "DELETE" });
+  },
+
+  listDocuments(tenantId: string): Promise<Document[]> {
+    return apiFetch(`/api/documents?tenantId=${encodeURIComponent(tenantId)}`);
+  },
+
+  deleteDocument(docId: string): Promise<{ success: boolean }> {
+    return apiFetch(`/api/documents/${docId}`, { method: "DELETE" });
   },
 };

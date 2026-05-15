@@ -56,6 +56,8 @@ export const documents = pgTable("documents", {
   mimeType: text("mime_type").notNull(),
   status: docStatus("status").notNull().default("processing"),
   source: text("source").notNull().default("upload"),
+  b2FileId: text("b2_file_id"),
+  b2FileName: text("b2_file_name"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 }, (t) => ({
   tenantIdx: index("documents_tenant_idx").on(t.tenantId),
