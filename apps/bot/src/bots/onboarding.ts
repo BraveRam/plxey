@@ -74,10 +74,30 @@ async function createBotConversation(conversation: Conversation<BaseCtx, BaseCtx
       continue;
     }
 
+    const msg = response.message;
+    if (msg) {
+      await ctx.api.deleteMessage(msg.chat.id, msg.message_id).catch(() => {});
+    }
+
     try {
       const userId = String(ctx.from!.id);
       const botRecord = await createBot(token, userId);
       logger.info({ botUsername: botRecord.botUsername, userId }, "onboarding: bot created");
+
+      const publicUrl = process.env.PUBLIC_URL;
+      if (publicUrl) {
+        try {
+          const merchantBot = new Bot(token);
+          await merchantBot.api.setWebhook(
+            `${publicUrl}/webhook/tenant/${botRecord.id}`,
+            { drop_pending_updates: true },
+          );
+          logger.info({ botId: botRecord.id, url: `${publicUrl}/webhook/tenant/${botRecord.id}` }, "tenant webhook set");
+        } catch (err) {
+          logger.error({ err, botId: botRecord.id }, "failed to set tenant webhook");
+        }
+      }
+
       await ctx.reply(`✅ Bot @${botRecord.botUsername} connected!`, { reply_markup: menuKb });
       return;
     } catch (err) {

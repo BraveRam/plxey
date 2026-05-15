@@ -293,6 +293,7 @@ export class BotRegistry {
 
     const bot = this.buildBizBot(rawToken, botId, row.tenantId);
     await bot.init();
+    await this.setWebhook(bot, botId);
     this.attachHandlers(bot, botId, tenant.telegramOwnerId, row.systemPrompt, row.botUsername ?? "");
     this.bots.set(botId, {
       bot, token: rawToken, tenantId: row.tenantId,
@@ -315,6 +316,7 @@ export class BotRegistry {
   private async createBot(row: typeof tenantBots.$inferSelect, token: string, tenant: typeof tenants.$inferSelect): Promise<Bot<Context>> {
     const bot = this.buildBizBot(token, row.id, row.tenantId);
     await bot.init();
+    await this.setWebhook(bot, row.id);
     this.attachHandlers(bot, row.id, tenant.telegramOwnerId, row.systemPrompt, row.botUsername ?? "");
     this.bots.set(row.id, {
       bot, token, tenantId: row.tenantId,
@@ -323,6 +325,16 @@ export class BotRegistry {
       connectedBusinessUserId: row.connectedBusinessUserId,
     });
     return bot;
+  }
+
+  private async setWebhook(bot: Bot<Context>, botId: string): Promise<void> {
+    const publicUrl = process.env.PUBLIC_URL;
+    if (!publicUrl) return;
+    try {
+      await bot.api.setWebhook(`${publicUrl}/webhook/tenant/${botId}`, { drop_pending_updates: true });
+    } catch (err) {
+      logger.error({ err, botId }, "failed to set tenant webhook");
+    }
   }
 
   private attachHandlers(
