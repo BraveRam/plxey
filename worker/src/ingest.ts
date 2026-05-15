@@ -47,7 +47,7 @@ export const processPdf = inngest.createFunction(
         documentId,
         chunkIndex: i,
         content,
-        embedding: embeddings[i] as number[],
+        embedding: JSON.stringify(embeddings[i] as number[]),
         metadata: {},
       }));
       await db.insert(documentChunks).values(rows);
