@@ -181,11 +181,11 @@ async function uploadDocumentConversation(conversation: Conversation<MyContext, 
     await ctx.editMessageText(text, { reply_markup: kb });
   }
 
-  async function confirmDelete(docId: string) {
+  async function confirmDelete(docId: string, fileName: string) {
     const confirmKb = new InlineKeyboard()
       .text("✅ Yes, delete", `confirm_del_${docId}`)
       .text("❌ No", "doc_cancel");
-    await ctx.editMessageText("Delete this document and its data?", { reply_markup: confirmKb });
+    await ctx.editMessageText(`Delete "${fileName}" and all its data?`, { reply_markup: confirmKb });
   }
 
   await showDocsList();
@@ -224,7 +224,9 @@ async function uploadDocumentConversation(conversation: Conversation<MyContext, 
     if (delMatch) {
       await response.answerCallbackQuery();
       const docId = delMatch[1]!;
-      await confirmDelete(docId);
+      const docs = await api.listDocuments(tenantId);
+      const doc = docs.find(d => d.id === docId);
+      await confirmDelete(docId, doc?.fileName ?? "unknown");
       continue;
     }
 
