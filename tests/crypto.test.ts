@@ -1,5 +1,5 @@
 import { expect, test, describe, beforeEach } from "bun:test";
-import { encrypt, decrypt } from "./crypto";
+import { encrypt, decrypt } from "../src/lib/crypto";
 
 describe("encrypt/decrypt", () => {
   test("roundtrip: decrypt reverses encrypt", async () => {

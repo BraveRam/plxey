@@ -1,5 +1,5 @@
 import { expect, test, describe, beforeEach } from "bun:test";
-import { createReplyCallbackData, InMemoryAdminReplyTargets } from "./admin-reply-targets";
+import { createReplyCallbackData, InMemoryAdminReplyTargets } from "../src/bots/admin-reply-targets";
 
 test("reply callback data contains only a short lookup token", () => {
   expect(createReplyCallbackData("abc123")).toBe("oreply_abc123");

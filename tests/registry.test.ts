@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
-import { InMemoryAdminReplyTargets } from "./admin-reply-targets";
-import { BotRegistry } from "./registry";
+import { InMemoryAdminReplyTargets } from "../src/bots/admin-reply-targets";
+import { BotRegistry } from "../src/bots/registry";
 
 test("registry can use an injected admin reply target store", () => {
   const registry = new BotRegistry(new InMemoryAdminReplyTargets(() => "token-a"));
