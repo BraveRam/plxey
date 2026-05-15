@@ -1,8 +1,24 @@
-import { Bot, type Context, InlineKeyboard, session, type SessionFlavor } from "grammy";
-import { type Conversation, type ConversationFlavor, conversations as grammyConvs, createConversation } from "@grammyjs/conversations";
+import {
+  Bot,
+  type Context,
+  InlineKeyboard,
+  session,
+  type SessionFlavor,
+} from "grammy";
+import {
+  type Conversation,
+  type ConversationFlavor,
+  conversations as grammyConvs,
+  createConversation,
+} from "@grammyjs/conversations";
 import { eq, and, asc } from "drizzle-orm";
 import { db } from "@tg-business/db";
-import { tenants, tenantBots, conversations as convTable, messages } from "@tg-business/db";
+import {
+  tenants,
+  tenantBots,
+  conversations as convTable,
+  messages,
+} from "@tg-business/db";
 import { decrypt } from "@tg-business/crypto";
 import { uploadFile, b2BucketId } from "@tg-business/storage";
 import { askAI } from "../services/ai";
@@ -47,7 +63,8 @@ async function showManagementMenu(ctx: Context, botId: string) {
   const statusIcon = botRecord.status === "active" ? "✅ Active" : "⏸️ Paused";
   const kb = new InlineKeyboard()
     .text("✏️ Edit Prompt", "biz_edit_prompt")
-    .text("📄 Documents", "biz_documents").row();
+    .text("📄 Documents", "biz_documents")
+    .row();
 
   const text = `⚙️ @${botRecord.botUsername} Management\n\nStatus: ${statusIcon}\n\nPrompt preview:\n${botRecord.systemPrompt.slice(0, 200)}${botRecord.systemPrompt.length > 200 ? "..." : ""}`;
 
@@ -59,7 +76,10 @@ async function showManagementMenu(ctx: Context, botId: string) {
 }
 
 function makeEditPromptConversation(botId: string) {
-  return async function editPromptConversation(conversation: Conversation<BaseCtx, BaseCtx>, ctx: BaseCtx) {
+  return async function editPromptConversation(
+    conversation: Conversation<BaseCtx, BaseCtx>,
+    ctx: BaseCtx,
+  ) {
     const botRecord = await db.query.tenantBots.findFirst({
       where: eq(tenantBots.id, botId),
     });
@@ -70,7 +90,7 @@ function makeEditPromptConversation(botId: string) {
 
     await ctx.editMessageText(
       `Current prompt for @${botRecord.botUsername}:\n\n${botRecord.systemPrompt}\n\nSend your new prompt, or press Cancel.`,
-      { reply_markup: cancelKb }
+      { reply_markup: cancelKb },
     );
 
     while (true) {
@@ -84,7 +104,9 @@ function makeEditPromptConversation(botId: string) {
 
       const newPrompt = response.message?.text?.trim();
       if (!newPrompt) {
-        await ctx.editMessageText("Please send a text message.", { reply_markup: cancelKb });
+        await ctx.editMessageText("Please send a text message.", {
+          reply_markup: cancelKb,
+        });
         continue;
       }
 
@@ -96,22 +118,35 @@ function makeEditPromptConversation(botId: string) {
   };
 }
 
-function makeDocumentManagementConversation(botId: string, tenantId: string, botToken: string) {
-  return async function documentMgmtConversation(conversation: Conversation<BaseCtx, BaseCtx>, ctx: BaseCtx) {
+function makeDocumentManagementConversation(
+  botId: string,
+  tenantId: string,
+  botToken: string,
+) {
+  return async function documentMgmtConversation(
+    conversation: Conversation<BaseCtx, BaseCtx>,
+    ctx: BaseCtx,
+  ) {
     async function showDocsList() {
       const docs = await listDocuments(tenantId);
       const kb = new InlineKeyboard();
       for (const d of docs) {
-        const statusIcon = d.status === "ready" ? "✅" : d.status === "failed" ? "❌" : "⏳";
-        kb.text(`${statusIcon} ${d.fileName.slice(0, 25)}`, `biz_docitem_${d.id}`)
-          .text("🗑️", `biz_del_doc_${d.id}`).row();
+        const statusIcon =
+          d.status === "ready" ? "✅" : d.status === "failed" ? "❌" : "⏳";
+        kb.text(
+          `${statusIcon} ${d.fileName.slice(0, 25)}`,
+          `biz_docitem_${d.id}`,
+        )
+          .text("🗑️", `biz_del_doc_${d.id}`)
+          .row();
       }
       kb.text("➕ Add Document", "biz_add_doc").row();
       kb.text("🔙 Back", "biz_doc_back");
 
-      const text = docs.length === 0
-        ? "No documents yet."
-        : `📚 ${docs.length} document(s)`;
+      const text =
+        docs.length === 0
+          ? "No documents yet."
+          : `📚 ${docs.length} document(s)`;
 
       await ctx.editMessageText(text, { reply_markup: kb });
     }
@@ -120,7 +155,9 @@ function makeDocumentManagementConversation(botId: string, tenantId: string, bot
       const confirmKb = new InlineKeyboard()
         .text("✅ Yes, delete", `biz_confirm_del_${docId}`)
         .text("❌ No", "biz_doc_cancel");
-      await ctx.editMessageText(`Delete "${fileName}" and all its data?`, { reply_markup: confirmKb });
+      await ctx.editMessageText(`Delete "${fileName}" and all its data?`, {
+        reply_markup: confirmKb,
+      });
     }
 
     await showDocsList();
@@ -144,27 +181,34 @@ function makeDocumentManagementConversation(botId: string, tenantId: string, bot
         await response.answerCallbackQuery();
         await ctx.editMessageText(
           "Send me a PDF file to add as knowledge for this bot.",
-          { reply_markup: new InlineKeyboard().text("Cancel", "biz_doc_cancel") },
+          {
+            reply_markup: new InlineKeyboard().text("Cancel", "biz_doc_cancel"),
+          },
         );
         continue;
       }
 
       if (response.callbackQuery?.data?.startsWith("biz_docitem_")) {
-        await response.answerCallbackQuery({ text: "Tap 🗑️ to delete this document." });
+        await response.answerCallbackQuery({
+          text: "Tap 🗑️ to delete this document.",
+        });
         continue;
       }
 
-      const delMatch = response.callbackQuery?.data?.match(/^biz_del_doc_(.+)$/);
+      const delMatch =
+        response.callbackQuery?.data?.match(/^biz_del_doc_(.+)$/);
       if (delMatch) {
         await response.answerCallbackQuery();
         const docId = delMatch[1]!;
         const docs = await listDocuments(tenantId);
-        const doc = docs.find(d => d.id === docId);
+        const doc = docs.find((d) => d.id === docId);
         await confirmDelete(docId, doc?.fileName ?? "unknown");
         continue;
       }
 
-      const confirmDelMatch = response.callbackQuery?.data?.match(/^biz_confirm_del_(.+)$/);
+      const confirmDelMatch = response.callbackQuery?.data?.match(
+        /^biz_confirm_del_(.+)$/,
+      );
       if (confirmDelMatch) {
         await response.answerCallbackQuery();
         const docId = confirmDelMatch[1]!;
@@ -233,10 +277,19 @@ function makeDocumentManagementConversation(botId: string, tenantId: string, bot
 
         if (!ingestRes.ok) {
           const errBody = await ingestRes.json().catch(() => ({}));
-          throw new Error((errBody as { error?: string }).error ?? "ingest failed");
+          throw new Error(
+            (errBody as { error?: string }).error ?? "ingest failed",
+          );
         }
 
-        logger.info({ documentId: (await ingestRes.json() as { documentId: string }).documentId, fileName: doc.file_name }, "PDF queued for processing");
+        logger.info(
+          {
+            documentId: ((await ingestRes.json()) as { documentId: string })
+              .documentId,
+            fileName: doc.file_name,
+          },
+          "PDF queued for processing",
+        );
         await ctx.reply("✅ PDF queued for processing!");
       } catch (err) {
         const msg = err instanceof Error ? err.message : "Unknown error";
@@ -252,7 +305,9 @@ function makeDocumentManagementConversation(botId: string, tenantId: string, bot
 export class BotRegistry {
   private bots = new Map<string, BotEntry>();
 
-  constructor(private ownerReplyTargets: AdminReplyTargets = new DbAdminReplyTargets()) {}
+  constructor(
+    private ownerReplyTargets: AdminReplyTargets = new DbAdminReplyTargets(),
+  ) {}
 
   async get(botId: string): Promise<Bot<Context> | null> {
     const existing = this.bots.get(botId);
@@ -285,42 +340,79 @@ export class BotRegistry {
   }
 
   async register(rawToken: string, botId: string): Promise<Bot> {
-    const row = await db.query.tenantBots.findFirst({ where: eq(tenantBots.id, botId) });
+    const row = await db.query.tenantBots.findFirst({
+      where: eq(tenantBots.id, botId),
+    });
     if (!row) throw new Error("Bot not found in DB after insert");
 
-    const tenant = await db.query.tenants.findFirst({ where: eq(tenants.id, row.tenantId) });
+    const tenant = await db.query.tenants.findFirst({
+      where: eq(tenants.id, row.tenantId),
+    });
     if (!tenant) throw new Error("Tenant not found");
 
     const bot = this.buildBizBot(rawToken, botId, row.tenantId);
     await bot.init();
     await this.setWebhook(bot, botId);
-    this.attachHandlers(bot, botId, tenant.telegramOwnerId, row.systemPrompt, row.botUsername ?? "");
+    this.attachHandlers(
+      bot,
+      botId,
+      tenant.telegramOwnerId,
+      row.systemPrompt,
+      row.botUsername ?? "",
+    );
     this.bots.set(botId, {
-      bot, token: rawToken, tenantId: row.tenantId,
-      ownerTelegramId: tenant.telegramOwnerId, systemPrompt: row.systemPrompt,
+      bot,
+      token: rawToken,
+      tenantId: row.tenantId,
+      ownerTelegramId: tenant.telegramOwnerId,
+      systemPrompt: row.systemPrompt,
       botUsername: row.botUsername ?? "",
       connectedBusinessUserId: row.connectedBusinessUserId,
     });
     return bot;
   }
 
-  private buildBizBot(rawToken: string, botId: string, tenantId: string): Bot<Context> {
+  private buildBizBot(
+    rawToken: string,
+    botId: string,
+    tenantId: string,
+  ): Bot<Context> {
     const bot = new Bot<BizCtx>(rawToken);
     bot.use(session({ initial: () => ({}) }));
     bot.use(grammyConvs());
-    bot.use(createConversation(makeEditPromptConversation(botId), "editPrompt"));
-    bot.use(createConversation(makeDocumentManagementConversation(botId, tenantId, rawToken), "documentMgmt"));
+    bot.use(
+      createConversation(makeEditPromptConversation(botId), "editPrompt"),
+    );
+    bot.use(
+      createConversation(
+        makeDocumentManagementConversation(botId, tenantId, rawToken),
+        "documentMgmt",
+      ),
+    );
     return bot as unknown as Bot<Context>;
   }
 
-  private async createBot(row: typeof tenantBots.$inferSelect, token: string, tenant: typeof tenants.$inferSelect): Promise<Bot<Context>> {
+  private async createBot(
+    row: typeof tenantBots.$inferSelect,
+    token: string,
+    tenant: typeof tenants.$inferSelect,
+  ): Promise<Bot<Context>> {
     const bot = this.buildBizBot(token, row.id, row.tenantId);
     await bot.init();
     await this.setWebhook(bot, row.id);
-    this.attachHandlers(bot, row.id, tenant.telegramOwnerId, row.systemPrompt, row.botUsername ?? "");
+    this.attachHandlers(
+      bot,
+      row.id,
+      tenant.telegramOwnerId,
+      row.systemPrompt,
+      row.botUsername ?? "",
+    );
     this.bots.set(row.id, {
-      bot, token, tenantId: row.tenantId,
-      ownerTelegramId: tenant.telegramOwnerId, systemPrompt: row.systemPrompt,
+      bot,
+      token,
+      tenantId: row.tenantId,
+      ownerTelegramId: tenant.telegramOwnerId,
+      systemPrompt: row.systemPrompt,
       botUsername: row.botUsername ?? "",
       connectedBusinessUserId: row.connectedBusinessUserId,
     });
@@ -331,7 +423,9 @@ export class BotRegistry {
     const publicUrl = process.env.PUBLIC_URL;
     if (!publicUrl) return;
     try {
-      await bot.api.setWebhook(`${publicUrl}/webhook/tenant/${botId}`, { drop_pending_updates: true });
+      await bot.api.setWebhook(`${publicUrl}/webhook/tenant/${botId}`, {
+        drop_pending_updates: true,
+      });
     } catch (err) {
       logger.error({ err, botId }, "failed to set tenant webhook");
     }
@@ -389,14 +483,23 @@ export class BotRegistry {
       if (!botEntry) return;
 
       const userId = String(conn.user.id);
-      if (botEntry.connectedBusinessUserId && botEntry.connectedBusinessUserId !== userId) {
-        logger.warn({ botId, expected: botEntry.connectedBusinessUserId, got: userId }, "business connection blocked — already connected to another user");
+      if (
+        botEntry.connectedBusinessUserId &&
+        botEntry.connectedBusinessUserId !== userId
+      ) {
+        logger.warn(
+          { botId, expected: botEntry.connectedBusinessUserId, got: userId },
+          "business connection blocked — already connected to another user",
+        );
         return;
       }
 
       if (!botEntry.connectedBusinessUserId) {
         botEntry.connectedBusinessUserId = userId;
-        await db.update(tenantBots).set({ connectedBusinessUserId: userId }).where(eq(tenantBots.id, botId));
+        await db
+          .update(tenantBots)
+          .set({ connectedBusinessUserId: userId })
+          .where(eq(tenantBots.id, botId));
         logger.info({ botId, userId }, "business connection authorized");
       }
     });
@@ -412,91 +515,128 @@ export class BotRegistry {
         if (!botEntry) return false;
 
         const userId = String(conn.user.id);
-        if (botEntry.connectedBusinessUserId && botEntry.connectedBusinessUserId !== userId) {
-          logger.warn({ botId, expected: botEntry.connectedBusinessUserId, got: userId }, "business message blocked — wrong business account");
+        if (
+          botEntry.connectedBusinessUserId &&
+          botEntry.connectedBusinessUserId !== userId
+        ) {
+          logger.warn(
+            { botId, expected: botEntry.connectedBusinessUserId, got: userId },
+            "business message blocked — wrong business account",
+          );
           return false;
         }
 
         if (!botEntry.connectedBusinessUserId) {
           botEntry.connectedBusinessUserId = userId;
-          await db.update(tenantBots).set({ connectedBusinessUserId: userId }).where(eq(tenantBots.id, botId));
-          logger.info({ botId, userId }, "business connection authorized via first message");
+          await db
+            .update(tenantBots)
+            .set({ connectedBusinessUserId: userId })
+            .where(eq(tenantBots.id, botId));
+          logger.info(
+            { botId, userId },
+            "business connection authorized via first message",
+          );
         }
 
         return true;
       },
       async (ctx) => {
-      const msg = ctx.update.business_message;
-      if (typeof msg?.text !== "string") return;
+        const msg = ctx.update.business_message;
+        if (typeof msg?.text !== "string") return;
 
-      const question: string = msg.text;
-      const connId = msg.business_connection_id;
-      if (!connId) return;
-      const chatId = msg.chat.id;
+        const question: string = msg.text;
+        const connId = msg.business_connection_id;
+        if (!connId) return;
+        const chatId = msg.chat.id;
 
-      const botEntry = this.bots.get(botId);
-      if (!botEntry) {
-        logger.error({ botId }, "no bot entry loaded");
-        return;
-      }
-      const tenantId = botEntry.tenantId;
-      const conv = await this.getOrCreateConversation(tenantId, connId, chatId);
-      const dbHistory = await this.loadHistory(conv.id);
-
-      await db.insert(messages).values({
-        conversationId: conv.id, tenantId,
-        role: "user", content: question, telegramMessageId: String(msg.message_id),
-      });
-
-      await this.sendTypingAction(ctx, chatId, connId, botId);
-
-      const result: Awaited<ReturnType<typeof askAI>> = await askAI(
-        question,
-        businessName,
-        systemPrompt,
-        dbHistory,
-        {
-          tenantId,
-          sendAdminMessage: async ({ message }) => {
-            try {
-              const replyToken = await this.ownerReplyTargets.create({ botId, chatId, businessConnectionId: connId });
-              const kb = new InlineKeyboard().text("✏️ Reply", createReplyCallbackData(replyToken));
-              await ctx.api.sendMessage(
-                Number(ownerTelegramId),
-                `💬 ${message}`,
-                { reply_markup: kb },
-              );
-              return { ok: true };
-            } catch (err) {
-              logger.error({ err, botId }, "failed to send admin message");
-              return { ok: false, error: "admin_message_send_failed" };
-            }
-          },
-        },
-      ).catch((err): Awaited<ReturnType<typeof askAI>> => {
-        logger.error({ err, botId }, "AI error");
-        return { text: null };
-      });
-
-      if (result.text !== null) {
-        await db.insert(messages).values({
-          conversationId: conv.id, tenantId,
-          role: "assistant", content: result.text,
-        });
-        await db.update(convTable).set({ lastMessageAt: new Date() }).where(eq(convTable.id, conv.id));
-
-        try {
-          await ctx.api.sendMessage(chatId, result.text, { business_connection_id: connId });
-        } catch (e) {
-          logger.warn({ err: e, botId, connId }, "BUSINESS_PEER_INVALID sending answer");
-          await ctx.api.sendMessage(
-            Number(ownerTelegramId),
-            `⚠️ Failed to reply to customer. Make sure the bot has Business Mode enabled in @BotFather and is added as admin to your Telegram Business account.\n\nCustomer asked: ${question}`,
-          );
+        const botEntry = this.bots.get(botId);
+        if (!botEntry) {
+          logger.error({ botId }, "no bot entry loaded");
+          return;
         }
-        return;
-      }
-    });
+        const tenantId = botEntry.tenantId;
+        const conv = await this.getOrCreateConversation(
+          tenantId,
+          connId,
+          chatId,
+        );
+        const dbHistory = await this.loadHistory(conv.id);
+
+        await db.insert(messages).values({
+          conversationId: conv.id,
+          tenantId,
+          role: "user",
+          content: question,
+          telegramMessageId: String(msg.message_id),
+        });
+
+        await this.sendTypingAction(ctx, chatId, connId, botId);
+
+        const result: Awaited<ReturnType<typeof askAI>> = await askAI(
+          question,
+          businessName,
+          systemPrompt,
+          dbHistory,
+          {
+            tenantId,
+            sendAdminMessage: async ({ message }) => {
+              try {
+                const replyToken = await this.ownerReplyTargets.create({
+                  botId,
+                  chatId,
+                  businessConnectionId: connId,
+                });
+                const kb = new InlineKeyboard().text(
+                  "✏️ Reply",
+                  createReplyCallbackData(replyToken),
+                );
+                await ctx.api.sendMessage(
+                  Number(ownerTelegramId),
+                  `💬 ${message}`,
+                  { reply_markup: kb },
+                );
+                return { ok: true };
+              } catch (err) {
+                logger.error({ err, botId }, "failed to send admin message");
+                return { ok: false, error: "admin_message_send_failed" };
+              }
+            },
+          },
+        ).catch((err): Awaited<ReturnType<typeof askAI>> => {
+          logger.error({ err, botId }, "AI error");
+          return { text: null };
+        });
+
+        if (result.text !== null) {
+          await db.insert(messages).values({
+            conversationId: conv.id,
+            tenantId,
+            role: "assistant",
+            content: result.text,
+          });
+          await db
+            .update(convTable)
+            .set({ lastMessageAt: new Date() })
+            .where(eq(convTable.id, conv.id));
+
+          try {
+            await ctx.api.sendMessage(chatId, result.text, {
+              business_connection_id: connId,
+            });
+          } catch (e) {
+            logger.warn(
+              { err: e, botId, connId },
+              "BUSINESS_PEER_INVALID sending answer",
+            );
+            await ctx.api.sendMessage(
+              Number(ownerTelegramId),
+              `⚠️ Failed to reply to customer. Make sure the bot has Business Mode enabled in @BotFather and is added to your Telegram Business account andn ensure it has the necessary permissions.\n\nCustomer asked: ${question}`,
+            );
+          }
+          return;
+        }
+      },
+    );
 
     // --- Direct messages (owner) ---
 
@@ -530,7 +670,10 @@ export class BotRegistry {
           await this.ownerReplyTargets.markUsed(state.token);
           await ctx.reply("✅ Sent to customer.");
         } catch (e) {
-          logger.warn({ err: e, botId: state.botId }, "BUSINESS_PEER_INVALID forwarding owner reply");
+          logger.warn(
+            { err: e, botId: state.botId },
+            "BUSINESS_PEER_INVALID forwarding owner reply",
+          );
           await ctx.reply(
             "⚠️ Couldn't send. Make sure the bot has Business Mode enabled in @BotFather and is added as admin to your Telegram Business account.",
           );
@@ -567,14 +710,19 @@ export class BotRegistry {
     const existing = await db.query.conversations.findFirst({
       where: and(
         eq(convTable.tenantId, tenantId),
-        eq(convTable.telegramChatId, String(chatId)),
+        eq(convTable.businessConnectionId, businessConnectionId),
       ),
     });
     if (existing) return existing;
 
-    const [conv] = await db.insert(convTable).values({
-      tenantId, businessConnectionId, telegramChatId: String(chatId),
-    }).returning();
+    const [conv] = await db
+      .insert(convTable)
+      .values({
+        tenantId,
+        businessConnectionId,
+        telegramChatId: String(chatId),
+      })
+      .returning();
     if (!conv) throw new Error("Failed to create conversation");
     return conv;
   }
@@ -585,7 +733,10 @@ export class BotRegistry {
       orderBy: [asc(messages.createdAt)],
       limit: 20,
     });
-    return rows.map(r => ({ role: r.role as "user" | "assistant", content: r.content }));
+    return rows.map((r) => ({
+      role: r.role as "user" | "assistant",
+      content: r.content,
+    }));
   }
 
   private findByOwner(ownerTelegramId: string): { botId: string } | null {
