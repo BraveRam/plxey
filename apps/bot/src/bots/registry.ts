@@ -602,7 +602,7 @@ export class BotRegistry {
                 await ctx.api.sendMessage(
                   Number(ownerTelegramId),
                   `${customerLabel}\n\n💬 ${message}`,
-                  { reply_markup: kb },
+                  { reply_markup: kb, parse_mode: "HTML" },
                 );
                 return { ok: true };
               } catch (err) {
@@ -631,6 +631,7 @@ export class BotRegistry {
           try {
             await ctx.api.sendMessage(chatId, result.text, {
               business_connection_id: connId,
+              parse_mode: "HTML",
             });
           } catch (e) {
             logger.warn(
@@ -675,6 +676,7 @@ export class BotRegistry {
         try {
           await ctx.api.sendMessage(state.chatId, ctx.message.text, {
             business_connection_id: state.businessConnectionId,
+            parse_mode: "HTML",
           });
           await this.ownerReplyTargets.markUsed(state.token);
           await ctx.reply("✅ Sent to customer.");

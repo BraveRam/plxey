@@ -6,6 +6,7 @@ export interface ChunkOptions {
 const SEPARATORS = ["\n\n", "\n", ".", "?", "!", ",", " ", ""];
 
 export function splitText(text: string, opts: Partial<ChunkOptions> = {}): string[] {
+  text = text.replace(/\0/g, "");
   const size = opts.size ?? 500;
   const overlap = opts.overlap ?? 50;
 
