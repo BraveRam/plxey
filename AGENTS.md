@@ -5,10 +5,11 @@ Multitenant Telegram Business support bot with AI.
 ## Commands
 
 ```sh
-bun install          # install deps
-bun test             # run all tests (18 tests, tests/ dir)
-bun src/index.ts     # start dev server (LOG_LEVEL=debug for verbose, pino-pretty)
-bun drizzle-kit push # sync schema to Neon DB
+bun install               # install deps
+bun test                  # run all tests (26 tests, tests/ dir)
+bun src/index.ts          # start dev server (LOG_LEVEL=debug for verbose, pino-pretty)
+bun worker/src/server.ts  # start RAG worker (INNGEST_DEV=1 for local dev)
+bun drizzle-kit push      # sync schema to Neon DB
 ```
 
 ## TDD (required)
@@ -38,6 +39,11 @@ Two bot types:
 | `src/services/ai.ts` | AI SDK integration, tools (send_admin_message) |
 | `src/lib/crypto.ts` | AES-GCM token encryption |
 | `src/db/schema.ts` | Drizzle schema (tenants, bots, conversations, messages, admin_reply_targets) |
+| `worker/src/server.ts` | RAG microservice entry (Hono + Inngest serve) |
+| `worker/src/ingest.ts` | Inngest processPdf function (download → parse → chunk → embed → store) |
+| `worker/src/chunker.ts` | Recursive text splitter with configurable size/overlap |
+| `worker/src/b2.ts` | Backblaze B2 wrapper (download by fileId, upload) |
+| `worker/src/db.ts` | DB client for worker (imports schema from src/db) |
 
 ## Required env vars
 
@@ -46,6 +52,8 @@ Two bot types:
 - `AI_GATEWAY_API_KEY` — for Vercel AI SDK gateway (`ai` package)
 - `PUBLIC_URL` — ngrok URL or production URL for webhooks
 - `ENCRYPTION_KEY` — 32+ chars for AES-GCM bot token encryption
+- `B2_APPLICATION_KEY_ID`, `B2_APPLICATION_KEY`, `B2_BUCKET_ID` — Backblaze B2
+- `INNGEST_DEV` — set to `1` for local Inngest dev server
 
 ## DB
 

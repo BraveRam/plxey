@@ -1,0 +1,8 @@
+{
+  "name": "rag-worker",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "bun run src/server.ts"
+  }
+}
