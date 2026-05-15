@@ -24,7 +24,7 @@ describe("encrypt/decrypt", () => {
   });
 
   test("roundtrip with Telegram-style bot token", async () => {
-    const token = "8936031483:AAHDWeUe45fbTOsfRVXgdsK4qLQWTPsAKoc";
+    const token = "1234567890:AAHhaikuToNjgELbDummyTokenFakeNvqW9g";
     const encrypted = await encrypt(token);
     const decrypted = await decrypt(encrypted);
 
