@@ -4,7 +4,7 @@ import { Bot } from "grammy";
 import { db, documents, tenants, tenantBots } from "@tg-business/db";
 import { encrypt, decrypt } from "@tg-business/crypto";
 import { deleteFile, b2BucketId } from "@tg-business/storage";
-import { logger } from "./lib/logger";
+import { logger } from "../lib/logger";
 import { randomBytes } from "crypto";
 
 export const api = new Hono();

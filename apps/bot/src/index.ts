@@ -2,10 +2,13 @@ import { Hono } from "hono";
 import { createOnboardingBot } from "./bots/onboarding";
 import { registry } from "./bots/registry";
 import { logger, pinoLogger } from "./lib/logger";
+import { api } from "./api/routes";
 
 const app = new Hono();
 
 app.use(pinoLogger());
+
+app.route("/api", api);
 
 const onboardingBot = await createOnboardingBot();
 

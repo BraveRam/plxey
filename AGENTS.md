@@ -8,7 +8,6 @@ Multitenant Telegram Business support bot with AI.
 bun install               # install deps
 bun test                  # run all tests (26 tests)
 bun run bot               # start bot server (LOG_LEVEL=debug for verbose, pino-pretty)
-bun run api               # start API server
 bun run rag               # start RAG worker (INNGEST_DEV=1 for local dev)
 bun drizzle-kit push      # sync schema to Neon DB
 ```
@@ -19,42 +18,41 @@ Write a failing test first, then minimal code. Never production code without a f
 
 ## Architecture
 
-### Services (3 deployable apps)
+### Services (2 deployable apps)
 
 | App | Path | Port | Role |
 |-----|------|------|------|
-| **bot** | `apps/bot/src/index.ts` | 3000 | Telegram webhooks, BotRegistry, AI chat, PDF ingestion |
-| **api** | `apps/api/src/index.ts` | 3001 | REST CRUD for tenants, bots, documents |
-| **rag** | `apps/rag/src/server.ts` | 3002 | PDF processing pipeline (download → parse → chunk → embed → pgvector) |
+| **bot** | `apps/bot/src/index.ts` | 3000 | Telegram webhooks, BotRegistry, AI chat, REST API (tenants, bots, documents) |
+| **rag** | `apps/rag/src/server.ts` | 3001 | PDF processing pipeline (download → parse → chunk → embed → pgvector) |
 
 ### Shared packages
 
 | Package | Path | Used by | Contents |
 |---------|------|---------|----------|
-| `@tg-business/db` | `packages/db/` | all 3 | Drizzle schema + client |
-| `@tg-business/crypto` | `packages/crypto/` | bot, api | AES-GCM encrypt/decrypt |
-| `@tg-business/storage` | `packages/storage/` | bot, api, rag | B2 upload/download/delete |
+| `@tg-business/db` | `packages/db/` | both | Drizzle schema + client |
+| `@tg-business/crypto` | `packages/crypto/` | bot | AES-GCM encrypt/decrypt |
+| `@tg-business/storage` | `packages/storage/` | both | B2 upload/download/delete |
 
 ### Key modules
 
 | File | Role |
 |------|------|
+| `apps/bot/src/index.ts` | Hono entry — mounts webhooks + API routes (`/api/*`) |
 | `apps/bot/src/bots/registry.ts` | BotRegistry: lazy-load, cache, handler wiring |
 | `apps/bot/src/bots/onboarding.ts` | Onboarding bot with conversations |
 | `apps/bot/src/bots/admin-reply-targets.ts` | Reply target storage (DB + in-memory for tests) |
 | `apps/bot/src/services/ai.ts` | AI SDK integration, tools (get_information, send_admin_message) |
 | `apps/bot/src/services/retrieval.ts` | pgvector cosine similarity search |
-| `apps/bot/src/api/client.ts` | fetch-based client the bot uses to call API |
-| `apps/api/src/routes.ts` | REST API routes (tenants, bots, documents) |
+| `apps/bot/src/api/routes.ts` | REST API routes (tenants, bots, documents) |
+| `apps/bot/src/api/client.ts` | fetch-based client (bot uses to call own API) |
 | `apps/rag/src/ingest.ts` | Inngest processPdf function |
 | `apps/rag/src/chunker.ts` | Recursive text splitter |
 
 ## Communication
 
 ```
-Telegram ←→ bot ──HTTP──→ api (CRUD)
-                   ──HTTP──→ rag (PDF ingest)
-Mini app  ──HTTP──→ api (CRUD)
+Telegram ←→ bot ──HTTP──→ rag (PDF ingest)
+Mini app ──HTTP──→ bot (/api/*)
 ```
 
 ## Required env vars
