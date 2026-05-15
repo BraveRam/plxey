@@ -168,7 +168,8 @@ async function uploadDocumentConversation(conversation: Conversation<MyContext, 
     const kb = new InlineKeyboard();
     for (const d of docs) {
       const statusIcon = d.status === "ready" ? "✅" : d.status === "failed" ? "❌" : "⏳";
-      kb.text(`${statusIcon} ${d.fileName.slice(0, 30)}`, `docitem_${d.id}`).row();
+      kb.text(`${statusIcon} ${d.fileName.slice(0, 25)}`, `docitem_${d.id}`)
+        .text("🗑️", `del_doc_${d.id}`).row();
     }
     kb.text("➕ Add Document", "add_doc").row();
     kb.text("🔙 Back", "doc_back");
@@ -215,16 +216,22 @@ async function uploadDocumentConversation(conversation: Conversation<MyContext, 
 
     const docMatch = response.callbackQuery?.data?.match(/^docitem_(.+)$/);
     if (docMatch) {
+      await response.answerCallbackQuery({ text: "Tap 🗑️ to delete this document." });
+      continue;
+    }
+
+    const delMatch = response.callbackQuery?.data?.match(/^del_doc_(.+)$/);
+    if (delMatch) {
       await response.answerCallbackQuery();
-      const docId = docMatch[1]!;
+      const docId = delMatch[1]!;
       await confirmDelete(docId);
       continue;
     }
 
-    const delMatch = response.callbackQuery?.data?.match(/^confirm_del_(.+)$/);
-    if (delMatch) {
+    const confirmDelMatch = response.callbackQuery?.data?.match(/^confirm_del_(.+)$/);
+    if (confirmDelMatch) {
       await response.answerCallbackQuery();
-      const docId = delMatch[1]!;
+      const docId = confirmDelMatch[1]!;
       try {
         await api.deleteDocument(docId);
         await ctx.reply("✅ Document deleted.");
