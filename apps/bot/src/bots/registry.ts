@@ -271,6 +271,7 @@ function makeDocumentManagementConversation(
             b2FileName,
             tenantId,
             botId,
+            botToken,
             fileName: doc.file_name ?? "untitled.pdf",
             mimeType: "application/pdf",
           }),

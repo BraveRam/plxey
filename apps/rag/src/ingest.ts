@@ -17,11 +17,12 @@ export const processPdf = inngest.createFunction(
     triggers: [{ event: "rag/pdf.ingest" }],
   },
   async ({ event, step }) => {
-    const { b2FileId, documentId, tenantId, botId } = event.data as {
+    const { b2FileId, documentId, tenantId, botId, botToken } = event.data as {
       b2FileId: string;
       documentId: string;
       tenantId: string;
       botId: string;
+      botToken: string;
     };
 
     const pdfBuffer = await step.run("download", () =>
@@ -65,16 +66,12 @@ export const processPdf = inngest.createFunction(
       const doc = await db.query.documents.findFirst({
         where: eq(documents.id, documentId),
       });
-      const tenant = await db.query.tenants.findFirst({
-        where: eq(tenants.id, tenantId),
-      });
 
-      const ownerId = tenant?.telegramOwnerId;
+      const ownerId = doc?.tenantId
+        ? (await db.query.tenants.findFirst({ where: eq(tenants.id, doc.tenantId) }))?.telegramOwnerId
+        : null;
       const fileName = doc?.fileName ?? "untitled.pdf";
-      if (!ownerId) return;
-
-      const botToken = process.env.BOT_TOKEN;
-      if (!botToken) return;
+      if (!ownerId || !botToken) return;
 
       await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
         method: "POST",
