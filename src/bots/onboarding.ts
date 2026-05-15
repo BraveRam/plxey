@@ -147,8 +147,7 @@ async function customizePromptConversation(conversation: Conversation<MyContext,
 
 const docCancelKb = new InlineKeyboard().text("Cancel", "doc_cancel");
 
-async function uploadDocumentConversation(conversation: Conversation<MyContext, MyContext>, ctx: MyContext) {
-  const botId = ctx.session.manageBotId;
+async function uploadDocumentConversation(conversation: Conversation<MyContext, MyContext>, ctx: MyContext, botId: string) {
   if (!botId) {
     await ctx.editMessageText("No bot selected.", { reply_markup: menuKb });
     return;
@@ -369,7 +368,7 @@ export async function createOnboardingBot(): Promise<Bot<BotContext>> {
     await ctx.answerCallbackQuery();
     const botId = ctx.match![1]!;
     ctx.session.manageBotId = botId;
-    await ctx.conversation.enter("uploadDocument");
+    await ctx.conversation.enter("uploadDocument", botId);
   });
 
   return bot;
