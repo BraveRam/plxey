@@ -13,22 +13,24 @@ app.all("/api/inngest", async (c) => handler(c));
 
 app.post("/ingest", async (c) => {
   try {
-    const { b2FileId, b2FileName, tenantId, fileName, mimeType } = await c.req.json<{
+    const { b2FileId, b2FileName, tenantId, botId, fileName, mimeType } = await c.req.json<{
       b2FileId: string;
       b2FileName?: string;
       tenantId: string;
+      botId: string;
       fileName?: string;
       mimeType?: string;
     }>();
 
-    if (!b2FileId || !tenantId) {
-      return c.json({ error: "b2FileId and tenantId required" }, 400);
+    if (!b2FileId || !tenantId || !botId) {
+      return c.json({ error: "b2FileId, tenantId, and botId required" }, 400);
     }
 
     const [doc] = await db
       .insert(documents)
       .values({
         tenantId,
+        tenantBotId: botId,
         fileName: fileName ?? "unknown.pdf",
         mimeType: mimeType ?? "application/pdf",
         status: "processing",
@@ -40,7 +42,7 @@ app.post("/ingest", async (c) => {
 
     await inngest.send({
       name: "rag/pdf.ingest",
-      data: { b2FileId, documentId: doc!.id, tenantId },
+      data: { b2FileId, documentId: doc!.id, tenantId, botId },
     });
 
     return c.json({ documentId: doc!.id, status: "queued" }, 202);
@@ -71,6 +73,8 @@ app.post("/upload-and-ingest", async (c) => {
       contentDisposition.match(/filename="?(.+?)"?$/)?.[1] ?? `upload-${crypto.randomUUID()}.pdf`;
     const tenantId = c.req.header("X-Tenant-Id");
     if (!tenantId) return c.json({ error: "X-Tenant-Id header required" }, 400);
+    const botId = c.req.header("X-Bot-Id");
+    if (!botId) return c.json({ error: "X-Bot-Id header required" }, 400);
 
     const bucketId = process.env.B2_BUCKET_ID;
     if (!bucketId) return c.json({ error: "B2_BUCKET_ID not configured" }, 500);
@@ -81,6 +85,7 @@ app.post("/upload-and-ingest", async (c) => {
       .insert(documents)
       .values({
         tenantId,
+        tenantBotId: botId,
         fileName,
         mimeType: "application/pdf",
         status: "processing",
@@ -92,7 +97,7 @@ app.post("/upload-and-ingest", async (c) => {
 
     await inngest.send({
       name: "rag/pdf.ingest",
-      data: { b2FileId: fileId, documentId: doc!.id, tenantId },
+      data: { b2FileId: fileId, documentId: doc!.id, tenantId, botId },
     });
 
     return c.json({ documentId: doc!.id, status: "queued" }, 202);

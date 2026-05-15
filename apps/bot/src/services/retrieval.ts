@@ -5,7 +5,7 @@ import { sql, eq, and, gt, desc } from "drizzle-orm";
 
 export async function findRelevantContent(
   query: string,
-  tenantId: string,
+  botId: string,
 ): Promise<{ content: string; similarity: number }[]> {
   const { embedding } = await embed({
     model: process.env.EMBEDDING_MODEL ?? "openai/text-embedding-3-small",
@@ -23,7 +23,7 @@ export async function findRelevantContent(
     .from(documentChunks)
     .where(
       and(
-        eq(documentChunks.tenantId, tenantId),
+        eq(documentChunks.tenantBotId, botId),
         gt(distance, 0.3),
       ),
     )

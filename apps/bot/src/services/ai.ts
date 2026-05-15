@@ -14,7 +14,7 @@ interface SendAdminMessageResult {
 }
 
 interface AskAIOptions {
-  tenantId: string;
+  botId: string;
   sendAdminMessage?: (input: { message: string; reason: string }) => Promise<SendAdminMessageResult>;
 }
 
@@ -47,7 +47,7 @@ export async function askAI(
         query: z.string().describe("The search query based on the customer's question"),
       }),
       execute: async ({ query }: { query: string }) => {
-        const results = await findRelevantContent(query, options.tenantId);
+        const results = await findRelevantContent(query, options.botId);
         if (results.length === 0) {
           return { found: false, message: "No relevant information found in the knowledge base." };
         }

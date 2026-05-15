@@ -17,10 +17,11 @@ export const processPdf = inngest.createFunction(
     triggers: [{ event: "rag/pdf.ingest" }],
   },
   async ({ event, step }) => {
-    const { b2FileId, documentId, tenantId } = event.data as {
+    const { b2FileId, documentId, tenantId, botId } = event.data as {
       b2FileId: string;
       documentId: string;
       tenantId: string;
+      botId: string;
     };
 
     const pdfBuffer = await step.run("download", () =>
@@ -43,6 +44,7 @@ export const processPdf = inngest.createFunction(
     await step.run("store", async () => {
       const rows = chunks.map((content, i) => ({
         tenantId,
+        tenantBotId: botId,
         documentId,
         chunkIndex: i,
         content,

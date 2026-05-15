@@ -128,7 +128,7 @@ function makeDocumentManagementConversation(
     ctx: BaseCtx,
   ) {
     async function showDocsList() {
-      const docs = await listDocuments(tenantId);
+      const docs = await listDocuments(botId);
       const kb = new InlineKeyboard();
       for (const d of docs) {
         const statusIcon =
@@ -200,7 +200,7 @@ function makeDocumentManagementConversation(
       if (delMatch) {
         await response.answerCallbackQuery();
         const docId = delMatch[1]!;
-        const docs = await listDocuments(tenantId);
+        const docs = await listDocuments(botId);
         const doc = docs.find((d) => d.id === docId);
         await confirmDelete(docId, doc?.fileName ?? "unknown");
         continue;
@@ -270,6 +270,7 @@ function makeDocumentManagementConversation(
             b2FileId: fileId,
             b2FileName,
             tenantId,
+            botId,
             fileName: doc.file_name ?? "untitled.pdf",
             mimeType: "application/pdf",
           }),
@@ -549,6 +550,13 @@ export class BotRegistry {
         if (!connId) return;
         const chatId = msg.chat.id;
 
+        const from = msg.from;
+        const name = from
+          ? `${from.first_name}${from.last_name ? ` ${from.last_name}` : ""}`
+          : "Unknown";
+        const tag = from?.username ? ` (@${from.username})` : "";
+        const customerLabel = `👤 ${name}${tag} — ID: ${from?.id ?? "?"}`;
+
         const botEntry = this.bots.get(botId);
         if (!botEntry) {
           logger.error({ botId }, "no bot entry loaded");
@@ -578,7 +586,7 @@ export class BotRegistry {
           systemPrompt,
           dbHistory,
           {
-            tenantId,
+            botId,
             sendAdminMessage: async ({ message }) => {
               try {
                 const replyToken = await this.ownerReplyTargets.create({
@@ -592,7 +600,7 @@ export class BotRegistry {
                 );
                 await ctx.api.sendMessage(
                   Number(ownerTelegramId),
-                  `💬 ${message}`,
+                  `${customerLabel}\n\n💬 ${message}`,
                   { reply_markup: kb },
                 );
                 return { ok: true };
@@ -630,7 +638,7 @@ export class BotRegistry {
             );
             await ctx.api.sendMessage(
               Number(ownerTelegramId),
-              `⚠️ Failed to reply to customer. Make sure the bot has Business Mode enabled in @BotFather and is added to your Telegram Business account andn ensure it has the necessary permissions.\n\nCustomer asked: ${question}`,
+              `⚠️ Failed to reply to customer. Make sure the bot has Business Mode enabled in @BotFather and is added to your Telegram Business account and ensure it has the necessary permissions.\n\n${customerLabel}\n\nCustomer asked: ${question}`,
             );
           }
           return;

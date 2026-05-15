@@ -145,11 +145,11 @@ export async function deleteBot(id: string): Promise<void> {
   await db.delete(tenantBots).where(eq(tenantBots.id, id));
 }
 
-export async function listDocuments(tenantId: string): Promise<DocumentResult[]> {
-  if (!tenantId) throw new Error("tenantId required");
+export async function listDocuments(botId: string): Promise<DocumentResult[]> {
+  if (!botId) throw new Error("botId required");
 
   return db.query.documents.findMany({
-    where: eq(documents.tenantId, tenantId),
+    where: eq(documents.tenantBotId, botId),
     orderBy: (d, { desc }) => [desc(d.createdAt)],
   });
 }

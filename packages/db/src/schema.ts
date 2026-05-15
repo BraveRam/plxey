@@ -53,6 +53,7 @@ export const businessConnections = pgTable("business_connections", {
 export const documents = pgTable("documents", {
   id: uuid("id").defaultRandom().primaryKey(),
   tenantId: uuid("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  tenantBotId: uuid("tenant_bot_id").references(() => tenantBots.id, { onDelete: "cascade" }),
   fileName: text("file_name").notNull(),
   mimeType: text("mime_type").notNull(),
   status: docStatus("status").notNull().default("processing"),
@@ -62,11 +63,13 @@ export const documents = pgTable("documents", {
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 }, (t) => ({
   tenantIdx: index("documents_tenant_idx").on(t.tenantId),
+  botIdx: index("documents_bot_idx").on(t.tenantBotId),
 }));
 
 export const documentChunks = pgTable("document_chunks", {
   id: uuid("id").defaultRandom().primaryKey(),
   tenantId: uuid("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  tenantBotId: uuid("tenant_bot_id").references(() => tenantBots.id, { onDelete: "cascade" }),
   documentId: uuid("document_id").notNull().references(() => documents.id, { onDelete: "cascade" }),
   chunkIndex: integer("chunk_index").notNull(),
   content: text("content").notNull(),
@@ -76,6 +79,7 @@ export const documentChunks = pgTable("document_chunks", {
 }, (t) => ({
   docChunkUq: uniqueIndex("document_chunks_doc_chunk_uq").on(t.documentId, t.chunkIndex),
   tenantIdx: index("document_chunks_tenant_idx").on(t.tenantId),
+  botIdx: index("document_chunks_bot_idx").on(t.tenantBotId),
 }));
 
 export const conversations = pgTable("conversations", {

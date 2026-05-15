@@ -54,9 +54,9 @@ api.delete("/bots/:id", async (c) => {
 });
 
 api.get("/documents", async (c) => {
-  const tenantId = c.req.query("tenantId");
-  if (!tenantId) return c.json({ error: "tenantId required" }, 400);
-  const docs = await listDocuments(tenantId);
+  const botId = c.req.query("botId");
+  if (!botId) return c.json({ error: "botId required" }, 400);
+  const docs = await listDocuments(botId);
   return c.json(docs);
 });
 
