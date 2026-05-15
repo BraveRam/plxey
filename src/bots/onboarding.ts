@@ -102,8 +102,7 @@ async function createBotConversation(conversation: Conversation<MyContext, MyCon
   }
 }
 
-async function customizePromptConversation(conversation: Conversation<MyContext, MyContext>, ctx: MyContext) {
-  const botId = ctx.session.manageBotId;
+async function customizePromptConversation(conversation: Conversation<MyContext, MyContext>, ctx: MyContext, botId: string) {
   if (!botId) {
     await ctx.editMessageText("No bot selected.", { reply_markup: menuKb });
     return;
@@ -393,7 +392,12 @@ export async function createOnboardingBot(): Promise<Bot<BotContext>> {
 
   bot.callbackQuery("edit_prompt", async (ctx) => {
     await ctx.answerCallbackQuery();
-    await ctx.conversation.enter("customizePrompt");
+    const botId = ctx.session.manageBotId;
+    if (!botId) {
+      await ctx.editMessageText("No bot selected.", { reply_markup: menuKb });
+      return;
+    }
+    await ctx.conversation.enter("customizePrompt", botId);
   });
 
   // --- Delete ---
