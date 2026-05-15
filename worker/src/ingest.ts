@@ -1,5 +1,6 @@
 import { Inngest } from "inngest";
 import { embedMany } from "ai";
+import { PDFParse } from "pdf-parse";
 import { db } from "./db";
 import { documents, documentChunks } from "../../src/db/schema";
 import { eq } from "drizzle-orm";
@@ -26,9 +27,10 @@ export const processPdf = inngest.createFunction(
       downloadFileById(b2FileId));
 
     const text = await step.run("parse", async () => {
-      const { default: parsePdf } = await import("pdf-parse");
-      const data = await parsePdf(pdfBuffer);
-      return data.text;
+      const parser = new PDFParse({ data: pdfBuffer });
+      await parser.load();
+      const result = await parser.getText();
+      return result.text;
     });
 
     const chunks = await step.run("chunk", () =>
