@@ -81,7 +81,12 @@ export class BotRegistry {
   }
 
   private attachHandlers(bot: Bot<Context>, botId: string, ownerTelegramId: string, systemPrompt: string, businessName: string): void {
-    bot.on("business_message", async (ctx) => {
+    bot.on("business_message").filter(
+      async (ctx) => {
+        const conn = await ctx.getBusinessConnection();
+        return ctx.from?.id !== conn.user.id;
+      },
+      async (ctx) => {
       const msg = ctx.update.business_message;
       if (typeof msg?.text !== "string") return;
 
@@ -153,18 +158,6 @@ export class BotRegistry {
         }
         return;
       }
-    });
-
-    bot.callbackQuery(/^oreply_(.+)$/, async (ctx) => {
-      const token = ctx.match[1];
-      const ownerId = ctx.from?.id ? String(ctx.from.id) : null;
-      if (!token || !ownerId || !(await this.ownerReplyTargets.activate(ownerId, token))) {
-        await ctx.answerCallbackQuery({ text: "This reply target is no longer available.", show_alert: true });
-        return;
-      }
-
-      await ctx.answerCallbackQuery();
-      await ctx.editMessageText("Send your reply to forward to the customer.");
     });
 
     bot.on("message", async (ctx) => {
