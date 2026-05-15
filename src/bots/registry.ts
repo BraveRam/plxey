@@ -112,6 +112,7 @@ export class BotRegistry {
         systemPrompt,
         dbHistory,
         {
+          tenantId,
           sendAdminMessage: async ({ message }) => {
             try {
               const replyToken = await this.ownerReplyTargets.create({ botId, chatId, businessConnectionId: connId });
