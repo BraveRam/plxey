@@ -52,6 +52,7 @@ Two bot types:
 - `AI_GATEWAY_API_KEY` — for Vercel AI SDK gateway (`ai` package)
 - `PUBLIC_URL` — ngrok URL or production URL for webhooks
 - `ENCRYPTION_KEY` — 32+ chars for AES-GCM bot token encryption
+- `WORKER_URL` — RAG worker base URL (e.g. `http://localhost:3001`)
 - `B2_APPLICATION_KEY_ID`, `B2_APPLICATION_KEY`, `B2_BUCKET_ID` — Backblaze B2
 - `INNGEST_DEV` — set to `1` for local Inngest dev server
 
