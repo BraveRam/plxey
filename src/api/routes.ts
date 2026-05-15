@@ -62,6 +62,13 @@ api.post("/bots", async (c) => {
     return c.json({ error: "Invalid bot token" }, 400);
   }
 
+  const existing = await db.query.tenantBots.findFirst({
+    where: eq(tenantBots.botUsername, botUser.username),
+  });
+  if (existing) {
+    return c.json({ error: "This bot is already registered by another user." }, 409);
+  }
+
   const webhookBase = process.env.PUBLIC_URL;
   if (!webhookBase) return c.json({ error: "PUBLIC_URL not configured" }, 500);
 
