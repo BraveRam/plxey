@@ -2,7 +2,6 @@ import { Bot, type Context, InlineKeyboard, session, type SessionFlavor } from "
 import { type Conversation, type ConversationFlavor, conversations, createConversation } from "@grammyjs/conversations";
 import { logger } from "../lib/logger";
 import { createBot, updateBot, deleteBot, listBots } from "../lib/api";
-import { createScreen, replaceMessage } from "../lib/screen";
 
 type BaseCtx = Context & SessionFlavor<Record<string, never>>;
 type OnCtx = BaseCtx & ConversationFlavor<BaseCtx>;
@@ -30,7 +29,8 @@ async function showBotSettings(ctx: OnCtx, botId: string) {
   const bots = await listBots(String(ctx.from!.id));
   const botRecord = bots.find(b => b.id === botId);
   if (!botRecord) {
-    await replaceMessage(ctx, "Bot not found.", { reply_markup: menuKb });
+    await ctx.deleteMessage().catch(() => {});
+    await ctx.reply("Bot not found.", { reply_markup: menuKb });
     return;
   }
 
@@ -45,39 +45,55 @@ async function showBotSettings(ctx: OnCtx, botId: string) {
   kb.text("🗑️ Delete", `delete_${botId}`).row();
   kb.text("🔙 Back", "manage");
 
-  await replaceMessage(
-    ctx,
+  await ctx.deleteMessage().catch(() => {});
+  await ctx.reply(
     `🤖 @${botRecord.botUsername}\nStatus: ${statusIcon}`,
     { reply_markup: kb },
   );
 }
 
 async function createBotConversation(conversation: Conversation<BaseCtx, BaseCtx>, ctx: BaseCtx) {
-  const screen = createScreen(ctx);
+  const chatId = ctx.chat!.id;
+  // The "screen" is the most recently sent menu/prompt message. We track its
+  // id by hand so subsequent updates can delete + re-send instead of editing
+  // (which would leave the message stranded above any progress messages).
+  let screenMsgId: number | null = ctx.callbackQuery?.message?.message_id ?? null;
 
-  await screen.show(
+  if (screenMsgId !== null) {
+    await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
+  }
+  let sent = await ctx.reply(
     "Send me your bot token.\n\n" +
     "1. Create a bot via @BotFather\n" +
     "2. Enable Business Mode in BotFather settings\n" +
     "3. Paste the token here",
     { reply_markup: cancelKb },
   );
+  screenMsgId = sent.message_id;
 
   while (true) {
     const response = await conversation.wait();
 
     if (response.callbackQuery?.data === "cancel") {
       await response.answerCallbackQuery();
-      await screen.clear();
+      if (screenMsgId !== null) {
+        await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
+        screenMsgId = null;
+      }
       await response.reply("Main menu:", { reply_markup: menuKb });
       return;
     }
 
     const token = response.message?.text?.trim();
     if (!token) {
-      await screen.show("Please send a valid bot token, or press Cancel.", {
-        reply_markup: cancelKb,
-      });
+      if (screenMsgId !== null) {
+        await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
+      }
+      sent = await ctx.reply(
+        "Please send a valid bot token, or press Cancel.",
+        { reply_markup: cancelKb },
+      );
+      screenMsgId = sent.message_id;
       continue;
     }
 
@@ -118,18 +134,28 @@ async function createBotConversation(conversation: Conversation<BaseCtx, BaseCtx
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : "Unknown error";
       if (errMsg.includes("Invalid")) {
-        await screen.show(
+        if (screenMsgId !== null) {
+          await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
+        }
+        sent = await ctx.reply(
           "Invalid token. Send me a valid bot token, or press Cancel.",
           { reply_markup: cancelKb },
         );
+        screenMsgId = sent.message_id;
         continue;
       }
-      await screen.clear();
+      if (screenMsgId !== null) {
+        await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
+        screenMsgId = null;
+      }
       await ctx.reply(errMsg, { reply_markup: menuKb });
       return;
     }
 
-    await screen.clear();
+    if (screenMsgId !== null) {
+      await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
+      screenMsgId = null;
+    }
     await ctx.reply(`✅ Bot @${botUsername} connected!`, { reply_markup: menuKb });
     return;
   }
@@ -162,8 +188,8 @@ export async function createOnboardingBot(): Promise<Bot> {
     const userId = String(ctx.from!.id);
     const { kb, bots } = await botsListKb(userId);
 
-    await replaceMessage(
-      ctx,
+    await ctx.deleteMessage().catch(() => {});
+    await ctx.reply(
       bots.length === 0 ? "No bots yet. Create one below:" : "Your bots:",
       { reply_markup: kb },
     );
@@ -196,8 +222,8 @@ export async function createOnboardingBot(): Promise<Bot> {
       .text("✅ Yes, delete", `confirm_delete_${botId}`)
       .text("❌ No", `bot_${botId}`);
 
-    await replaceMessage(
-      ctx,
+    await ctx.deleteMessage().catch(() => {});
+    await ctx.reply(
       "⚠️ Are you sure? This permanently deletes the bot and all associated data.",
       { reply_markup: confirmKb },
     );
@@ -210,8 +236,8 @@ export async function createOnboardingBot(): Promise<Bot> {
 
     const userId = String(ctx.from!.id);
     const { kb, bots } = await botsListKb(userId);
-    await replaceMessage(
-      ctx,
+    await ctx.deleteMessage().catch(() => {});
+    await ctx.reply(
       bots.length === 0 ? "No bots left. Create one below:" : "✅ Bot deleted. Your bots:",
       { reply_markup: kb },
     );
@@ -219,7 +245,8 @@ export async function createOnboardingBot(): Promise<Bot> {
 
   bot.callbackQuery("menu", async (ctx) => {
     await ctx.answerCallbackQuery();
-    await replaceMessage(ctx, "Main menu:", { reply_markup: menuKb });
+    await ctx.deleteMessage().catch(() => {});
+    await ctx.reply("Main menu:", { reply_markup: menuKb });
   });
 
   return bot as unknown as Bot;

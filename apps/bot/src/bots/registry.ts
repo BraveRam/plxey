@@ -38,7 +38,6 @@ import {
   MAX_DOCUMENTS_PER_BOT,
 } from "./document-limits";
 import { escapeHtml, markdownToTelegramHtml } from "../lib/markdown-to-html";
-import { createScreen } from "../lib/screen";
 
 type BaseCtx = Context & SessionFlavor<Record<string, never>>;
 type BizCtx = BaseCtx & ConversationFlavor<BaseCtx>;
@@ -82,9 +81,8 @@ async function showManagementMenu(ctx: Context, botId: string) {
 
   const text = `⚙️ @${botRecord.botUsername} Management\n\nStatus: ${statusIcon}\n\nPrompt preview:\n${botRecord.systemPrompt.slice(0, 200)}${botRecord.systemPrompt.length > 200 ? "..." : ""}`;
 
-  // Always send a new message. Conversations that own a screen via
-  // createScreen() are expected to call screen.clear() before invoking
-  // this — that's the documented contract for the post-conversation path.
+  // Always send a new message. Callers inside a conversation are expected
+  // to delete their last tracked screen message before invoking this.
   await ctx.reply(text, { reply_markup: kb });
 }
 
@@ -101,27 +99,43 @@ function makeEditPromptConversation(botId: string) {
       return;
     }
 
-    const screen = createScreen(ctx);
-    await screen.show(
+    const chatId = ctx.chat!.id;
+    // Track the prompt-screen message id so each "update" deletes the old
+    // one and sends a new one (editMessageText would leave it stranded
+    // above any progress messages the bot sent in between).
+    let screenMsgId: number | null = ctx.callbackQuery?.message?.message_id ?? null;
+
+    if (screenMsgId !== null) {
+      await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
+    }
+    let sent = await ctx.reply(
       `Current prompt for @${botRecord.botUsername}:\n\n${botRecord.systemPrompt}\n\nSend your new prompt, or press Cancel.`,
       { reply_markup: cancelKb },
     );
+    screenMsgId = sent.message_id;
 
     while (true) {
       const response = await conversation.wait();
 
       if (response.callbackQuery?.data === "biz_cancel") {
         await response.answerCallbackQuery();
-        await screen.clear();
+        if (screenMsgId !== null) {
+          await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
+          screenMsgId = null;
+        }
         await showManagementMenu(response, botId);
         return;
       }
 
       const newPrompt = response.message?.text?.trim();
       if (!newPrompt) {
-        await screen.show("Please send a text message.", {
+        if (screenMsgId !== null) {
+          await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
+        }
+        sent = await ctx.reply("Please send a text message.", {
           reply_markup: cancelKb,
         });
+        screenMsgId = sent.message_id;
         continue;
       }
 
@@ -131,7 +145,10 @@ function makeEditPromptConversation(botId: string) {
       await conversation.external(() =>
         updateBot(botId, { systemPrompt: newPrompt }),
       );
-      await screen.clear();
+      if (screenMsgId !== null) {
+        await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
+        screenMsgId = null;
+      }
       await ctx.reply("✅ Prompt updated!");
       await showManagementMenu(ctx, botId);
       return;
@@ -164,18 +181,27 @@ function makeEditWelcomeConversation(
       ? `Current welcome message:\n\n${botRecord.welcomeMessage}`
       : "No custom welcome message — the default is shown to customers.";
 
-    const screen = createScreen(ctx);
-    await screen.show(
+    const chatId = ctx.chat!.id;
+    let screenMsgId: number | null = ctx.callbackQuery?.message?.message_id ?? null;
+
+    if (screenMsgId !== null) {
+      await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
+    }
+    let sent = await ctx.reply(
       `${current}\n\nSend a new welcome message, or use the buttons below.`,
       { reply_markup: kb },
     );
+    screenMsgId = sent.message_id;
 
     while (true) {
       const response = await conversation.wait();
 
       if (response.callbackQuery?.data === "biz_cancel") {
         await response.answerCallbackQuery();
-        await screen.clear();
+        if (screenMsgId !== null) {
+          await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
+          screenMsgId = null;
+        }
         await showManagementMenu(response, botId);
         return;
       }
@@ -188,7 +214,10 @@ function makeEditWelcomeConversation(
           await updateBot(botId, { welcomeMessage: null });
           onSaved(null);
         });
-        await screen.clear();
+        if (screenMsgId !== null) {
+          await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
+          screenMsgId = null;
+        }
         await response.reply("✅ Welcome message reset to default.");
         await showManagementMenu(response, botId);
         return;
@@ -196,9 +225,13 @@ function makeEditWelcomeConversation(
 
       const newWelcome = response.message?.text?.trim();
       if (!newWelcome) {
-        await screen.show("Please send a text message.", {
+        if (screenMsgId !== null) {
+          await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
+        }
+        sent = await ctx.reply("Please send a text message.", {
           reply_markup: kb,
         });
+        screenMsgId = sent.message_id;
         continue;
       }
 
@@ -206,7 +239,10 @@ function makeEditWelcomeConversation(
         await updateBot(botId, { welcomeMessage: newWelcome });
         onSaved(newWelcome);
       });
-      await screen.clear();
+      if (screenMsgId !== null) {
+        await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
+        screenMsgId = null;
+      }
       await ctx.reply("✅ Welcome message updated!");
       await showManagementMenu(ctx, botId);
       return;
@@ -223,7 +259,12 @@ function makeDocumentManagementConversation(
     conversation: Conversation<BaseCtx, BaseCtx>,
     ctx: BaseCtx,
   ) {
-    const screen = createScreen(ctx);
+    const chatId = ctx.chat!.id;
+    // The current "screen" (docs list, confirm-delete, add-doc prompt) is
+    // tracked by id so each update deletes the previous one and posts a new
+    // one — keeps the screen at the bottom of the chat even after the bot
+    // sent progress messages in between.
+    let screenMsgId: number | null = ctx.callbackQuery?.message?.message_id ?? null;
 
     async function showDocsList() {
       const docs = await listDocuments(botId);
@@ -246,16 +287,24 @@ function makeDocumentManagementConversation(
           ? `No documents yet. (Up to ${MAX_DOCUMENTS_PER_BOT}, ${formatBytes(MAX_DOCUMENT_SIZE_BYTES)} each.)`
           : `📚 ${docs.length}/${MAX_DOCUMENTS_PER_BOT} documents`;
 
-      await screen.show(text, { reply_markup: kb });
+      if (screenMsgId !== null) {
+        await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
+      }
+      const sent = await ctx.reply(text, { reply_markup: kb });
+      screenMsgId = sent.message_id;
     }
 
     async function confirmDelete(docId: string, fileName: string) {
       const confirmKb = new InlineKeyboard()
         .text("✅ Yes, delete", `biz_confirm_del_${docId}`)
         .text("❌ No", "biz_doc_cancel");
-      await screen.show(`Delete "${fileName}" and all its data?`, {
+      if (screenMsgId !== null) {
+        await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
+      }
+      const sent = await ctx.reply(`Delete "${fileName}" and all its data?`, {
         reply_markup: confirmKb,
       });
+      screenMsgId = sent.message_id;
     }
 
     await showDocsList();
@@ -265,7 +314,10 @@ function makeDocumentManagementConversation(
 
       if (response.callbackQuery?.data === "biz_doc_back") {
         await response.answerCallbackQuery();
-        await screen.clear();
+        if (screenMsgId !== null) {
+          await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
+          screenMsgId = null;
+        }
         await showManagementMenu(response, botId);
         return;
       }
@@ -280,7 +332,10 @@ function makeDocumentManagementConversation(
         await response.answerCallbackQuery();
         const existing = await listDocuments(botId);
         if (existing.length >= MAX_DOCUMENTS_PER_BOT) {
-          await screen.show(
+          if (screenMsgId !== null) {
+            await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
+          }
+          const sent = await ctx.reply(
             `❌ You've reached the ${MAX_DOCUMENTS_PER_BOT}-document limit. Delete one before adding another.`,
             {
               reply_markup: new InlineKeyboard().text(
@@ -289,14 +344,19 @@ function makeDocumentManagementConversation(
               ),
             },
           );
+          screenMsgId = sent.message_id;
           continue;
         }
-        await screen.show(
+        if (screenMsgId !== null) {
+          await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
+        }
+        const sent = await ctx.reply(
           `Send me a document to add as knowledge for this bot.\n\nSupported: PDF, TXT, Markdown (.md), Word (.docx), HTML.\n\nMax ${formatBytes(MAX_DOCUMENT_SIZE_BYTES)} per file, up to ${MAX_DOCUMENTS_PER_BOT} documents per bot.`,
           {
             reply_markup: new InlineKeyboard().text("Cancel", "biz_doc_cancel"),
           },
         );
+        screenMsgId = sent.message_id;
         continue;
       }
 
