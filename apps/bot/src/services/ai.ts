@@ -65,7 +65,6 @@ export async function askAI(
       systemPrompt.replace("{business_name}", businessName) +
       "\n\nUse the conversation history for context." +
       "\n\nYou have a knowledge base of uploaded documents. When a customer asks a question, call get_information to search for relevant information. Do not guess or make up information." +
-      "\n\nWhen formatting responses, use HTML tags for emphasis (e.g. <b>bold</b>, <i>italic</i>, <code>code</code>). Do not use Markdown syntax like ** or *." +
       "\n\nIf the customer asks to leave a message for the admin but does not provide the actual message, ask what they would like you to tell the admin. Do not call a tool yet." +
       "\n\nIf the customer gives the actual message to pass to the admin, call send_admin_message with the exact message." +
       "\n\nIf the customer cancels, says never mind, says they will leave the message later, or only says thanks/ok, do not call send_admin_message." +

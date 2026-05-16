@@ -31,6 +31,7 @@ import {
 } from "./admin-reply-targets";
 import { renderCustomerWelcome } from "./welcome";
 import { detectMimeType } from "./document-types";
+import { escapeHtml, markdownToTelegramHtml } from "../lib/markdown-to-html";
 
 type BaseCtx = Context & SessionFlavor<Record<string, never>>;
 type BizCtx = BaseCtx & ConversationFlavor<BaseCtx>;
@@ -711,7 +712,7 @@ export class BotRegistry {
                 );
                 await ctx.api.sendMessage(
                   Number(ownerTelegramId),
-                  `${customerLabel}\n\n💬 ${message}`,
+                  `${escapeHtml(customerLabel)}\n\n💬 ${markdownToTelegramHtml(message)}`,
                   { reply_markup: kb, parse_mode: "HTML" },
                 );
                 return { ok: true };
@@ -738,13 +739,17 @@ export class BotRegistry {
             .set({ lastMessageAt: new Date() })
             .where(eq(convTable.id, conv.id));
 
+          const renderedText = markdownToTelegramHtml(result.text);
           try {
-            await ctx.api.sendMessage(chatId, result.text, {
+            await ctx.api.sendMessage(chatId, renderedText, {
               business_connection_id: connId,
               parse_mode: "HTML",
             });
           } catch (e) {
             try {
+              // Fall back without parse_mode. Send the original AI output
+              // (markdown) so the customer at least gets a readable reply
+              // instead of stray <b>/<pre> tags as literal text.
               await ctx.api.sendMessage(chatId, result.text, {
                 business_connection_id: connId,
               });
@@ -783,7 +788,10 @@ export class BotRegistry {
       const state = await this.ownerReplyTargets.getActive(ownerId);
       if (state && ctx.message.text) {
         try {
-          await ctx.api.sendMessage(state.chatId, ctx.message.text, {
+          // The owner typed this in their client. Treat as plain text and
+          // escape <, >, & so the HTML parser doesn't reject anything they
+          // happen to type (e.g. "if a < b").
+          await ctx.api.sendMessage(state.chatId, escapeHtml(ctx.message.text), {
             business_connection_id: state.businessConnectionId,
             parse_mode: "HTML",
           });
