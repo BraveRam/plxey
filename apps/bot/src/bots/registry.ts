@@ -680,11 +680,23 @@ export class BotRegistry {
         initial: () => ({}),
         // Per-tenant-bot prefix is mandatory — two bots can each get a
         // message from the same chatId, so a shared prefix would clobber
-        // each other's conversation state.
+        // each other's session.
         storage: new UpstashSessionStorage(`tg:session:bot:${botId}:`),
       }),
     );
-    bot.use(grammyConvs());
+    // The conversations plugin keeps its replay log in a *separate*
+    // storage from session() — without this it defaults to in-memory and
+    // every restart kills any in-flight conversation. Per-bot prefix so
+    // two tenant bots that both serve the same chatId don't clobber each
+    // other's conversation state.
+    bot.use(
+      grammyConvs({
+        storage: {
+          type: "key",
+          adapter: new UpstashSessionStorage(`tg:conv:bot:${botId}:`),
+        },
+      }),
+    );
     bot.use(
       createConversation(makeEditPromptConversation(botId), "editPrompt"),
     );

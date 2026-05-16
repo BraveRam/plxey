@@ -200,7 +200,19 @@ export async function createOnboardingBot(): Promise<Bot> {
       storage: new UpstashSessionStorage("tg:session:onboarding:"),
     }),
   );
-  bot.use(conversations());
+  // The conversations plugin manages its own per-chat state separately
+  // from the session middleware above — without an explicit `storage`
+  // option it defaults to in-memory, which means conversation state is
+  // lost on every restart even though session() persists. Wire its
+  // storage explicitly to Upstash so conversations survive restarts.
+  bot.use(
+    conversations({
+      storage: {
+        type: "key",
+        adapter: new UpstashSessionStorage("tg:conv:onboarding:"),
+      },
+    }),
+  );
   bot.use(createConversation(createBotConversation, "createBot"));
 
   await bot.init();
