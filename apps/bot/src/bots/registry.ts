@@ -116,7 +116,12 @@ function makeEditPromptConversation(botId: string) {
         continue;
       }
 
-      await updateBot(botId, { systemPrompt: newPrompt });
+      // updateBot must be wrapped so a later replay (e.g. owner navigates
+      // back, or any subsequent update inside this conversation) does not
+      // re-issue the DB write.
+      await conversation.external(() =>
+        updateBot(botId, { systemPrompt: newPrompt }),
+      );
       await ctx.reply("✅ Prompt updated!");
       await showManagementMenu(ctx, botId);
       return;
@@ -165,8 +170,12 @@ function makeEditWelcomeConversation(
 
       if (response.callbackQuery?.data === "biz_welcome_reset") {
         await response.answerCallbackQuery();
-        await updateBot(botId, { welcomeMessage: null });
-        onSaved(null);
+        // Replay-safety: keep the DB write + in-memory cache update inside
+        // a single external so a later replay does not re-run them.
+        await conversation.external(async () => {
+          await updateBot(botId, { welcomeMessage: null });
+          onSaved(null);
+        });
         await response.reply("✅ Welcome message reset to default.");
         await showManagementMenu(response, botId);
         return;
@@ -180,8 +189,10 @@ function makeEditWelcomeConversation(
         continue;
       }
 
-      await updateBot(botId, { welcomeMessage: newWelcome });
-      onSaved(newWelcome);
+      await conversation.external(async () => {
+        await updateBot(botId, { welcomeMessage: newWelcome });
+        onSaved(newWelcome);
+      });
       await ctx.reply("✅ Welcome message updated!");
       await showManagementMenu(ctx, botId);
       return;
@@ -311,68 +322,75 @@ function makeDocumentManagementConversation(
         return;
       }
 
-      await ctx.reply("📥 Downloading...");
+      await ctx.reply("📥 Processing document…");
 
+      const file = await ctx.api.getFile(doc.file_id);
+      const filePath = file.file_path;
+      if (!filePath) {
+        await ctx.reply("Could not access the file.");
+        await showDocsList();
+        continue;
+      }
+
+      // All side effects below must live inside `conversation.external` so
+      // they don't re-run when the conversation handler replays on the next
+      // update (e.g. when the owner presses Back). Re-running would re-upload
+      // to B2 and re-POST /ingest, creating duplicate document rows.
+      let queued = false;
       try {
-        const file = await ctx.api.getFile(doc.file_id);
-        const filePath = file.file_path;
-        if (!filePath) {
-          await ctx.reply("Could not access the file.");
-          await showDocsList();
-          continue;
-        }
+        await conversation.external(async () => {
+          const fileUrl = `https://api.telegram.org/file/bot${botToken}/${filePath}`;
+          const res = await fetch(fileUrl);
+          const fileBuffer = Buffer.from(await res.arrayBuffer());
 
-        const fileUrl = `https://api.telegram.org/file/bot${botToken}/${filePath}`;
-        const res = await fetch(fileUrl);
-        const fileBuffer = Buffer.from(await res.arrayBuffer());
-
-        await ctx.reply("📤 Uploading to storage...");
-
-        const ext = doc.file_name?.split(".").pop()?.toLowerCase();
-        const b2Path = `tenants/${tenantId}/docs/${crypto.randomUUID()}${ext ? `.${ext}` : ""}`;
-        const { fileId, fileName: b2FileName } = await uploadFile(
-          b2BucketId(),
-          b2Path,
-          fileBuffer,
-          detectedMime,
-        );
-
-        await ctx.reply("🔍 Sending for processing...");
-
-        const ingestRes = await fetch(`${workUrl}/ingest`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            b2FileId: fileId,
-            b2FileName,
-            tenantId,
-            botId,
-            fileName: doc.file_name ?? "untitled",
-            mimeType: detectedMime,
-          }),
-        });
-
-        if (!ingestRes.ok) {
-          const errBody = await ingestRes.json().catch(() => ({}));
-          throw new Error(
-            (errBody as { error?: string }).error ?? "ingest failed",
+          const ext = doc.file_name?.split(".").pop()?.toLowerCase();
+          const b2Path = `tenants/${tenantId}/docs/${crypto.randomUUID()}${ext ? `.${ext}` : ""}`;
+          const { fileId, fileName: b2FileName } = await uploadFile(
+            b2BucketId(),
+            b2Path,
+            fileBuffer,
+            detectedMime,
           );
-        }
 
-        logger.info(
-          {
-            documentId: ((await ingestRes.json()) as { documentId: string })
-              .documentId,
-            fileName: doc.file_name,
-            mimeType: detectedMime,
-          },
-          "document queued for processing",
-        );
-        await ctx.reply("✅ Document queued for processing!");
+          const ingestRes = await fetch(`${workUrl}/ingest`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              b2FileId: fileId,
+              b2FileName,
+              tenantId,
+              botId,
+              fileName: doc.file_name ?? "untitled",
+              mimeType: detectedMime,
+            }),
+          });
+
+          if (!ingestRes.ok) {
+            const errBody = await ingestRes.json().catch(() => ({}));
+            throw new Error(
+              (errBody as { error?: string }).error ?? "ingest failed",
+            );
+          }
+
+          const ingestBody = (await ingestRes.json()) as { documentId: string };
+          logger.info(
+            {
+              documentId: ingestBody.documentId,
+              fileName: doc.file_name,
+              mimeType: detectedMime,
+            },
+            "document queued for processing",
+          );
+        });
+        queued = true;
       } catch (err) {
         const msg = err instanceof Error ? err.message : "Unknown error";
         logger.error({ err, fileName: doc.file_name }, "document ingestion failed");
         await ctx.reply(`❌ Failed to process document: ${msg}`);
+      }
+
+      if (queued) {
+        await ctx.reply("✅ Document queued for processing!");
       }
 
       await showDocsList();

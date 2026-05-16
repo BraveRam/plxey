@@ -79,36 +79,47 @@ async function createBotConversation(conversation: Conversation<BaseCtx, BaseCtx
       await ctx.api.deleteMessage(msg.chat.id, msg.message_id).catch(() => {});
     }
 
+    let botUsername: string | null = null;
     try {
-      const userId = String(ctx.from!.id);
-      const botRecord = await createBot(token, userId);
-      logger.info({ botUsername: botRecord.botUsername, userId }, "onboarding: bot created");
+      // createBot writes a tenant_bots row (after a Telegram getMe), and
+      // setWebhook below uses a fresh Bot instance whose API calls are NOT
+      // memoized by the conversations plugin. Both must live inside
+      // conversation.external so a later replay (e.g. the user pressing
+      // anything that triggers another update) doesn't insert a duplicate
+      // bot row and call setWebhook again.
+      botUsername = await conversation.external(async () => {
+        const userId = String(ctx.from!.id);
+        const botRecord = await createBot(token, userId);
+        logger.info({ botUsername: botRecord.botUsername, userId }, "onboarding: bot created");
 
-      const publicUrl = process.env.PUBLIC_URL;
-      if (publicUrl) {
-        try {
-          const merchantBot = new Bot(token);
-          await merchantBot.api.setWebhook(
-            `${publicUrl}/webhook/tenant/${botRecord.id}`,
-            { drop_pending_updates: true, secret_token: botRecord.webhookSecret },
-          );
-          logger.info({ botId: botRecord.id, url: `${publicUrl}/webhook/tenant/${botRecord.id}` }, "tenant webhook set");
-        } catch (err) {
-          logger.error({ err, botId: botRecord.id }, "failed to set tenant webhook");
+        const publicUrl = process.env.PUBLIC_URL;
+        if (publicUrl) {
+          try {
+            const merchantBot = new Bot(token);
+            await merchantBot.api.setWebhook(
+              `${publicUrl}/webhook/tenant/${botRecord.id}`,
+              { drop_pending_updates: true, secret_token: botRecord.webhookSecret },
+            );
+            logger.info({ botId: botRecord.id, url: `${publicUrl}/webhook/tenant/${botRecord.id}` }, "tenant webhook set");
+          } catch (err) {
+            logger.error({ err, botId: botRecord.id }, "failed to set tenant webhook");
+          }
         }
-      }
 
-      await ctx.reply(`✅ Bot @${botRecord.botUsername} connected!`, { reply_markup: menuKb });
-      return;
+        return botRecord.botUsername;
+      });
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "Unknown error";
-      if (msg.includes("Invalid")) {
+      const errMsg = err instanceof Error ? err.message : "Unknown error";
+      if (errMsg.includes("Invalid")) {
         await ctx.reply("Invalid token. Try again.", { reply_markup: cancelKb });
-      } else {
-        await ctx.reply(msg, { reply_markup: menuKb });
-        return;
+        continue;
       }
+      await ctx.reply(errMsg, { reply_markup: menuKb });
+      return;
     }
+
+    await ctx.reply(`✅ Bot @${botUsername} connected!`, { reply_markup: menuKb });
+    return;
   }
 }
 
