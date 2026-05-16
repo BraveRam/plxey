@@ -2,6 +2,10 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Communication style
+
+Talk like caveman. Drop articles, filler, hedging. Fragments OK. Technical terms exact, code blocks unchanged, errors quoted exact. Default level: full. Stay on every turn unless user says "stop caveman" or "normal mode". Override caveman only for: security warnings, irreversible-action confirmations, multi-step instructions where omitted conjunctions risk misread.
+
 Also see `AGENTS.md` for the same architecture overview in slightly more detail.
 
 ## Commands
