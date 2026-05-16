@@ -38,6 +38,7 @@ import {
   MAX_DOCUMENTS_PER_BOT,
 } from "./document-limits";
 import { escapeHtml, markdownToTelegramHtml } from "../lib/markdown-to-html";
+import { createScreen } from "../lib/screen";
 
 type BaseCtx = Context & SessionFlavor<Record<string, never>>;
 type BizCtx = BaseCtx & ConversationFlavor<BaseCtx>;
@@ -81,11 +82,10 @@ async function showManagementMenu(ctx: Context, botId: string) {
 
   const text = `⚙️ @${botRecord.botUsername} Management\n\nStatus: ${statusIcon}\n\nPrompt preview:\n${botRecord.systemPrompt.slice(0, 200)}${botRecord.systemPrompt.length > 200 ? "..." : ""}`;
 
-  if (ctx.callbackQuery) {
-    await ctx.editMessageText(text, { reply_markup: kb });
-  } else {
-    await ctx.reply(text, { reply_markup: kb });
-  }
+  // Always send a new message. Conversations that own a screen via
+  // createScreen() are expected to call screen.clear() before invoking
+  // this — that's the documented contract for the post-conversation path.
+  await ctx.reply(text, { reply_markup: kb });
 }
 
 function makeEditPromptConversation(botId: string) {
@@ -101,7 +101,8 @@ function makeEditPromptConversation(botId: string) {
       return;
     }
 
-    await ctx.editMessageText(
+    const screen = createScreen(ctx);
+    await screen.show(
       `Current prompt for @${botRecord.botUsername}:\n\n${botRecord.systemPrompt}\n\nSend your new prompt, or press Cancel.`,
       { reply_markup: cancelKb },
     );
@@ -111,13 +112,14 @@ function makeEditPromptConversation(botId: string) {
 
       if (response.callbackQuery?.data === "biz_cancel") {
         await response.answerCallbackQuery();
+        await screen.clear();
         await showManagementMenu(response, botId);
         return;
       }
 
       const newPrompt = response.message?.text?.trim();
       if (!newPrompt) {
-        await ctx.editMessageText("Please send a text message.", {
+        await screen.show("Please send a text message.", {
           reply_markup: cancelKb,
         });
         continue;
@@ -129,6 +131,7 @@ function makeEditPromptConversation(botId: string) {
       await conversation.external(() =>
         updateBot(botId, { systemPrompt: newPrompt }),
       );
+      await screen.clear();
       await ctx.reply("✅ Prompt updated!");
       await showManagementMenu(ctx, botId);
       return;
@@ -161,7 +164,8 @@ function makeEditWelcomeConversation(
       ? `Current welcome message:\n\n${botRecord.welcomeMessage}`
       : "No custom welcome message — the default is shown to customers.";
 
-    await ctx.editMessageText(
+    const screen = createScreen(ctx);
+    await screen.show(
       `${current}\n\nSend a new welcome message, or use the buttons below.`,
       { reply_markup: kb },
     );
@@ -171,6 +175,7 @@ function makeEditWelcomeConversation(
 
       if (response.callbackQuery?.data === "biz_cancel") {
         await response.answerCallbackQuery();
+        await screen.clear();
         await showManagementMenu(response, botId);
         return;
       }
@@ -183,6 +188,7 @@ function makeEditWelcomeConversation(
           await updateBot(botId, { welcomeMessage: null });
           onSaved(null);
         });
+        await screen.clear();
         await response.reply("✅ Welcome message reset to default.");
         await showManagementMenu(response, botId);
         return;
@@ -190,7 +196,7 @@ function makeEditWelcomeConversation(
 
       const newWelcome = response.message?.text?.trim();
       if (!newWelcome) {
-        await ctx.editMessageText("Please send a text message.", {
+        await screen.show("Please send a text message.", {
           reply_markup: kb,
         });
         continue;
@@ -200,6 +206,7 @@ function makeEditWelcomeConversation(
         await updateBot(botId, { welcomeMessage: newWelcome });
         onSaved(newWelcome);
       });
+      await screen.clear();
       await ctx.reply("✅ Welcome message updated!");
       await showManagementMenu(ctx, botId);
       return;
@@ -216,6 +223,8 @@ function makeDocumentManagementConversation(
     conversation: Conversation<BaseCtx, BaseCtx>,
     ctx: BaseCtx,
   ) {
+    const screen = createScreen(ctx);
+
     async function showDocsList() {
       const docs = await listDocuments(botId);
       const kb = new InlineKeyboard();
@@ -237,14 +246,14 @@ function makeDocumentManagementConversation(
           ? `No documents yet. (Up to ${MAX_DOCUMENTS_PER_BOT}, ${formatBytes(MAX_DOCUMENT_SIZE_BYTES)} each.)`
           : `📚 ${docs.length}/${MAX_DOCUMENTS_PER_BOT} documents`;
 
-      await ctx.editMessageText(text, { reply_markup: kb });
+      await screen.show(text, { reply_markup: kb });
     }
 
     async function confirmDelete(docId: string, fileName: string) {
       const confirmKb = new InlineKeyboard()
         .text("✅ Yes, delete", `biz_confirm_del_${docId}`)
         .text("❌ No", "biz_doc_cancel");
-      await ctx.editMessageText(`Delete "${fileName}" and all its data?`, {
+      await screen.show(`Delete "${fileName}" and all its data?`, {
         reply_markup: confirmKb,
       });
     }
@@ -256,6 +265,7 @@ function makeDocumentManagementConversation(
 
       if (response.callbackQuery?.data === "biz_doc_back") {
         await response.answerCallbackQuery();
+        await screen.clear();
         await showManagementMenu(response, botId);
         return;
       }
@@ -270,7 +280,7 @@ function makeDocumentManagementConversation(
         await response.answerCallbackQuery();
         const existing = await listDocuments(botId);
         if (existing.length >= MAX_DOCUMENTS_PER_BOT) {
-          await ctx.editMessageText(
+          await screen.show(
             `❌ You've reached the ${MAX_DOCUMENTS_PER_BOT}-document limit. Delete one before adding another.`,
             {
               reply_markup: new InlineKeyboard().text(
@@ -281,7 +291,7 @@ function makeDocumentManagementConversation(
           );
           continue;
         }
-        await ctx.editMessageText(
+        await screen.show(
           `Send me a document to add as knowledge for this bot.\n\nSupported: PDF, TXT, Markdown (.md), Word (.docx), HTML.\n\nMax ${formatBytes(MAX_DOCUMENT_SIZE_BYTES)} per file, up to ${MAX_DOCUMENTS_PER_BOT} documents per bot.`,
           {
             reply_markup: new InlineKeyboard().text("Cancel", "biz_doc_cancel"),

@@ -2,6 +2,7 @@ import { Bot, type Context, InlineKeyboard, session, type SessionFlavor } from "
 import { type Conversation, type ConversationFlavor, conversations, createConversation } from "@grammyjs/conversations";
 import { logger } from "../lib/logger";
 import { createBot, updateBot, deleteBot, listBots } from "../lib/api";
+import { createScreen, replaceMessage } from "../lib/screen";
 
 type BaseCtx = Context & SessionFlavor<Record<string, never>>;
 type OnCtx = BaseCtx & ConversationFlavor<BaseCtx>;
@@ -29,7 +30,7 @@ async function showBotSettings(ctx: OnCtx, botId: string) {
   const bots = await listBots(String(ctx.from!.id));
   const botRecord = bots.find(b => b.id === botId);
   if (!botRecord) {
-    await ctx.editMessageText("Bot not found.", { reply_markup: menuKb });
+    await replaceMessage(ctx, "Bot not found.", { reply_markup: menuKb });
     return;
   }
 
@@ -44,19 +45,22 @@ async function showBotSettings(ctx: OnCtx, botId: string) {
   kb.text("🗑️ Delete", `delete_${botId}`).row();
   kb.text("🔙 Back", "manage");
 
-  await ctx.editMessageText(
+  await replaceMessage(
+    ctx,
     `🤖 @${botRecord.botUsername}\nStatus: ${statusIcon}`,
-    { reply_markup: kb }
+    { reply_markup: kb },
   );
 }
 
 async function createBotConversation(conversation: Conversation<BaseCtx, BaseCtx>, ctx: BaseCtx) {
-  await ctx.editMessageText(
+  const screen = createScreen(ctx);
+
+  await screen.show(
     "Send me your bot token.\n\n" +
     "1. Create a bot via @BotFather\n" +
     "2. Enable Business Mode in BotFather settings\n" +
     "3. Paste the token here",
-    { reply_markup: cancelKb }
+    { reply_markup: cancelKb },
   );
 
   while (true) {
@@ -64,13 +68,16 @@ async function createBotConversation(conversation: Conversation<BaseCtx, BaseCtx
 
     if (response.callbackQuery?.data === "cancel") {
       await response.answerCallbackQuery();
-      await response.editMessageText("Main menu:", { reply_markup: menuKb });
+      await screen.clear();
+      await response.reply("Main menu:", { reply_markup: menuKb });
       return;
     }
 
     const token = response.message?.text?.trim();
     if (!token) {
-      await ctx.reply("Please send a valid token.", { reply_markup: cancelKb });
+      await screen.show("Please send a valid bot token, or press Cancel.", {
+        reply_markup: cancelKb,
+      });
       continue;
     }
 
@@ -111,13 +118,18 @@ async function createBotConversation(conversation: Conversation<BaseCtx, BaseCtx
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : "Unknown error";
       if (errMsg.includes("Invalid")) {
-        await ctx.reply("Invalid token. Try again.", { reply_markup: cancelKb });
+        await screen.show(
+          "Invalid token. Send me a valid bot token, or press Cancel.",
+          { reply_markup: cancelKb },
+        );
         continue;
       }
+      await screen.clear();
       await ctx.reply(errMsg, { reply_markup: menuKb });
       return;
     }
 
+    await screen.clear();
     await ctx.reply(`✅ Bot @${botUsername} connected!`, { reply_markup: menuKb });
     return;
   }
@@ -150,11 +162,11 @@ export async function createOnboardingBot(): Promise<Bot> {
     const userId = String(ctx.from!.id);
     const { kb, bots } = await botsListKb(userId);
 
-    if (bots.length === 0) {
-      await ctx.editMessageText("No bots yet. Create one below:", { reply_markup: kb });
-    } else {
-      await ctx.editMessageText("Your bots:", { reply_markup: kb });
-    }
+    await replaceMessage(
+      ctx,
+      bots.length === 0 ? "No bots yet. Create one below:" : "Your bots:",
+      { reply_markup: kb },
+    );
   });
 
   bot.callbackQuery(/^bot_(.+)$/, async (ctx) => {
@@ -184,9 +196,10 @@ export async function createOnboardingBot(): Promise<Bot> {
       .text("✅ Yes, delete", `confirm_delete_${botId}`)
       .text("❌ No", `bot_${botId}`);
 
-    await ctx.editMessageText(
+    await replaceMessage(
+      ctx,
       "⚠️ Are you sure? This permanently deletes the bot and all associated data.",
-      { reply_markup: confirmKb }
+      { reply_markup: confirmKb },
     );
   });
 
@@ -197,15 +210,16 @@ export async function createOnboardingBot(): Promise<Bot> {
 
     const userId = String(ctx.from!.id);
     const { kb, bots } = await botsListKb(userId);
-    await ctx.editMessageText(
+    await replaceMessage(
+      ctx,
       bots.length === 0 ? "No bots left. Create one below:" : "✅ Bot deleted. Your bots:",
-      { reply_markup: kb }
+      { reply_markup: kb },
     );
   });
 
   bot.callbackQuery("menu", async (ctx) => {
     await ctx.answerCallbackQuery();
-    await ctx.editMessageText("Main menu:", { reply_markup: menuKb });
+    await replaceMessage(ctx, "Main menu:", { reply_markup: menuKb });
   });
 
   return bot as unknown as Bot;
