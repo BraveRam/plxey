@@ -29,6 +29,7 @@ import {
   DbAdminReplyTargets,
   type AdminReplyTargets,
 } from "./admin-reply-targets";
+import { renderCustomerWelcome } from "./welcome";
 
 type BaseCtx = Context & SessionFlavor<Record<string, never>>;
 type BizCtx = BaseCtx & ConversationFlavor<BaseCtx>;
@@ -39,6 +40,7 @@ interface BotEntry {
   tenantId: string;
   ownerTelegramId: string;
   systemPrompt: string;
+  welcomeMessage: string | null;
   botUsername: string;
   connectedBusinessUserId: string | null;
 }
@@ -63,6 +65,8 @@ async function showManagementMenu(ctx: Context, botId: string) {
   const statusIcon = botRecord.status === "active" ? "✅ Active" : "⏸️ Paused";
   const kb = new InlineKeyboard()
     .text("✏️ Edit Prompt", "biz_edit_prompt")
+    .text("💬 Welcome Message", "biz_edit_welcome")
+    .row()
     .text("📄 Documents", "biz_documents")
     .row();
 
@@ -112,6 +116,71 @@ function makeEditPromptConversation(botId: string) {
 
       await updateBot(botId, { systemPrompt: newPrompt });
       await ctx.reply("✅ Prompt updated!");
+      await showManagementMenu(ctx, botId);
+      return;
+    }
+  };
+}
+
+function makeEditWelcomeConversation(
+  botId: string,
+  onSaved: (newValue: string | null) => void,
+) {
+  return async function editWelcomeConversation(
+    conversation: Conversation<BaseCtx, BaseCtx>,
+    ctx: BaseCtx,
+  ) {
+    const botRecord = await db.query.tenantBots.findFirst({
+      where: eq(tenantBots.id, botId),
+    });
+    if (!botRecord) {
+      await ctx.reply("Bot not found.");
+      return;
+    }
+
+    const kb = new InlineKeyboard()
+      .text("↺ Reset to default", "biz_welcome_reset")
+      .row()
+      .text("Cancel", "biz_cancel");
+
+    const current = botRecord.welcomeMessage?.trim()
+      ? `Current welcome message:\n\n${botRecord.welcomeMessage}`
+      : "No custom welcome message — the default is shown to customers.";
+
+    await ctx.editMessageText(
+      `${current}\n\nSend a new welcome message, or use the buttons below.`,
+      { reply_markup: kb },
+    );
+
+    while (true) {
+      const response = await conversation.wait();
+
+      if (response.callbackQuery?.data === "biz_cancel") {
+        await response.answerCallbackQuery();
+        await showManagementMenu(response, botId);
+        return;
+      }
+
+      if (response.callbackQuery?.data === "biz_welcome_reset") {
+        await response.answerCallbackQuery();
+        await updateBot(botId, { welcomeMessage: null });
+        onSaved(null);
+        await response.reply("✅ Welcome message reset to default.");
+        await showManagementMenu(response, botId);
+        return;
+      }
+
+      const newWelcome = response.message?.text?.trim();
+      if (!newWelcome) {
+        await ctx.editMessageText("Please send a text message.", {
+          reply_markup: kb,
+        });
+        continue;
+      }
+
+      await updateBot(botId, { welcomeMessage: newWelcome });
+      onSaved(newWelcome);
+      await ctx.reply("✅ Welcome message updated!");
       await showManagementMenu(ctx, botId);
       return;
     }
@@ -368,6 +437,7 @@ export class BotRegistry {
       tenantId: row.tenantId,
       ownerTelegramId: tenant.telegramOwnerId,
       systemPrompt: row.systemPrompt,
+      welcomeMessage: row.welcomeMessage,
       botUsername: row.botUsername ?? "",
       connectedBusinessUserId: row.connectedBusinessUserId,
     });
@@ -384,6 +454,15 @@ export class BotRegistry {
     bot.use(grammyConvs());
     bot.use(
       createConversation(makeEditPromptConversation(botId), "editPrompt"),
+    );
+    bot.use(
+      createConversation(
+        makeEditWelcomeConversation(botId, (newValue) => {
+          const entry = this.bots.get(botId);
+          if (entry) entry.welcomeMessage = newValue;
+        }),
+        "editWelcome",
+      ),
     );
     bot.use(
       createConversation(
@@ -415,6 +494,7 @@ export class BotRegistry {
       tenantId: row.tenantId,
       ownerTelegramId: tenant.telegramOwnerId,
       systemPrompt: row.systemPrompt,
+      welcomeMessage: row.welcomeMessage,
       botUsername: row.botUsername ?? "",
       connectedBusinessUserId: row.connectedBusinessUserId,
     });
@@ -449,25 +529,23 @@ export class BotRegistry {
         return;
       }
 
-      // Non-owner: direct them to the business
+      // Non-owner: send the (custom or default) welcome.
       const botEntry = this.bots.get(botId);
-      if (botEntry?.connectedBusinessUserId) {
-        const kb = new InlineKeyboard().url(
-          "💬 Contact Business",
-          `tg://user?id=${botEntry.connectedBusinessUserId}`,
-        );
-        await ctx.reply(
-          "This is the customer support bot for this business. Click below to send them a message:",
-          { reply_markup: kb },
-        );
-      } else {
-        await ctx.reply("This is a customer support bot.");
-      }
+      const { text, keyboard } = renderCustomerWelcome({
+        welcomeMessage: botEntry?.welcomeMessage,
+        connectedBusinessUserId: botEntry?.connectedBusinessUserId ?? null,
+      });
+      await ctx.reply(text, keyboard ? { reply_markup: keyboard } : {});
     });
 
     bot.callbackQuery("biz_edit_prompt", async (ctx) => {
       await ctx.answerCallbackQuery();
       await (ctx as unknown as BizCtx).conversation.enter("editPrompt");
+    });
+
+    bot.callbackQuery("biz_edit_welcome", async (ctx) => {
+      await ctx.answerCallbackQuery();
+      await (ctx as unknown as BizCtx).conversation.enter("editWelcome");
     });
 
     bot.callbackQuery("biz_documents", async (ctx) => {
@@ -634,14 +712,20 @@ export class BotRegistry {
               parse_mode: "HTML",
             });
           } catch (e) {
-            logger.warn(
-              { err: e, botId, connId },
-              "BUSINESS_PEER_INVALID sending answer",
-            );
-            await ctx.api.sendMessage(
-              Number(ownerTelegramId),
-              `⚠️ Failed to reply to customer. Make sure the bot has Business Mode enabled in @BotFather and is added to your Telegram Business account and ensure it has the necessary permissions.\n\n${customerLabel}\n\nCustomer asked: ${question}`,
-            );
+            try {
+              await ctx.api.sendMessage(chatId, result.text, {
+                business_connection_id: connId,
+              });
+            } catch (e2) {
+              logger.warn(
+                { err: e, botId, connId },
+                "BUSINESS_PEER_INVALID sending answer",
+              );
+              await ctx.api.sendMessage(
+                Number(ownerTelegramId),
+                `⚠️ Failed to reply to customer. Make sure the bot has Business Mode enabled in @BotFather and is added to your Telegram Business account and ensure it has the necessary permissions.\n\n${customerLabel}\n\nCustomer asked: ${question}`,
+              );
+            }
           }
           return;
         }
@@ -656,18 +740,11 @@ export class BotRegistry {
 
       if (!this.findByOwner(ownerId)) {
         const botEntry = this.bots.get(botId);
-        if (botEntry?.connectedBusinessUserId) {
-          const kb = new InlineKeyboard().url(
-            "💬 Contact Business",
-            `tg://user?id=${botEntry.connectedBusinessUserId}`,
-          );
-          await ctx.reply(
-            "This is the customer support bot for this business. Click below to send them a message:",
-            { reply_markup: kb },
-          );
-        } else {
-          await ctx.reply("I'm a customer support bot.");
-        }
+        const { text, keyboard } = renderCustomerWelcome({
+          welcomeMessage: botEntry?.welcomeMessage,
+          connectedBusinessUserId: botEntry?.connectedBusinessUserId ?? null,
+        });
+        await ctx.reply(text, keyboard ? { reply_markup: keyboard } : {});
         return;
       }
 

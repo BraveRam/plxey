@@ -34,9 +34,9 @@ api.post("/bots", async (c) => {
 
 api.patch("/bots/:id", async (c) => {
   const id = c.req.param("id");
-  const { status, systemPrompt } = await c.req.json<{ status?: string; systemPrompt?: string }>();
+  const { status, systemPrompt, welcomeMessage } = await c.req.json<{ status?: string; systemPrompt?: string; welcomeMessage?: string | null }>();
   try {
-    const updated = await updateBot(id, { status, systemPrompt });
+    const updated = await updateBot(id, { status, systemPrompt, welcomeMessage });
     return c.json(updated);
   } catch (err) {
     return c.json({ error: err instanceof Error ? err.message : "Unknown error" }, 404);
