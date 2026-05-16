@@ -1,36 +1,35 @@
 import { Inngest } from "inngest";
 import { embedMany } from "ai";
-import { PDFParse } from "pdf-parse";
 import { db } from "./db";
 import { documents, documentChunks, tenants, tenantBots } from "@tg-business/db";
 import { eq } from "drizzle-orm";
 import { downloadFileById } from "@tg-business/storage";
 import { decrypt } from "@tg-business/crypto";
 import { splitText } from "./chunker";
+import { extractText } from "./parsers";
 
 export const inngest = new Inngest({ id: "tg-rag" });
 
-export const processPdf = inngest.createFunction(
+export const processDocument = inngest.createFunction(
   {
-    id: "rag/pdf.ingest",
+    id: "rag/document.ingest",
     concurrency: 5,
     retries: 3,
-    triggers: [{ event: "rag/pdf.ingest" }],
+    triggers: [{ event: "rag/document.ingest" }],
   },
   async ({ event, step }) => {
-    const { b2FileId, documentId, tenantId, botId } = event.data as {
+    const { b2FileId, documentId, tenantId, botId, mimeType } = event.data as {
       b2FileId: string;
       documentId: string;
       tenantId: string;
       botId: string;
+      mimeType: string;
     };
 
     try {
       const text = await step.run("extract", async () => {
-        const pdfBuffer = await downloadFileById(b2FileId);
-        const parser = new PDFParse({ data: pdfBuffer as never });
-        const result = await parser.getText();
-        return result.text.replace(/\0/g, "");
+        const buffer = await downloadFileById(b2FileId);
+        return extractText(buffer, mimeType);
       });
 
       const modelId = process.env.EMBEDDING_MODEL ?? "openai/text-embedding-3-small";
@@ -72,7 +71,7 @@ export const processPdf = inngest.createFunction(
         if (!ownerId || !botRow) return;
 
         const botToken = await decrypt(botRow.botTokenEncrypted);
-        const fileName = doc.fileName ?? "untitled.pdf";
+        const fileName = doc.fileName ?? "untitled";
 
         await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
           method: "POST",

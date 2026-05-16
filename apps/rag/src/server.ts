@@ -1,14 +1,22 @@
 import { Hono } from "hono";
 import { serve } from "inngest/hono";
-import { inngest, processPdf } from "./ingest";
+import { inngest, processDocument } from "./ingest";
 import { db } from "./db";
 import { documents } from "@tg-business/db";
 import { eq } from "drizzle-orm";
 import { uploadFile } from "@tg-business/storage";
 
+const SUPPORTED_MIMES = new Set([
+  "application/pdf",
+  "text/plain",
+  "text/markdown",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "text/html",
+]);
+
 const app = new Hono();
 
-const handler = serve({ client: inngest, functions: [processPdf] });
+const handler = serve({ client: inngest, functions: [processDocument] });
 app.all("/api/inngest", async (c) => handler(c));
 
 app.post("/ingest", async (c) => {
@@ -26,13 +34,18 @@ app.post("/ingest", async (c) => {
       return c.json({ error: "b2FileId, tenantId, and botId required" }, 400);
     }
 
+    const mime = mimeType ?? "application/pdf";
+    if (!SUPPORTED_MIMES.has(mime)) {
+      return c.json({ error: `Unsupported mimeType: ${mime}` }, 400);
+    }
+
     const [doc] = await db
       .insert(documents)
       .values({
         tenantId,
         tenantBotId: botId,
-        fileName: fileName ?? "unknown.pdf",
-        mimeType: mimeType ?? "application/pdf",
+        fileName: fileName ?? "unknown",
+        mimeType: mime,
         status: "processing",
         source: "upload",
         b2FileId,
@@ -41,8 +54,8 @@ app.post("/ingest", async (c) => {
       .returning();
 
     await inngest.send({
-      name: "rag/pdf.ingest",
-      data: { b2FileId, documentId: doc!.id, tenantId, botId },
+      name: "rag/document.ingest",
+      data: { b2FileId, documentId: doc!.id, tenantId, botId, mimeType: mime },
     });
 
     return c.json({ documentId: doc!.id, status: "queued" }, 202);
@@ -75,11 +88,15 @@ app.post("/upload-and-ingest", async (c) => {
     if (!tenantId) return c.json({ error: "X-Tenant-Id header required" }, 400);
     const botId = c.req.header("X-Bot-Id");
     if (!botId) return c.json({ error: "X-Bot-Id header required" }, 400);
+    const mime = c.req.header("Content-Type")?.split(";")[0]?.trim() ?? "application/pdf";
+    if (!SUPPORTED_MIMES.has(mime)) {
+      return c.json({ error: `Unsupported Content-Type: ${mime}` }, 400);
+    }
 
     const bucketId = process.env.B2_BUCKET_ID;
     if (!bucketId) return c.json({ error: "B2_BUCKET_ID not configured" }, 500);
 
-    const { fileId, fileName: b2FileName } = await uploadFile(bucketId, `tenants/${tenantId}/docs/${crypto.randomUUID()}.pdf`, Buffer.from(buffer), "application/pdf");
+    const { fileId, fileName: b2FileName } = await uploadFile(bucketId, `tenants/${tenantId}/docs/${crypto.randomUUID()}`, Buffer.from(buffer), mime);
 
     const [doc] = await db
       .insert(documents)
@@ -87,7 +104,7 @@ app.post("/upload-and-ingest", async (c) => {
         tenantId,
         tenantBotId: botId,
         fileName,
-        mimeType: "application/pdf",
+        mimeType: mime,
         status: "processing",
         source: "upload",
         b2FileId: fileId,
@@ -96,8 +113,8 @@ app.post("/upload-and-ingest", async (c) => {
       .returning();
 
     await inngest.send({
-      name: "rag/pdf.ingest",
-      data: { b2FileId: fileId, documentId: doc!.id, tenantId, botId },
+      name: "rag/document.ingest",
+      data: { b2FileId: fileId, documentId: doc!.id, tenantId, botId, mimeType: mime },
     });
 
     return c.json({ documentId: doc!.id, status: "queued" }, 202);

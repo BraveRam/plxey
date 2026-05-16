@@ -30,6 +30,7 @@ import {
   type AdminReplyTargets,
 } from "./admin-reply-targets";
 import { renderCustomerWelcome } from "./welcome";
+import { detectMimeType } from "./document-types";
 
 type BaseCtx = Context & SessionFlavor<Record<string, never>>;
 type BizCtx = BaseCtx & ConversationFlavor<BaseCtx>;
@@ -250,7 +251,7 @@ function makeDocumentManagementConversation(
       if (response.callbackQuery?.data === "biz_add_doc") {
         await response.answerCallbackQuery();
         await ctx.editMessageText(
-          "Send me a PDF file to add as knowledge for this bot.",
+          "Send me a document to add as knowledge for this bot.\n\nSupported: PDF, TXT, Markdown (.md), Word (.docx), HTML.",
           {
             reply_markup: new InlineKeyboard().text("Cancel", "biz_doc_cancel"),
           },
@@ -293,10 +294,14 @@ function makeDocumentManagementConversation(
       }
 
       const doc = response.message?.document;
-      if (!doc || !doc.mime_type?.startsWith("application/pdf")) {
-        await ctx.reply("Please send a PDF file, or press Cancel.", {
-          reply_markup: docCancelKb,
-        });
+      const detectedMime = doc
+        ? detectMimeType(doc.file_name, doc.mime_type)
+        : null;
+      if (!doc || !detectedMime) {
+        await ctx.reply(
+          "Please send a supported file (PDF, TXT, Markdown, DOCX, or HTML), or press Cancel.",
+          { reply_markup: docCancelKb },
+        );
         continue;
       }
 
@@ -306,7 +311,7 @@ function makeDocumentManagementConversation(
         return;
       }
 
-      await ctx.reply("📥 Downloading PDF...");
+      await ctx.reply("📥 Downloading...");
 
       try {
         const file = await ctx.api.getFile(doc.file_id);
@@ -317,18 +322,19 @@ function makeDocumentManagementConversation(
           continue;
         }
 
-        const pdfUrl = `https://api.telegram.org/file/bot${botToken}/${filePath}`;
-        const res = await fetch(pdfUrl);
-        const pdfBuffer = Buffer.from(await res.arrayBuffer());
+        const fileUrl = `https://api.telegram.org/file/bot${botToken}/${filePath}`;
+        const res = await fetch(fileUrl);
+        const fileBuffer = Buffer.from(await res.arrayBuffer());
 
         await ctx.reply("📤 Uploading to storage...");
 
-        const b2Path = `tenants/${tenantId}/docs/${crypto.randomUUID()}.pdf`;
+        const ext = doc.file_name?.split(".").pop()?.toLowerCase();
+        const b2Path = `tenants/${tenantId}/docs/${crypto.randomUUID()}${ext ? `.${ext}` : ""}`;
         const { fileId, fileName: b2FileName } = await uploadFile(
           b2BucketId(),
           b2Path,
-          pdfBuffer,
-          "application/pdf",
+          fileBuffer,
+          detectedMime,
         );
 
         await ctx.reply("🔍 Sending for processing...");
@@ -341,8 +347,8 @@ function makeDocumentManagementConversation(
             b2FileName,
             tenantId,
             botId,
-            fileName: doc.file_name ?? "untitled.pdf",
-            mimeType: "application/pdf",
+            fileName: doc.file_name ?? "untitled",
+            mimeType: detectedMime,
           }),
         });
 
@@ -358,14 +364,15 @@ function makeDocumentManagementConversation(
             documentId: ((await ingestRes.json()) as { documentId: string })
               .documentId,
             fileName: doc.file_name,
+            mimeType: detectedMime,
           },
-          "PDF queued for processing",
+          "document queued for processing",
         );
-        await ctx.reply("✅ PDF queued for processing!");
+        await ctx.reply("✅ Document queued for processing!");
       } catch (err) {
         const msg = err instanceof Error ? err.message : "Unknown error";
-        logger.error({ err, fileName: doc.file_name }, "PDF ingestion failed");
-        await ctx.reply(`❌ Failed to process PDF: ${msg}`);
+        logger.error({ err, fileName: doc.file_name }, "document ingestion failed");
+        await ctx.reply(`❌ Failed to process document: ${msg}`);
       }
 
       await showDocsList();
