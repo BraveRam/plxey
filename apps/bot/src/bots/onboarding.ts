@@ -54,6 +54,101 @@ async function showBotSettings(ctx: OnCtx, botId: string) {
   );
 }
 
+const DELETE_CONFIRM_PHRASE = "Yes, I am totally sure.";
+
+async function deleteBotConversation(
+  conversation: Conversation<BaseCtx, BaseCtx>,
+  ctx: BaseCtx,
+  botId: string,
+) {
+  const chatId = ctx.chat!.id;
+  let screenMsgId: number | null = ctx.callbackQuery?.message?.message_id ?? null;
+
+  if (screenMsgId !== null) {
+    await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
+  }
+  let sent = await ctx.reply(
+    "⚠️ This permanently deletes the bot and all associated data.\n\n" +
+      `To confirm, reply with exactly:\n\n<code>${DELETE_CONFIRM_PHRASE}</code>\n\n` +
+      "Or press Cancel.",
+    { reply_markup: cancelKb, parse_mode: "HTML" },
+  );
+  screenMsgId = sent.message_id;
+
+  while (true) {
+    const response = await conversation.wait();
+
+    if (response.callbackQuery?.data === "cancel") {
+      await response.answerCallbackQuery();
+      if (screenMsgId !== null) {
+        await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
+        screenMsgId = null;
+      }
+      const userId = String(ctx.from!.id);
+      const { kb, bots } = await conversation.external(() => botsListKb(userId));
+      await response.reply(
+        bots.length === 0 ? "No bots yet. Create one below:" : "Your bots:",
+        { reply_markup: kb },
+      );
+      return;
+    }
+
+    if (response.callbackQuery) {
+      await response.answerCallbackQuery({ text: "Callback query old" });
+      await response.deleteMessage().catch(() => {});
+      if (screenMsgId !== null) {
+        await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
+        screenMsgId = null;
+      }
+      await response.reply("Main menu:", { reply_markup: menuKb });
+      return;
+    }
+
+    const text = response.message?.text?.trim();
+    const msg = response.message;
+    if (msg) {
+      await ctx.api.deleteMessage(msg.chat.id, msg.message_id).catch(() => {});
+    }
+
+    if (text !== DELETE_CONFIRM_PHRASE) {
+      if (screenMsgId !== null) {
+        await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
+      }
+      sent = await ctx.reply(
+        "❌ That doesn't match. Reply with exactly:\n\n" +
+          `<code>${DELETE_CONFIRM_PHRASE}</code>\n\nOr press Cancel.`,
+        { reply_markup: cancelKb, parse_mode: "HTML" },
+      );
+      screenMsgId = sent.message_id;
+      continue;
+    }
+
+    try {
+      await conversation.external(() => deleteBot(botId));
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : "Unknown error";
+      if (screenMsgId !== null) {
+        await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
+        screenMsgId = null;
+      }
+      await ctx.reply(`Delete failed: ${errMsg}`, { reply_markup: menuKb });
+      return;
+    }
+
+    const userId = String(ctx.from!.id);
+    const { kb, bots } = await conversation.external(() => botsListKb(userId));
+    if (screenMsgId !== null) {
+      await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
+      screenMsgId = null;
+    }
+    await ctx.reply(
+      bots.length === 0 ? "No bots left. Create one below:" : "✅ Bot deleted. Your bots:",
+      { reply_markup: kb },
+    );
+    return;
+  }
+}
+
 async function createBotConversation(conversation: Conversation<BaseCtx, BaseCtx>, ctx: BaseCtx) {
   const chatId = ctx.chat!.id;
   // The "screen" is the most recently sent menu/prompt message. We track its
@@ -214,6 +309,7 @@ export async function createOnboardingBot(): Promise<Bot> {
     }),
   );
   bot.use(createConversation(createBotConversation, "createBot"));
+  bot.use(createConversation(deleteBotConversation, "deleteBot"));
 
   await bot.init();
 
@@ -262,29 +358,7 @@ export async function createOnboardingBot(): Promise<Bot> {
   bot.callbackQuery(/^delete_(.+)$/, async (ctx) => {
     await ctx.answerCallbackQuery();
     const botId = ctx.match![1]!;
-    const confirmKb = new InlineKeyboard()
-      .text("✅ Yes, delete", `confirm_delete_${botId}`)
-      .text("❌ No", `bot_${botId}`);
-
-    await ctx.deleteMessage().catch(() => {});
-    await ctx.reply(
-      "⚠️ Are you sure? This permanently deletes the bot and all associated data.",
-      { reply_markup: confirmKb },
-    );
-  });
-
-  bot.callbackQuery(/^confirm_delete_(.+)$/, async (ctx) => {
-    await ctx.answerCallbackQuery();
-    const botId = ctx.match![1]!;
-    await deleteBot(botId);
-
-    const userId = String(ctx.from!.id);
-    const { kb, bots } = await botsListKb(userId);
-    await ctx.deleteMessage().catch(() => {});
-    await ctx.reply(
-      bots.length === 0 ? "No bots left. Create one below:" : "✅ Bot deleted. Your bots:",
-      { reply_markup: kb },
-    );
+    await ctx.conversation.enter("deleteBot", botId);
   });
 
   bot.callbackQuery("menu", async (ctx) => {
