@@ -25,6 +25,8 @@
     "@tg-business/crypto": "workspace:*",
     "@tg-business/db": "workspace:*",
     "@tg-business/storage": "workspace:*",
+    "@upstash/ratelimit": "^2.0.8",
+    "@upstash/redis": "^1.38.0",
     "ai": "^6.0.182",
     "backblaze-b2": "^1.7.1",
     "drizzle-orm": "^0.45.2",

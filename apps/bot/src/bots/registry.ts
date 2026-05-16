@@ -46,6 +46,11 @@ import {
   canReply,
   formatPermissions,
 } from "../lib/business-rights";
+import { customerMessageLimiter } from "../lib/redis";
+import {
+  claimPermissionAlertSlot,
+  clearPermissionAlertSlot,
+} from "../lib/permission-alert";
 
 type BaseCtx = Context & SessionFlavor<Record<string, never>>;
 type BizCtx = BaseCtx & ConversationFlavor<BaseCtx>;
@@ -65,11 +70,6 @@ interface BotEntry {
   // pre-flight gating on readBusinessMessage and the AI reply path.
   businessConnectionId: string | null;
   businessRights: BusinessBotRights | null;
-  // In-memory rate limit for the "missing can_reply" owner notification.
-  // Epoch millis of the last alert; 0 means never alerted. Reset to 0 on
-  // every business_connection update so we re-fire after the owner toggles
-  // the right off then back on.
-  lastPermissionAlertAt: number;
 }
 
 interface HistoryEntry {
@@ -638,7 +638,6 @@ export class BotRegistry {
       webhookSecret: row.webhookSecret,
       businessConnectionId: conn.businessConnectionId,
       businessRights: conn.businessRights,
-      lastPermissionAlertAt: 0,
     });
     return bot;
   }
@@ -724,7 +723,6 @@ export class BotRegistry {
       webhookSecret: row.webhookSecret,
       businessConnectionId: conn.businessConnectionId,
       businessRights: conn.businessRights,
-      lastPermissionAlertAt: 0,
     });
     return bot;
   }
@@ -949,9 +947,13 @@ export class BotRegistry {
       botEntry.businessConnectionId = conn.id;
       botEntry.businessRights = rights;
       // The owner may have re-granted can_reply after we previously alerted
-      // them — clear the rate-limit so a future regression gets a fresh
-      // alert immediately.
-      botEntry.lastPermissionAlertAt = 0;
+      // them — drop the Redis alert slot so a future regression triggers a
+      // fresh alert immediately instead of waiting out the 30-min TTL.
+      if (canReply(rights)) {
+        await clearPermissionAlertSlot(botId).catch((err) => {
+          logger.warn({ err, botId }, "failed to clear permission alert slot");
+        });
+      }
 
       // Keep the legacy tenant_bots.connectedBusinessUserId cache for older
       // callers (welcome rendering, etc.). Only set it the first time so we
@@ -1037,12 +1039,17 @@ export class BotRegistry {
         }
 
         // Pre-flight: without can_reply we can't actually send a response,
-        // so don't burn AI tokens. Alert the owner so they can fix it.
+        // so don't burn AI tokens. Alert the owner so they can fix it —
+        // throttled to once per 30 min per bot via a Redis NX+EX lock so
+        // process restarts don't re-spam.
         if (!canReply(botEntry.businessRights)) {
-          const now = Date.now();
-          const THIRTY_MIN = 30 * 60 * 1000;
-          if (now - botEntry.lastPermissionAlertAt > THIRTY_MIN) {
-            botEntry.lastPermissionAlertAt = now;
+          const shouldAlert = await claimPermissionAlertSlot(botId).catch(
+            (err) => {
+              logger.warn({ err, botId }, "permission alert slot claim failed");
+              return false;
+            },
+          );
+          if (shouldAlert) {
             try {
               await ctx.api.sendMessage(
                 Number(ownerTelegramId),
@@ -1061,6 +1068,25 @@ export class BotRegistry {
               "skipped customer message — can_reply not granted (owner already alerted)",
             );
           }
+          return;
+        }
+
+        // Per-customer rate limit. 10 messages / 60 s sliding window —
+        // protects the owner's AI-Gateway bill from a spammy customer.
+        // We rate-limit by (botId, customer telegram user id) so a
+        // misbehaving customer can't burn through one tenant's budget.
+        const customerKey = `${botId}:${from?.id ?? "anon"}`;
+        const rl = await customerMessageLimiter()
+          .limit(customerKey)
+          .catch((err) => {
+            logger.warn({ err, botId }, "rate-limit check failed; allowing");
+            return { success: true } as { success: boolean };
+          });
+        if (!rl.success) {
+          logger.warn(
+            { botId, connId, customerKey },
+            "customer message rate-limited (10/60s); skipping AI",
+          );
           return;
         }
 
