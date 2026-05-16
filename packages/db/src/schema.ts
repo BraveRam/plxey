@@ -46,10 +46,13 @@ export const businessConnections = pgTable("business_connections", {
   businessConnectionId: text("business_connection_id").notNull(),
   telegramUserId: text("telegram_user_id").notNull(),
   isEnabled: boolean("is_enabled").notNull().default(true),
+  rights: jsonb("rights").$type<Record<string, boolean | undefined>>(),
+  lastSyncedAt: timestamp("last_synced_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 }, (t) => ({
   bcUq: uniqueIndex("business_connections_bc_uq").on(t.businessConnectionId),
   tenantIdx: index("business_connections_tenant_idx").on(t.tenantId),
+  botIdx: index("business_connections_bot_idx").on(t.tenantBotId),
 }));
 
 export const documents = pgTable("documents", {

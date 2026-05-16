@@ -169,7 +169,14 @@ async function createBotConversation(conversation: Conversation<BaseCtx, BaseCtx
       await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
       screenMsgId = null;
     }
-    await ctx.reply(`✅ Bot @${botUsername} connected!`, { reply_markup: menuKb });
+    await ctx.reply(
+      `✅ Bot @${botUsername} connected!\n\n` +
+        "Next: open Telegram → Settings → Business → Chatbots, " +
+        `add @${botUsername}, and grant at least these permissions:\n` +
+        "• Reply to messages (required)\n" +
+        "• Read messages (recommended)",
+      { reply_markup: menuKb },
+    );
     return;
   }
 }

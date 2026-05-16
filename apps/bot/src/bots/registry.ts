@@ -11,11 +11,12 @@ import {
   conversations as grammyConvs,
   createConversation,
 } from "@grammyjs/conversations";
-import { eq, and, asc } from "drizzle-orm";
+import { eq, and, asc, desc } from "drizzle-orm";
 import { db } from "@tg-business/db";
 import {
   tenants,
   tenantBots,
+  businessConnections,
   conversations as convTable,
   messages,
 } from "@tg-business/db";
@@ -39,6 +40,12 @@ import {
 } from "./document-limits";
 import { escapeHtml, markdownToTelegramHtml } from "../lib/markdown-to-html";
 import { sequentializeByChat } from "../lib/sequentialize";
+import {
+  type BusinessBotRights,
+  canReadMessages,
+  canReply,
+  formatPermissions,
+} from "../lib/business-rights";
 
 type BaseCtx = Context & SessionFlavor<Record<string, never>>;
 type BizCtx = BaseCtx & ConversationFlavor<BaseCtx>;
@@ -54,6 +61,15 @@ interface BotEntry {
   botUsername: string;
   connectedBusinessUserId: string | null;
   webhookSecret: string;
+  // Latest business-connection state for this bot. businessRights drives the
+  // pre-flight gating on readBusinessMessage and the AI reply path.
+  businessConnectionId: string | null;
+  businessRights: BusinessBotRights | null;
+  // In-memory rate limit for the "missing can_reply" owner notification.
+  // Epoch millis of the last alert; 0 means never alerted. Reset to 0 on
+  // every business_connection update so we re-fire after the owner toggles
+  // the right off then back on.
+  lastPermissionAlertAt: number;
 }
 
 interface HistoryEntry {
@@ -81,6 +97,8 @@ async function showManagementMenu(ctx: Context, botId: string) {
     .row()
     .text("📄 Documents", "biz_documents")
     .text(autoReadLabel, "biz_toggle_autoread")
+    .row()
+    .text("🔒 Permissions", "biz_permissions")
     .row();
 
   const text = `⚙️ @${botRecord.botUsername} Management\n\nStatus: ${statusIcon}\n\nPrompt preview:\n${botRecord.systemPrompt.slice(0, 200)}${botRecord.systemPrompt.length > 200 ? "..." : ""}`;
@@ -606,6 +624,7 @@ export class BotRegistry {
       row.systemPrompt,
       row.botUsername ?? "",
     );
+    const conn = await this.loadActiveBusinessConnection(botId);
     this.bots.set(botId, {
       bot,
       token: rawToken,
@@ -617,8 +636,30 @@ export class BotRegistry {
       botUsername: row.botUsername ?? "",
       connectedBusinessUserId: row.connectedBusinessUserId,
       webhookSecret: row.webhookSecret,
+      businessConnectionId: conn.businessConnectionId,
+      businessRights: conn.businessRights,
+      lastPermissionAlertAt: 0,
     });
     return bot;
+  }
+
+  private async loadActiveBusinessConnection(
+    tenantBotId: string,
+  ): Promise<{
+    businessConnectionId: string | null;
+    businessRights: BusinessBotRights | null;
+  }> {
+    const row = await db.query.businessConnections.findFirst({
+      where: and(
+        eq(businessConnections.tenantBotId, tenantBotId),
+        eq(businessConnections.isEnabled, true),
+      ),
+      orderBy: [desc(businessConnections.lastSyncedAt)],
+    });
+    return {
+      businessConnectionId: row?.businessConnectionId ?? null,
+      businessRights: (row?.rights as BusinessBotRights | undefined) ?? null,
+    };
   }
 
   private buildBizBot(
@@ -669,6 +710,7 @@ export class BotRegistry {
       row.systemPrompt,
       row.botUsername ?? "",
     );
+    const conn = await this.loadActiveBusinessConnection(row.id);
     this.bots.set(row.id, {
       bot,
       token,
@@ -680,6 +722,9 @@ export class BotRegistry {
       botUsername: row.botUsername ?? "",
       connectedBusinessUserId: row.connectedBusinessUserId,
       webhookSecret: row.webhookSecret,
+      businessConnectionId: conn.businessConnectionId,
+      businessRights: conn.businessRights,
+      lastPermissionAlertAt: 0,
     });
     return bot;
   }
@@ -761,6 +806,73 @@ export class BotRegistry {
       await showManagementMenu(ctx, botId);
     });
 
+    bot.callbackQuery("biz_permissions", async (ctx) => {
+      await ctx.answerCallbackQuery();
+      const entry = this.bots.get(botId);
+      if (!entry) return;
+      const text = `🔒 Bot Permissions\n\n${formatPermissions(entry.businessRights)}`;
+      const permKb = new InlineKeyboard()
+        .text("🔄 Refresh", "biz_refresh_permissions")
+        .row()
+        .text("🔙 Back", "biz_perm_back");
+      await ctx.deleteMessage().catch(() => {});
+      await ctx.reply(text, { reply_markup: permKb });
+    });
+
+    bot.callbackQuery("biz_refresh_permissions", async (ctx) => {
+      const entry = this.bots.get(botId);
+      if (!entry) {
+        await ctx.answerCallbackQuery({ text: "Bot not loaded." });
+        return;
+      }
+      if (!entry.businessConnectionId) {
+        await ctx.answerCallbackQuery({
+          text: "No business connection yet.",
+        });
+        return;
+      }
+      try {
+        const conn = await ctx.api.getBusinessConnection(
+          entry.businessConnectionId,
+        );
+        const fresh = (conn.rights ?? null) as BusinessBotRights | null;
+        entry.businessRights = fresh;
+        await db
+          .update(businessConnections)
+          .set({
+            isEnabled: Boolean(conn.is_enabled),
+            rights: fresh,
+            lastSyncedAt: new Date(),
+          })
+          .where(
+            eq(
+              businessConnections.businessConnectionId,
+              entry.businessConnectionId,
+            ),
+          );
+        await ctx.answerCallbackQuery({ text: "Permissions refreshed." });
+      } catch (err) {
+        logger.warn({ err, botId }, "getBusinessConnection failed");
+        await ctx.answerCallbackQuery({
+          text: "Couldn't reach Telegram. Try again in a moment.",
+        });
+        return;
+      }
+      const text = `🔒 Bot Permissions\n\n${formatPermissions(entry.businessRights)}`;
+      const permKb = new InlineKeyboard()
+        .text("🔄 Refresh", "biz_refresh_permissions")
+        .row()
+        .text("🔙 Back", "biz_perm_back");
+      await ctx.deleteMessage().catch(() => {});
+      await ctx.reply(text, { reply_markup: permKb });
+    });
+
+    bot.callbackQuery("biz_perm_back", async (ctx) => {
+      await ctx.answerCallbackQuery();
+      await ctx.deleteMessage().catch(() => {});
+      await showManagementMenu(ctx, botId);
+    });
+
     // "✏️ Reply" button on admin escalation notifications. Activates the
     // reply target so the owner's next text message in this chat is
     // forwarded to the customer via the business connection.
@@ -805,17 +917,45 @@ export class BotRegistry {
       if (!botEntry) return;
 
       const userId = String(conn.user.id);
-      if (
-        botEntry.connectedBusinessUserId &&
-        botEntry.connectedBusinessUserId !== userId
-      ) {
-        logger.warn(
-          { botId, expected: botEntry.connectedBusinessUserId, got: userId },
-          "business connection blocked — already connected to another user",
-        );
-        return;
-      }
+      const isEnabled = Boolean(conn.is_enabled);
+      const rights = (conn.rights ?? null) as BusinessBotRights | null;
 
+      // Upsert the connection row keyed by business_connection_id. Telegram
+      // re-emits this update whenever rights or is_enabled change, so this
+      // is the authoritative refresh point.
+      await db
+        .insert(businessConnections)
+        .values({
+          tenantId: botEntry.tenantId,
+          tenantBotId: botId,
+          businessConnectionId: conn.id,
+          telegramUserId: userId,
+          isEnabled,
+          rights,
+          lastSyncedAt: new Date(),
+        })
+        .onConflictDoUpdate({
+          target: businessConnections.businessConnectionId,
+          set: {
+            telegramUserId: userId,
+            isEnabled,
+            rights,
+            lastSyncedAt: new Date(),
+          },
+        });
+
+      // Refresh the cached entry so the per-message hot path sees the new
+      // state without waiting for a registry reload.
+      botEntry.businessConnectionId = conn.id;
+      botEntry.businessRights = rights;
+      // The owner may have re-granted can_reply after we previously alerted
+      // them — clear the rate-limit so a future regression gets a fresh
+      // alert immediately.
+      botEntry.lastPermissionAlertAt = 0;
+
+      // Keep the legacy tenant_bots.connectedBusinessUserId cache for older
+      // callers (welcome rendering, etc.). Only set it the first time so we
+      // don't silently switch business accounts on a stale bot row.
       if (!botEntry.connectedBusinessUserId) {
         botEntry.connectedBusinessUserId = userId;
         await db
@@ -823,6 +963,18 @@ export class BotRegistry {
           .set({ connectedBusinessUserId: userId })
           .where(eq(tenantBots.id, botId));
         logger.info({ botId, userId }, "business connection authorized");
+      }
+
+      if (!isEnabled) {
+        logger.info({ botId, connId: conn.id }, "business connection disabled");
+        try {
+          await ctx.api.sendMessage(
+            Number(botEntry.ownerTelegramId),
+            `⚠️ The bot @${botEntry.botUsername} was disconnected from your Telegram Business account. It won't reply to customers until you reconnect it under Telegram → Settings → Business → Chatbots.`,
+          );
+        } catch (err) {
+          logger.warn({ err, botId }, "failed to notify owner of disable");
+        }
       }
     });
 
@@ -884,10 +1036,42 @@ export class BotRegistry {
           return;
         }
 
-        // Mark the customer's message as read (double-check) right away if
-        // the owner opted in. Requires the can_read_messages business bot
-        // right — if it's not granted the call rejects, we just log.
-        if (botEntry.autoReadBusinessMessages) {
+        // Pre-flight: without can_reply we can't actually send a response,
+        // so don't burn AI tokens. Alert the owner so they can fix it.
+        if (!canReply(botEntry.businessRights)) {
+          const now = Date.now();
+          const THIRTY_MIN = 30 * 60 * 1000;
+          if (now - botEntry.lastPermissionAlertAt > THIRTY_MIN) {
+            botEntry.lastPermissionAlertAt = now;
+            try {
+              await ctx.api.sendMessage(
+                Number(ownerTelegramId),
+                `⚠️ ${escapeHtml(customerLabel)} messaged @${botEntry.botUsername}, but the bot doesn't have permission to reply.\n\nOpen Telegram → Settings → Business → Chatbots → @${botEntry.botUsername} and grant <b>Reply to messages</b>.`,
+                { parse_mode: "HTML" },
+              );
+            } catch (err) {
+              logger.warn(
+                { err, botId },
+                "failed to notify owner of missing can_reply",
+              );
+            }
+          } else {
+            logger.warn(
+              { botId, connId },
+              "skipped customer message — can_reply not granted (owner already alerted)",
+            );
+          }
+          return;
+        }
+
+        // Mark the customer's message as read (double-check) if the owner
+        // opted in AND the bot was actually granted can_read_messages.
+        // Skipping the API call when the right is missing saves a doomed
+        // round-trip every customer message.
+        if (
+          botEntry.autoReadBusinessMessages &&
+          canReadMessages(botEntry.businessRights)
+        ) {
           await ctx.api
             .readBusinessMessage(connId, chatId, msg.message_id)
             .catch((err) => {
@@ -1008,6 +1192,13 @@ export class BotRegistry {
 
       const state = await this.ownerReplyTargets.getActive(ownerId);
       if (state && ctx.message.text) {
+        const entry = this.bots.get(botId);
+        if (!canReply(entry?.businessRights)) {
+          await ctx.reply(
+            `⚠️ The bot doesn't have permission to reply to customers. Open Telegram → Settings → Business → Chatbots → @${entry?.botUsername ?? "your bot"} and grant 'Reply to messages'.`,
+          );
+          return;
+        }
         try {
           // The owner typed this in their client. Treat as plain text and
           // escape <, >, & so the HTML parser doesn't reject anything they
