@@ -51,6 +51,7 @@ import {
   claimPermissionAlertSlot,
   clearPermissionAlertSlot,
 } from "../lib/permission-alert";
+import { UpstashSessionStorage } from "../lib/session-storage";
 
 type BaseCtx = Context & SessionFlavor<Record<string, never>>;
 type BizCtx = BaseCtx & ConversationFlavor<BaseCtx>;
@@ -671,7 +672,15 @@ export class BotRegistry {
     // the same chat (e.g. owner pressing Back while a doc upload is still
     // running) don't corrupt the conversations plugin's replay log.
     bot.use(sequentializeByChat());
-    bot.use(session({ initial: () => ({}) }));
+    bot.use(
+      session({
+        initial: () => ({}),
+        // Per-tenant-bot prefix is mandatory — two bots can each get a
+        // message from the same chatId, so a shared prefix would clobber
+        // each other's conversation state.
+        storage: new UpstashSessionStorage(`tg:session:bot:${botId}:`),
+      }),
+    );
     bot.use(grammyConvs());
     bot.use(
       createConversation(makeEditPromptConversation(botId), "editPrompt"),

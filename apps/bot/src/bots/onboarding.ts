@@ -3,6 +3,7 @@ import { type Conversation, type ConversationFlavor, conversations, createConver
 import { logger } from "../lib/logger";
 import { createBot, updateBot, deleteBot, listBots } from "../lib/api";
 import { sequentializeByChat } from "../lib/sequentialize";
+import { UpstashSessionStorage } from "../lib/session-storage";
 
 type BaseCtx = Context & SessionFlavor<Record<string, never>>;
 type OnCtx = BaseCtx & ConversationFlavor<BaseCtx>;
@@ -190,7 +191,15 @@ export async function createOnboardingBot(): Promise<Bot> {
   // Must come before session/conversations so updates from the same chat
   // never race on the conversations plugin's per-chat replay log.
   bot.use(sequentializeByChat());
-  bot.use(session({ initial: () => ({}) }));
+  bot.use(
+    session({
+      initial: () => ({}),
+      // Conversation replay log persists across restarts — no more "Bad
+      // replay" errors after a redeploy mid-conversation, and ready for
+      // horizontal scaling whenever we get there.
+      storage: new UpstashSessionStorage("tg:session:onboarding:"),
+    }),
+  );
   bot.use(conversations());
   bot.use(createConversation(createBotConversation, "createBot"));
 
