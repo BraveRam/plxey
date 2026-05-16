@@ -23,6 +23,7 @@ export interface BotResult {
   webhookSecret: string;
   systemPrompt: string;
   welcomeMessage: string | null;
+  autoReadBusinessMessages: boolean;
   createdAt: Date;
 }
 
@@ -111,7 +112,7 @@ export async function createBot(token: string, telegramOwnerId: string): Promise
   return botRecord!;
 }
 
-export async function updateBot(id: string, data: { status?: string; systemPrompt?: string; welcomeMessage?: string | null }): Promise<BotResult> {
+export async function updateBot(id: string, data: { status?: string; systemPrompt?: string; welcomeMessage?: string | null; autoReadBusinessMessages?: boolean }): Promise<BotResult> {
   const botRecord = await db.query.tenantBots.findFirst({
     where: eq(tenantBots.id, id),
   });
@@ -120,6 +121,7 @@ export async function updateBot(id: string, data: { status?: string; systemPromp
   const updates: Record<string, unknown> = {};
   if (data.systemPrompt !== undefined) updates.systemPrompt = data.systemPrompt;
   if (data.welcomeMessage !== undefined) updates.welcomeMessage = data.welcomeMessage;
+  if (data.autoReadBusinessMessages !== undefined) updates.autoReadBusinessMessages = data.autoReadBusinessMessages;
   if (data.status !== undefined) updates.status = data.status;
 
   if (Object.keys(updates).length > 0) {

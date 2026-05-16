@@ -32,6 +32,7 @@ export const tenantBots = pgTable("tenant_bots", {
   webhookSecret: text("webhook_secret").notNull(),
   systemPrompt: text("system_prompt").notNull().default("You are a helpful customer support assistant for {business_name}. Answer questions based on the provided documentation. If you cannot find the answer in the documentation, politely say so and ask the customer to rephrase or contact support."),
   welcomeMessage: text("welcome_message"),
+  autoReadBusinessMessages: boolean("auto_read_business_messages").notNull().default(true),
   connectedBusinessUserId: text("connected_business_user_id"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 }, (t) => ({

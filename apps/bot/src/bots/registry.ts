@@ -50,6 +50,7 @@ interface BotEntry {
   ownerTelegramId: string;
   systemPrompt: string;
   welcomeMessage: string | null;
+  autoReadBusinessMessages: boolean;
   botUsername: string;
   connectedBusinessUserId: string | null;
   webhookSecret: string;
@@ -73,11 +74,13 @@ async function showManagementMenu(ctx: Context, botId: string) {
   }
 
   const statusIcon = botRecord.status === "active" ? "✅ Active" : "⏸️ Paused";
+  const autoReadLabel = `👁️ Auto-read: ${botRecord.autoReadBusinessMessages ? "ON" : "OFF"}`;
   const kb = new InlineKeyboard()
     .text("✏️ Edit Prompt", "biz_edit_prompt")
     .text("💬 Welcome Message", "biz_edit_welcome")
     .row()
     .text("📄 Documents", "biz_documents")
+    .text(autoReadLabel, "biz_toggle_autoread")
     .row();
 
   const text = `⚙️ @${botRecord.botUsername} Management\n\nStatus: ${statusIcon}\n\nPrompt preview:\n${botRecord.systemPrompt.slice(0, 200)}${botRecord.systemPrompt.length > 200 ? "..." : ""}`;
@@ -610,6 +613,7 @@ export class BotRegistry {
       ownerTelegramId: tenant.telegramOwnerId,
       systemPrompt: row.systemPrompt,
       welcomeMessage: row.welcomeMessage,
+      autoReadBusinessMessages: row.autoReadBusinessMessages,
       botUsername: row.botUsername ?? "",
       connectedBusinessUserId: row.connectedBusinessUserId,
       webhookSecret: row.webhookSecret,
@@ -672,6 +676,7 @@ export class BotRegistry {
       ownerTelegramId: tenant.telegramOwnerId,
       systemPrompt: row.systemPrompt,
       welcomeMessage: row.welcomeMessage,
+      autoReadBusinessMessages: row.autoReadBusinessMessages,
       botUsername: row.botUsername ?? "",
       connectedBusinessUserId: row.connectedBusinessUserId,
       webhookSecret: row.webhookSecret,
@@ -734,6 +739,26 @@ export class BotRegistry {
     bot.callbackQuery("biz_documents", async (ctx) => {
       await ctx.answerCallbackQuery();
       await (ctx as unknown as BizCtx).conversation.enter("documentMgmt");
+    });
+
+    bot.callbackQuery("biz_toggle_autoread", async (ctx) => {
+      const entry = this.bots.get(botId);
+      if (!entry) {
+        await ctx.answerCallbackQuery({ text: "Bot not loaded." });
+        return;
+      }
+      const newValue = !entry.autoReadBusinessMessages;
+      await updateBot(botId, { autoReadBusinessMessages: newValue });
+      // Reflect in the cached entry so the business_message handler picks
+      // up the new value without waiting for a registry reload.
+      entry.autoReadBusinessMessages = newValue;
+      await ctx.answerCallbackQuery({
+        text: newValue
+          ? "Auto-read enabled — customer messages will show as read."
+          : "Auto-read disabled — customer messages stay unread until you open them.",
+      });
+      await ctx.deleteMessage().catch(() => {});
+      await showManagementMenu(ctx, botId);
     });
 
     // "✏️ Reply" button on admin escalation notifications. Activates the
@@ -858,6 +883,18 @@ export class BotRegistry {
           logger.error({ botId }, "no bot entry loaded");
           return;
         }
+
+        // Mark the customer's message as read (double-check) right away if
+        // the owner opted in. Requires the can_read_messages business bot
+        // right — if it's not granted the call rejects, we just log.
+        if (botEntry.autoReadBusinessMessages) {
+          await ctx.api
+            .readBusinessMessage(connId, chatId, msg.message_id)
+            .catch((err) => {
+              logger.warn({ err, botId, connId }, "readBusinessMessage failed");
+            });
+        }
+
         const tenantId = botEntry.tenantId;
         const conv = await this.getOrCreateConversation(
           tenantId,
