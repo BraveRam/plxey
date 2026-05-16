@@ -1,8 +1,16 @@
 import { expect, test, describe, beforeEach } from "bun:test";
-import { createReplyCallbackData, InMemoryAdminReplyTargets } from "../src/bots/admin-reply-targets";
+import {
+  createReplyCallbackData,
+  createReplyCancelCallbackData,
+  InMemoryAdminReplyTargets,
+} from "../src/bots/admin-reply-targets";
 
 test("reply callback data contains only a short lookup token", () => {
   expect(createReplyCallbackData("abc123")).toBe("oreply_abc123");
+});
+
+test("reply cancel callback data has a distinct prefix from reply itself", () => {
+  expect(createReplyCancelCallbackData("abc123")).toBe("oreply_cancel_abc123");
 });
 
 test("admin reply target is selected by the pressed callback token", async () => {
@@ -20,13 +28,48 @@ test("admin reply target is selected by the pressed callback token", async () =>
     botId: "bot-1",
     chatId: 222,
     businessConnectionId: "conn-b",
+    customerLabel: null,
+    promptMessageId: null,
   });
   expect(await targets.getActive("admin-1")).toEqual({
     token: "token-b",
     botId: "bot-1",
     chatId: 222,
     businessConnectionId: "conn-b",
+    customerLabel: null,
+    promptMessageId: null,
   });
+});
+
+test("create preserves customerLabel on the target", async () => {
+  const targets = new InMemoryAdminReplyTargets(() => "token-c");
+  await targets.create({
+    botId: "bot-1",
+    chatId: 111,
+    businessConnectionId: "conn-a",
+    customerLabel: "👤 Alice (@alice) — ID: 42",
+  });
+  const active = await targets.activate("admin-1", "token-c");
+  expect(active?.customerLabel).toBe("👤 Alice (@alice) — ID: 42");
+});
+
+test("setPromptMessageId records the prompt id and getActive returns it", async () => {
+  const targets = new InMemoryAdminReplyTargets(() => "token-d");
+  await targets.create({ botId: "bot-1", chatId: 111, businessConnectionId: "conn-a" });
+  await targets.activate("admin-1", "token-d");
+  await targets.setPromptMessageId("token-d", 5555);
+  const active = await targets.getActive("admin-1");
+  expect(active?.promptMessageId).toBe(5555);
+});
+
+test("activating a fresh target clears any stale promptMessageId from before", async () => {
+  const targets = new InMemoryAdminReplyTargets(() => "token-e");
+  await targets.create({ botId: "bot-1", chatId: 111, businessConnectionId: "conn-a" });
+  await targets.activate("admin-1", "token-e");
+  await targets.setPromptMessageId("token-e", 9999);
+  // Re-activating (e.g., the owner reopened the same reply) starts fresh.
+  const reactivated = await targets.activate("admin-1", "token-e");
+  expect(reactivated?.promptMessageId).toBeNull();
 });
 
 test("active target survives store re-instantiation when storage is shared", async () => {
@@ -42,6 +85,8 @@ test("active target survives store re-instantiation when storage is shared", asy
     botId: "bot-1",
     chatId: 333,
     businessConnectionId: "conn-c",
+    customerLabel: null,
+    promptMessageId: null,
   });
 });
 
@@ -102,6 +147,8 @@ test("clearBot removes all targets for that bot only", async () => {
     botId: "bot-2",
     chatId: 222,
     businessConnectionId: "conn-b",
+    customerLabel: null,
+    promptMessageId: null,
   });
 });
 

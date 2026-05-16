@@ -27,6 +27,7 @@ import { updateBot, listDocuments, deleteDocument } from "../lib/api";
 import { logger } from "../lib/logger";
 import {
   createReplyCallbackData,
+  createReplyCancelCallbackData,
   DbAdminReplyTargets,
   type AdminReplyTargets,
 } from "./admin-reply-targets";
@@ -50,6 +51,7 @@ import {
   customerMessageLimiter,
   permissionRefreshLimiter,
 } from "../lib/redis";
+import { forwardMessageAsBusinessReply } from "../lib/business-reply";
 import {
   claimPermissionAlertSlot,
   clearPermissionAlertSlot,
@@ -908,9 +910,11 @@ export class BotRegistry {
     });
 
     // "✏️ Reply" button on admin escalation notifications. Activates the
-    // reply target so the owner's next text message in this chat is
-    // forwarded to the customer via the business connection.
-    bot.callbackQuery(/^oreply_(.+)$/, async (ctx) => {
+    // reply target, deletes the notification, and shows a "Send your
+    // reply" prompt with a Cancel button. The owner's next message of
+    // any type is copied to the customer via copyMessage on the business
+    // connection.
+    bot.callbackQuery(/^oreply_([a-f0-9]{16})$/, async (ctx) => {
       const token = ctx.match![1]!;
       const ownerId = String(ctx.from?.id ?? "");
       const target = await this.ownerReplyTargets.activate(ownerId, token);
@@ -920,9 +924,40 @@ export class BotRegistry {
         });
         return;
       }
-      await ctx.answerCallbackQuery({
-        text: "Type your reply — your next message goes to the customer.",
-      });
+      await ctx.answerCallbackQuery();
+      // Drop the notification (the Reply button is one-shot — re-tapping
+      // a stale notification after a send/cancel shouldn't be possible).
+      await ctx.deleteMessage().catch(() => {});
+
+      const contextLine = target.customerLabel
+        ? `Replying to ${escapeHtml(target.customerLabel)}\n\n`
+        : "";
+      const cancelKb = new InlineKeyboard().text(
+        "✕ Cancel",
+        createReplyCancelCallbackData(token),
+      );
+      const prompt = await ctx.reply(
+        `${contextLine}<b>Send your reply</b> — text, photo, voice, sticker, file, anything. The customer will receive an exact copy.\n\nOr tap Cancel.`,
+        { reply_markup: cancelKb, parse_mode: "HTML" },
+      );
+      await this.ownerReplyTargets
+        .setPromptMessageId(token, prompt.message_id)
+        .catch((err) => {
+          logger.warn(
+            { err, botId, token },
+            "failed to record reply-prompt message id",
+          );
+        });
+    });
+
+    // "✕ Cancel" button on the reply prompt — discard the active reply
+    // target, delete the prompt, and let the owner know.
+    bot.callbackQuery(/^oreply_cancel_([a-f0-9]{16})$/, async (ctx) => {
+      const token = ctx.match![1]!;
+      await ctx.answerCallbackQuery();
+      await this.ownerReplyTargets.markUsed(token);
+      await ctx.deleteMessage().catch(() => {});
+      await ctx.reply("Reply cancelled.");
     });
 
     // Catch-all: callbacks no earlier handler matched. Buttons left over
@@ -1172,6 +1207,7 @@ export class BotRegistry {
                   botId,
                   chatId,
                   businessConnectionId: connId,
+                  customerLabel,
                 });
                 const kb = new InlineKeyboard().text(
                   "✏️ Reply",
@@ -1253,7 +1289,7 @@ export class BotRegistry {
       }
 
       const state = await this.ownerReplyTargets.getActive(ownerId);
-      if (state && ctx.message.text) {
+      if (state) {
         const entry = this.bots.get(botId);
         if (!canReply(entry?.businessRights)) {
           await ctx.reply(
@@ -1262,22 +1298,40 @@ export class BotRegistry {
           return;
         }
         try {
-          // The owner typed this in their client. Treat as plain text and
-          // escape <, >, & so the HTML parser doesn't reject anything they
-          // happen to type (e.g. "if a < b").
-          await ctx.api.sendMessage(state.chatId, escapeHtml(ctx.message.text), {
-            business_connection_id: state.businessConnectionId,
-            parse_mode: "HTML",
-          });
+          // Forward whatever the owner sent (text/photo/voice/video/…)
+          // by dispatching to the matching sendXxx with the business
+          // connection id. Telegram's copyMessage does NOT accept
+          // business_connection_id (it'd land as the bot, not the
+          // business), so we have to inspect the message type and re-send
+          // via file_id — see lib/business-reply.ts for the dispatch.
+          const sent = await forwardMessageAsBusinessReply(
+            ctx.api,
+            ctx.message,
+            state.chatId,
+            state.businessConnectionId,
+          );
+          if (!sent) {
+            await ctx.reply(
+              "⚠️ I can't forward that type of message yet. Please send text, photo, voice, video, audio, document, sticker, animation (GIF), location, or contact.",
+            );
+            return;
+          }
           await this.ownerReplyTargets.markUsed(state.token);
+          // Clean up the "Send your reply" prompt so the owner's chat
+          // doesn't accumulate stale prompts.
+          if (state.promptMessageId !== null) {
+            await ctx.api
+              .deleteMessage(ctx.chat!.id, state.promptMessageId)
+              .catch(() => {});
+          }
           await ctx.reply("✅ Sent to customer.");
         } catch (e) {
           logger.warn(
             { err: e, botId: state.botId },
-            "BUSINESS_PEER_INVALID forwarding owner reply",
+            "forwarding owner reply failed",
           );
           await ctx.reply(
-            "⚠️ Couldn't send. Make sure the bot has Business Mode enabled in @BotFather and is added as admin to your Telegram Business account.",
+            "⚠️ Couldn't send. Make sure the bot has Business Mode enabled in @BotFather and is added as admin to your Telegram Business account, with 'Reply to messages' granted.",
           );
         }
         return;

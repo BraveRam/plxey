@@ -104,8 +104,16 @@ export const adminReplyTargets = pgTable("admin_reply_targets", {
   tenantBotId: uuid("tenant_bot_id").notNull().references(() => tenantBots.id, { onDelete: "cascade" }),
   telegramChatId: text("telegram_chat_id").notNull(),
   businessConnectionId: text("business_connection_id").notNull(),
+  // Pre-rendered "👤 Name (@handle) — ID: 123" label, captured when the
+  // AI escalates, so the owner-side reply prompt can quote who they're
+  // replying to after we delete the original notification.
+  customerLabel: text("customer_label"),
   selectedByOwnerTelegramId: text("selected_by_owner_telegram_id"),
   selectedAt: timestamp("selected_at", { withTimezone: true }),
+  // Telegram message_id of the "Send your reply" prompt we showed the
+  // owner after they tapped Reply. We delete it once they send their
+  // reply (or it's superseded by another activation).
+  promptMessageId: text("prompt_message_id"),
   usedAt: timestamp("used_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 }, (t) => ({

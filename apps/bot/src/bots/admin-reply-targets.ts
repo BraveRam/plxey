@@ -7,17 +7,21 @@ export interface OwnerReplyTarget {
   botId: string;
   chatId: number;
   businessConnectionId: string;
+  customerLabel: string | null;
+  promptMessageId: number | null;
 }
 
 export interface CreateOwnerReplyTarget {
   botId: string;
   chatId: number;
   businessConnectionId: string;
+  customerLabel?: string;
 }
 
 export interface AdminReplyTargets {
   create(target: CreateOwnerReplyTarget): Promise<string>;
   activate(ownerTelegramId: string, token: string): Promise<OwnerReplyTarget | null>;
+  setPromptMessageId(token: string, promptMessageId: number): Promise<void>;
   getActive(ownerTelegramId: string): Promise<OwnerReplyTarget | null>;
   markUsed(token: string): Promise<void>;
   clearBot(botId: string): Promise<void>;
@@ -26,6 +30,7 @@ export interface AdminReplyTargets {
 interface StoredOwnerReplyTarget extends CreateOwnerReplyTarget {
   selectedByOwnerTelegramId: string | null;
   selectedAt: Date | null;
+  promptMessageId: number | null;
   usedAt: Date | null;
 }
 
@@ -37,6 +42,10 @@ function createReplyToken(): string {
 
 export function createReplyCallbackData(replyToken: string): string {
   return `oreply_${replyToken}`;
+}
+
+export function createReplyCancelCallbackData(replyToken: string): string {
+  return `oreply_cancel_${replyToken}`;
 }
 
 export class InMemoryAdminReplyTargets implements AdminReplyTargets {
@@ -56,6 +65,7 @@ export class InMemoryAdminReplyTargets implements AdminReplyTargets {
       ...target,
       selectedByOwnerTelegramId: null,
       selectedAt: null,
+      promptMessageId: null,
       usedAt: null,
     });
     return token;
@@ -67,7 +77,13 @@ export class InMemoryAdminReplyTargets implements AdminReplyTargets {
     this.clearActiveSelection(ownerTelegramId);
     target.selectedByOwnerTelegramId = ownerTelegramId;
     target.selectedAt = new Date();
+    target.promptMessageId = null;
     return this.toOwnerReplyTarget(token, target);
+  }
+
+  async setPromptMessageId(token: string, promptMessageId: number): Promise<void> {
+    const target = this.targets.get(token);
+    if (target) target.promptMessageId = promptMessageId;
   }
 
   async getActive(ownerTelegramId: string): Promise<OwnerReplyTarget | null> {
@@ -98,6 +114,8 @@ export class InMemoryAdminReplyTargets implements AdminReplyTargets {
       botId: target.botId,
       chatId: target.chatId,
       businessConnectionId: target.businessConnectionId,
+      customerLabel: target.customerLabel ?? null,
+      promptMessageId: target.promptMessageId,
     };
   }
 
@@ -106,6 +124,7 @@ export class InMemoryAdminReplyTargets implements AdminReplyTargets {
       if (target.selectedByOwnerTelegramId !== ownerTelegramId || target.usedAt) continue;
       target.selectedByOwnerTelegramId = null;
       target.selectedAt = null;
+      target.promptMessageId = null;
     }
   }
 }
@@ -125,6 +144,7 @@ export class DbAdminReplyTargets implements AdminReplyTargets {
       tenantBotId: target.botId,
       telegramChatId: String(target.chatId),
       businessConnectionId: target.businessConnectionId,
+      customerLabel: target.customerLabel ?? null,
     });
 
     return token;
@@ -139,6 +159,7 @@ export class DbAdminReplyTargets implements AdminReplyTargets {
       .set({
         selectedByOwnerTelegramId: null,
         selectedAt: null,
+        promptMessageId: null,
       })
       .where(and(
         eq(adminReplyTargets.selectedByOwnerTelegramId, ownerTelegramId),
@@ -150,10 +171,22 @@ export class DbAdminReplyTargets implements AdminReplyTargets {
       .set({
         selectedByOwnerTelegramId: ownerTelegramId,
         selectedAt: new Date(),
+        promptMessageId: null,
       })
       .where(eq(adminReplyTargets.token, token));
 
-    return this.toOwnerReplyTarget(target);
+    return this.toOwnerReplyTarget({
+      ...target,
+      selectedByOwnerTelegramId: ownerTelegramId,
+      promptMessageId: null,
+    });
+  }
+
+  async setPromptMessageId(token: string, promptMessageId: number): Promise<void> {
+    await this.database
+      .update(adminReplyTargets)
+      .set({ promptMessageId: String(promptMessageId) })
+      .where(eq(adminReplyTargets.token, token));
   }
 
   async getActive(ownerTelegramId: string): Promise<OwnerReplyTarget | null> {
@@ -202,6 +235,10 @@ export class DbAdminReplyTargets implements AdminReplyTargets {
       botId: target.tenantBotId,
       chatId: Number(target.telegramChatId),
       businessConnectionId: target.businessConnectionId,
+      customerLabel: target.customerLabel,
+      promptMessageId: target.promptMessageId
+        ? Number(target.promptMessageId)
+        : null,
     };
   }
 }
