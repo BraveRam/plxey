@@ -48,17 +48,21 @@ describe("formatPermissions", () => {
   test("missing optional rights show ❌", () => {
     const out = formatPermissions({
       can_reply: true,
-      can_delete_sent_messages: false,
+      can_read_messages: false,
     });
-    expect(out).toContain("❌ Delete its own messages");
+    expect(out).toContain("❌ Read messages");
   });
 
-  test("unknown fields don't break rendering (forward-compat)", () => {
+  test("only renders rights this bot actually uses (no profile/gift/story noise)", () => {
     const out = formatPermissions({
       can_reply: true,
-      can_send_random_stickers: true,
+      can_read_messages: true,
+      can_delete_sent_messages: true,
+      can_edit_name: true,
+      can_manage_stories: true,
     } as unknown as Record<string, boolean>);
-    expect(out).toContain("✅ Reply to messages");
-    expect(typeof out).toBe("string");
+    expect(out).not.toContain("Delete");
+    expect(out).not.toContain("Edit your");
+    expect(out).not.toContain("stories");
   });
 });
