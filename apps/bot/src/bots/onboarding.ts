@@ -2,6 +2,7 @@ import { Bot, type Context, InlineKeyboard, session, type SessionFlavor } from "
 import { type Conversation, type ConversationFlavor, conversations, createConversation } from "@grammyjs/conversations";
 import { logger } from "../lib/logger";
 import { createBot, updateBot, deleteBot, listBots } from "../lib/api";
+import { sequentializeByChat } from "../lib/sequentialize";
 
 type BaseCtx = Context & SessionFlavor<Record<string, never>>;
 type OnCtx = BaseCtx & ConversationFlavor<BaseCtx>;
@@ -167,6 +168,9 @@ export async function createOnboardingBot(): Promise<Bot> {
 
   const bot = new Bot<OnCtx>(token);
 
+  // Must come before session/conversations so updates from the same chat
+  // never race on the conversations plugin's per-chat replay log.
+  bot.use(sequentializeByChat());
   bot.use(session({ initial: () => ({}) }));
   bot.use(conversations());
   bot.use(createConversation(createBotConversation, "createBot"));

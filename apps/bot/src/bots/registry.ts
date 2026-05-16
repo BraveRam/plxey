@@ -38,6 +38,7 @@ import {
   MAX_DOCUMENTS_PER_BOT,
 } from "./document-limits";
 import { escapeHtml, markdownToTelegramHtml } from "../lib/markdown-to-html";
+import { sequentializeByChat } from "../lib/sequentialize";
 
 type BaseCtx = Context & SessionFlavor<Record<string, never>>;
 type BizCtx = BaseCtx & ConversationFlavor<BaseCtx>;
@@ -586,6 +587,10 @@ export class BotRegistry {
     tenantId: string,
   ): Bot<Context> {
     const bot = new Bot<BizCtx>(rawToken);
+    // Must come before session/conversations so concurrent updates from
+    // the same chat (e.g. owner pressing Back while a doc upload is still
+    // running) don't corrupt the conversations plugin's replay log.
+    bot.use(sequentializeByChat());
     bot.use(session({ initial: () => ({}) }));
     bot.use(grammyConvs());
     bot.use(
