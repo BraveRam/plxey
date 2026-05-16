@@ -85,6 +85,18 @@ async function createBotConversation(conversation: Conversation<BaseCtx, BaseCtx
       return;
     }
 
+    if (response.callbackQuery) {
+      // Stale button from an older state. Exit cleanly to the main menu.
+      await response.answerCallbackQuery({ text: "Callback query old" });
+      await response.deleteMessage().catch(() => {});
+      if (screenMsgId !== null) {
+        await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
+        screenMsgId = null;
+      }
+      await response.reply("Main menu:", { reply_markup: menuKb });
+      return;
+    }
+
     const token = response.message?.text?.trim();
     if (!token) {
       if (screenMsgId !== null) {
@@ -249,6 +261,14 @@ export async function createOnboardingBot(): Promise<Bot> {
 
   bot.callbackQuery("menu", async (ctx) => {
     await ctx.answerCallbackQuery();
+    await ctx.deleteMessage().catch(() => {});
+    await ctx.reply("Main menu:", { reply_markup: menuKb });
+  });
+
+  // Catch-all for callbacks that no specific handler matched — buttons left
+  // over after a process restart, or stale buttons whose state is gone.
+  bot.on("callback_query:data", async (ctx) => {
+    await ctx.answerCallbackQuery({ text: "Callback query old" }).catch(() => {});
     await ctx.deleteMessage().catch(() => {});
     await ctx.reply("Main menu:", { reply_markup: menuKb });
   });

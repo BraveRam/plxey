@@ -128,6 +128,18 @@ function makeEditPromptConversation(botId: string) {
         return;
       }
 
+      if (response.callbackQuery) {
+        // Unknown / stale button — exit cleanly to the management menu.
+        await response.answerCallbackQuery({ text: "Callback query old" });
+        await response.deleteMessage().catch(() => {});
+        if (screenMsgId !== null) {
+          await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
+          screenMsgId = null;
+        }
+        await showManagementMenu(response, botId);
+        return;
+      }
+
       const newPrompt = response.message?.text?.trim();
       if (!newPrompt) {
         if (screenMsgId !== null) {
@@ -220,6 +232,18 @@ function makeEditWelcomeConversation(
           screenMsgId = null;
         }
         await response.reply("✅ Welcome message reset to default.");
+        await showManagementMenu(response, botId);
+        return;
+      }
+
+      if (response.callbackQuery) {
+        // Unknown / stale button — exit cleanly to the management menu.
+        await response.answerCallbackQuery({ text: "Callback query old" });
+        await response.deleteMessage().catch(() => {});
+        if (screenMsgId !== null) {
+          await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
+          screenMsgId = null;
+        }
         await showManagementMenu(response, botId);
         return;
       }
@@ -393,6 +417,18 @@ function makeDocumentManagementConversation(
         }
         await showDocsList();
         continue;
+      }
+
+      if (response.callbackQuery) {
+        // Unknown / stale button — exit cleanly to the management menu.
+        await response.answerCallbackQuery({ text: "Callback query old" });
+        await response.deleteMessage().catch(() => {});
+        if (screenMsgId !== null) {
+          await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
+          screenMsgId = null;
+        }
+        await showManagementMenu(response, botId);
+        return;
       }
 
       const doc = response.message?.document;
@@ -698,6 +734,40 @@ export class BotRegistry {
     bot.callbackQuery("biz_documents", async (ctx) => {
       await ctx.answerCallbackQuery();
       await (ctx as unknown as BizCtx).conversation.enter("documentMgmt");
+    });
+
+    // "✏️ Reply" button on admin escalation notifications. Activates the
+    // reply target so the owner's next text message in this chat is
+    // forwarded to the customer via the business connection.
+    bot.callbackQuery(/^oreply_(.+)$/, async (ctx) => {
+      const token = ctx.match![1]!;
+      const ownerId = String(ctx.from?.id ?? "");
+      const target = await this.ownerReplyTargets.activate(ownerId, token);
+      if (!target) {
+        await ctx.answerCallbackQuery({
+          text: "This reply window expired or was already used.",
+        });
+        return;
+      }
+      await ctx.answerCallbackQuery({
+        text: "Type your reply — your next message goes to the customer.",
+      });
+    });
+
+    // Catch-all: callbacks no earlier handler matched. Buttons left over
+    // after a process restart or stale screens whose state is gone. For
+    // owner clicks, surface "Callback query old" and drop them back on
+    // the management menu; for non-owners (shouldn't really happen here),
+    // just acknowledge silently.
+    bot.on("callback_query:data", async (ctx) => {
+      const ownerId = String(ctx.from?.id ?? "");
+      if (!this.findByOwner(ownerId)) {
+        await ctx.answerCallbackQuery().catch(() => {});
+        return;
+      }
+      await ctx.answerCallbackQuery({ text: "Callback query old" }).catch(() => {});
+      await ctx.deleteMessage().catch(() => {});
+      await showManagementMenu(ctx, botId);
     });
 
     // --- Business connection ---
