@@ -46,7 +46,10 @@ import {
   canReply,
   formatPermissions,
 } from "../lib/business-rights";
-import { customerMessageLimiter } from "../lib/redis";
+import {
+  customerMessageLimiter,
+  permissionRefreshLimiter,
+} from "../lib/redis";
 import {
   claimPermissionAlertSlot,
   clearPermissionAlertSlot,
@@ -835,6 +838,18 @@ export class BotRegistry {
       if (!entry.businessConnectionId) {
         await ctx.answerCallbackQuery({
           text: "No business connection yet.",
+        });
+        return;
+      }
+      // Stop double-taps from firing two getBusinessConnection requests
+      // against Telegram in quick succession. Fail open if Redis is down —
+      // a missed rate-limit is harmless here.
+      const rl = await permissionRefreshLimiter()
+        .limit(botId)
+        .catch(() => ({ success: true } as { success: boolean }));
+      if (!rl.success) {
+        await ctx.answerCallbackQuery({
+          text: "Already up to date — try again in a moment.",
         });
         return;
       }

@@ -39,3 +39,51 @@ export function customerMessageLimiter(): Ratelimit {
   });
   return cachedMsgLimit;
 }
+
+/**
+ * Per-IP rate limit for the public /api/* surface.
+ *
+ * Sliding window: 120 requests / 60 seconds. The mini-app and any future
+ * external integrations all share this budget per source IP. Generous
+ * enough not to block a real owner clicking around their dashboard, tight
+ * enough to catch scripted abuse.
+ *
+ * Key: `rl:api:{ip}`.
+ */
+let cachedApiLimit: Ratelimit | null = null;
+
+export function apiLimiter(): Ratelimit {
+  if (cachedApiLimit) return cachedApiLimit;
+  cachedApiLimit = new Ratelimit({
+    redis: redis(),
+    limiter: Ratelimit.slidingWindow(120, "60 s"),
+    prefix: "rl:api",
+    analytics: false,
+  });
+  return cachedApiLimit;
+}
+
+/**
+ * Per-bot rate limit on the "🔄 Refresh" button in the permissions panel.
+ *
+ * Fixed window: 1 call / 3 seconds. Stops accidental double-taps from
+ * firing two getBusinessConnection requests against Telegram in
+ * succession. We use rate-limiting here instead of caching the response
+ * because Refresh is meant to mean "give me a fresh value" — caching
+ * would silently serve stale data; rate-limiting just lengthens the
+ * window between fresh fetches.
+ *
+ * Key: `rl:perm-refresh:{botId}`.
+ */
+let cachedRefreshLimit: Ratelimit | null = null;
+
+export function permissionRefreshLimiter(): Ratelimit {
+  if (cachedRefreshLimit) return cachedRefreshLimit;
+  cachedRefreshLimit = new Ratelimit({
+    redis: redis(),
+    limiter: Ratelimit.fixedWindow(1, "3 s"),
+    prefix: "rl:perm-refresh",
+    analytics: false,
+  });
+  return cachedRefreshLimit;
+}

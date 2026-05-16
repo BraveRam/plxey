@@ -1,7 +1,21 @@
 import { Hono } from "hono";
 import { getOrCreateTenant, listBots, createBot, updateBot, deleteBot, listDocuments, deleteDocument } from "../lib/api";
+import { apiLimiter } from "../lib/redis";
+import { clientIp } from "../lib/client-ip";
 
 export const api = new Hono();
+
+// Per-source-IP rate limit on every /api/* route. Fail open on Redis
+// errors so a transient Upstash blip doesn't take the admin surface
+// offline.
+api.use("*", async (c, next) => {
+  const ip = clientIp({ get: (name) => c.req.header(name) });
+  const rl = await apiLimiter()
+    .limit(ip)
+    .catch(() => ({ success: true } as { success: boolean }));
+  if (!rl.success) return c.json({ error: "rate limit exceeded" }, 429);
+  await next();
+});
 
 api.post("/tenants", async (c) => {
   const { telegramOwnerId } = await c.req.json<{ telegramOwnerId: string }>();
