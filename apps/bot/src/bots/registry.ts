@@ -31,6 +31,12 @@ import {
 } from "./admin-reply-targets";
 import { renderCustomerWelcome } from "./welcome";
 import { detectMimeType } from "./document-types";
+import {
+  checkDocumentLimits,
+  formatBytes,
+  MAX_DOCUMENT_SIZE_BYTES,
+  MAX_DOCUMENTS_PER_BOT,
+} from "./document-limits";
 import { escapeHtml, markdownToTelegramHtml } from "../lib/markdown-to-html";
 
 type BaseCtx = Context & SessionFlavor<Record<string, never>>;
@@ -228,8 +234,8 @@ function makeDocumentManagementConversation(
 
       const text =
         docs.length === 0
-          ? "No documents yet."
-          : `📚 ${docs.length} document(s)`;
+          ? `No documents yet. (Up to ${MAX_DOCUMENTS_PER_BOT}, ${formatBytes(MAX_DOCUMENT_SIZE_BYTES)} each.)`
+          : `📚 ${docs.length}/${MAX_DOCUMENTS_PER_BOT} documents`;
 
       await ctx.editMessageText(text, { reply_markup: kb });
     }
@@ -262,8 +268,21 @@ function makeDocumentManagementConversation(
 
       if (response.callbackQuery?.data === "biz_add_doc") {
         await response.answerCallbackQuery();
+        const existing = await listDocuments(botId);
+        if (existing.length >= MAX_DOCUMENTS_PER_BOT) {
+          await ctx.editMessageText(
+            `❌ You've reached the ${MAX_DOCUMENTS_PER_BOT}-document limit. Delete one before adding another.`,
+            {
+              reply_markup: new InlineKeyboard().text(
+                "🔙 Back",
+                "biz_doc_cancel",
+              ),
+            },
+          );
+          continue;
+        }
         await ctx.editMessageText(
-          "Send me a document to add as knowledge for this bot.\n\nSupported: PDF, TXT, Markdown (.md), Word (.docx), HTML.",
+          `Send me a document to add as knowledge for this bot.\n\nSupported: PDF, TXT, Markdown (.md), Word (.docx), HTML.\n\nMax ${formatBytes(MAX_DOCUMENT_SIZE_BYTES)} per file, up to ${MAX_DOCUMENTS_PER_BOT} documents per bot.`,
           {
             reply_markup: new InlineKeyboard().text("Cancel", "biz_doc_cancel"),
           },
@@ -314,6 +333,26 @@ function makeDocumentManagementConversation(
           "Please send a supported file (PDF, TXT, Markdown, DOCX, or HTML), or press Cancel.",
           { reply_markup: docCancelKb },
         );
+        continue;
+      }
+
+      const existing = await listDocuments(botId);
+      const limitCheck = checkDocumentLimits({
+        fileSize: doc.file_size,
+        currentDocCount: existing.length,
+      });
+      if (!limitCheck.ok) {
+        if (limitCheck.reason === "too_many") {
+          await ctx.reply(
+            `❌ You've reached the ${limitCheck.limit}-document limit. Delete one before adding another.`,
+            { reply_markup: docCancelKb },
+          );
+        } else {
+          await ctx.reply(
+            `❌ File is too large (${formatBytes(limitCheck.size)}). Max ${formatBytes(limitCheck.limit)} per file.`,
+            { reply_markup: docCancelKb },
+          );
+        }
         continue;
       }
 
