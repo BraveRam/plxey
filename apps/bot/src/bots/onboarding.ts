@@ -90,7 +90,7 @@ async function createBotConversation(conversation: Conversation<BaseCtx, BaseCtx
           const merchantBot = new Bot(token);
           await merchantBot.api.setWebhook(
             `${publicUrl}/webhook/tenant/${botRecord.id}`,
-            { drop_pending_updates: true },
+            { drop_pending_updates: true, secret_token: botRecord.webhookSecret },
           );
           logger.info({ botId: botRecord.id, url: `${publicUrl}/webhook/tenant/${botRecord.id}` }, "tenant webhook set");
         } catch (err) {

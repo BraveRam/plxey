@@ -13,12 +13,11 @@ app.all("/api/inngest", async (c) => handler(c));
 
 app.post("/ingest", async (c) => {
   try {
-    const { b2FileId, b2FileName, tenantId, botId, botToken, fileName, mimeType } = await c.req.json<{
+    const { b2FileId, b2FileName, tenantId, botId, fileName, mimeType } = await c.req.json<{
       b2FileId: string;
       b2FileName?: string;
       tenantId: string;
       botId: string;
-      botToken?: string;
       fileName?: string;
       mimeType?: string;
     }>();
@@ -43,7 +42,7 @@ app.post("/ingest", async (c) => {
 
     await inngest.send({
       name: "rag/pdf.ingest",
-      data: { b2FileId, documentId: doc!.id, tenantId, botId, botToken: botToken ?? "" },
+      data: { b2FileId, documentId: doc!.id, tenantId, botId },
     });
 
     return c.json({ documentId: doc!.id, status: "queued" }, 202);
@@ -76,7 +75,6 @@ app.post("/upload-and-ingest", async (c) => {
     if (!tenantId) return c.json({ error: "X-Tenant-Id header required" }, 400);
     const botId = c.req.header("X-Bot-Id");
     if (!botId) return c.json({ error: "X-Bot-Id header required" }, 400);
-    const botToken = c.req.header("X-Bot-Token");
 
     const bucketId = process.env.B2_BUCKET_ID;
     if (!bucketId) return c.json({ error: "B2_BUCKET_ID not configured" }, 500);
@@ -99,7 +97,7 @@ app.post("/upload-and-ingest", async (c) => {
 
     await inngest.send({
       name: "rag/pdf.ingest",
-      data: { b2FileId: fileId, documentId: doc!.id, tenantId, botId, botToken: botToken ?? "" },
+      data: { b2FileId: fileId, documentId: doc!.id, tenantId, botId },
     });
 
     return c.json({ documentId: doc!.id, status: "queued" }, 202);

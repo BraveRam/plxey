@@ -43,6 +43,7 @@ interface BotEntry {
   welcomeMessage: string | null;
   botUsername: string;
   connectedBusinessUserId: string | null;
+  webhookSecret: string;
 }
 
 interface HistoryEntry {
@@ -340,7 +341,6 @@ function makeDocumentManagementConversation(
             b2FileName,
             tenantId,
             botId,
-            botToken,
             fileName: doc.file_name ?? "untitled.pdf",
             mimeType: "application/pdf",
           }),
@@ -423,7 +423,7 @@ export class BotRegistry {
 
     const bot = this.buildBizBot(rawToken, botId, row.tenantId);
     await bot.init();
-    await this.setWebhook(bot, botId);
+    await this.setWebhook(bot, botId, row.webhookSecret);
     this.attachHandlers(
       bot,
       botId,
@@ -440,6 +440,7 @@ export class BotRegistry {
       welcomeMessage: row.welcomeMessage,
       botUsername: row.botUsername ?? "",
       connectedBusinessUserId: row.connectedBusinessUserId,
+      webhookSecret: row.webhookSecret,
     });
     return bot;
   }
@@ -480,7 +481,7 @@ export class BotRegistry {
   ): Promise<Bot<Context>> {
     const bot = this.buildBizBot(token, row.id, row.tenantId);
     await bot.init();
-    await this.setWebhook(bot, row.id);
+    await this.setWebhook(bot, row.id, row.webhookSecret);
     this.attachHandlers(
       bot,
       row.id,
@@ -497,20 +498,26 @@ export class BotRegistry {
       welcomeMessage: row.welcomeMessage,
       botUsername: row.botUsername ?? "",
       connectedBusinessUserId: row.connectedBusinessUserId,
+      webhookSecret: row.webhookSecret,
     });
     return bot;
   }
 
-  private async setWebhook(bot: Bot<Context>, botId: string): Promise<void> {
+  private async setWebhook(bot: Bot<Context>, botId: string, secret: string): Promise<void> {
     const publicUrl = process.env.PUBLIC_URL;
     if (!publicUrl) return;
     try {
       await bot.api.setWebhook(`${publicUrl}/webhook/tenant/${botId}`, {
         drop_pending_updates: true,
+        secret_token: secret,
       });
     } catch (err) {
       logger.error({ err, botId }, "failed to set tenant webhook");
     }
+  }
+
+  getWebhookSecret(botId: string): string | null {
+    return this.bots.get(botId)?.webhookSecret ?? null;
   }
 
   private attachHandlers(

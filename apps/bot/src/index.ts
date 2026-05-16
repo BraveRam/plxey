@@ -1,8 +1,10 @@
 import { Hono } from "hono";
+import { randomBytes } from "crypto";
 import { createOnboardingBot } from "./bots/onboarding";
 import { registry } from "./bots/registry";
 import { logger, pinoLogger } from "./lib/logger";
 import { api } from "./api/routes";
+import { verifyWebhookSecret, WEBHOOK_SECRET_HEADER } from "./lib/webhook-secret";
 
 const app = new Hono();
 
@@ -12,7 +14,19 @@ app.route("/api", api);
 
 const onboardingBot = await createOnboardingBot();
 
+const onboardingWebhookSecret =
+  process.env.ONBOARDING_WEBHOOK_SECRET ?? randomBytes(16).toString("hex");
+
 app.post("/webhook/onboarding", async (c) => {
+  if (
+    !verifyWebhookSecret(
+      onboardingWebhookSecret,
+      c.req.header(WEBHOOK_SECRET_HEADER),
+    )
+  ) {
+    logger.warn("onboarding webhook secret mismatch");
+    return c.text("Unauthorized", 401);
+  }
   try {
     const update = await c.req.json();
     await onboardingBot.handleUpdate(update);
@@ -28,6 +42,16 @@ app.post("/webhook/tenant/:id", async (c) => {
     const id = c.req.param("id");
     const bot = await registry.get(id);
     if (!bot) return c.text("Bot not active", 200);
+
+    const secret = registry.getWebhookSecret(id);
+    if (
+      !secret ||
+      !verifyWebhookSecret(secret, c.req.header(WEBHOOK_SECRET_HEADER))
+    ) {
+      logger.warn({ botId: id }, "tenant webhook secret mismatch");
+      return c.text("Unauthorized", 401);
+    }
+
     const update = await c.req.json();
     await bot.handleUpdate(update);
     return c.text("OK");
@@ -51,7 +75,10 @@ async function start() {
   if (webhookBase) {
     try {
       const onboardingUrl = `${webhookBase}/webhook/onboarding`;
-      await onboardingBot.api.setWebhook(onboardingUrl, { drop_pending_updates: true });
+      await onboardingBot.api.setWebhook(onboardingUrl, {
+        drop_pending_updates: true,
+        secret_token: onboardingWebhookSecret,
+      });
       logger.info({ url: onboardingUrl }, "onboarding bot webhook set");
     } catch (err) {
       logger.error({ err }, "failed to set onboarding webhook");

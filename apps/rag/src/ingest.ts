@@ -2,9 +2,10 @@ import { Inngest } from "inngest";
 import { embedMany } from "ai";
 import { PDFParse } from "pdf-parse";
 import { db } from "./db";
-import { documents, documentChunks, tenants } from "@tg-business/db";
+import { documents, documentChunks, tenants, tenantBots } from "@tg-business/db";
 import { eq } from "drizzle-orm";
 import { downloadFileById } from "@tg-business/storage";
+import { decrypt } from "@tg-business/crypto";
 import { splitText } from "./chunker";
 
 export const inngest = new Inngest({ id: "tg-rag" });
@@ -17,12 +18,11 @@ export const processPdf = inngest.createFunction(
     triggers: [{ event: "rag/pdf.ingest" }],
   },
   async ({ event, step }) => {
-    const { b2FileId, documentId, tenantId, botId, botToken } = event.data as {
+    const { b2FileId, documentId, tenantId, botId } = event.data as {
       b2FileId: string;
       documentId: string;
       tenantId: string;
       botId: string;
-      botToken: string;
     };
 
     try {
@@ -59,11 +59,20 @@ export const processPdf = inngest.createFunction(
         const doc = await db.query.documents.findFirst({
           where: eq(documents.id, documentId),
         });
-        const ownerId = doc?.tenantId
-          ? (await db.query.tenants.findFirst({ where: eq(tenants.id, doc.tenantId) }))?.telegramOwnerId
-          : null;
-        const fileName = doc?.fileName ?? "untitled.pdf";
-        if (!ownerId || !botToken) return;
+        if (!doc) return;
+
+        const tenantRow = await db.query.tenants.findFirst({
+          where: eq(tenants.id, doc.tenantId),
+        });
+        const ownerId = tenantRow?.telegramOwnerId;
+
+        const botRow = await db.query.tenantBots.findFirst({
+          where: eq(tenantBots.id, botId),
+        });
+        if (!ownerId || !botRow) return;
+
+        const botToken = await decrypt(botRow.botTokenEncrypted);
+        const fileName = doc.fileName ?? "untitled.pdf";
 
         await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
           method: "POST",
