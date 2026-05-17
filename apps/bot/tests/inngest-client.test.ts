@@ -8,7 +8,9 @@ describe("inngest client", () => {
     expect(inngest.id).not.toBe("tg-rag");
   });
 
-  test("functions registry starts empty — phases append later", () => {
-    expect(functions).toEqual([]);
+  test("functions registry has cron sweeps + lifecycle handlers wired", () => {
+    // 4 crons (lapse-sweep, trial-sweep, reminder-scan, usage-reconcile)
+    // + 10 handlers (5 subscription/*, 2 owner/*, 2 bot/*, 1 notify/owner)
+    expect(functions.length).toBeGreaterThanOrEqual(14);
   });
 });
