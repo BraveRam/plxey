@@ -59,6 +59,55 @@ import {
   clearPermissionAlertSlot,
 } from "../lib/permission-alert";
 import { UpstashSessionStorage } from "../lib/session-storage";
+import {
+  BOT_NOT_FOUND,
+  DOC_DELETED,
+  DOC_DELETE_FAILED,
+  DOC_NO_FILE_ACCESS,
+  DOC_PROCESSING,
+  DOC_QUEUED,
+  DOC_RAG_NOT_CONFIGURED,
+  DOC_UNSUPPORTED,
+  PROMPT_UPDATED,
+  REPLY_CANCELLED,
+  REPLY_FAILED_GENERIC,
+  REPLY_PROMPT_BODY,
+  REPLY_SENT,
+  REPLY_UNSUPPORTED_TYPE,
+  SEND_TEXT_PLEASE,
+  TOAST_BOT_NOT_LOADED,
+  TOAST_AUTOREAD_OFF,
+  TOAST_AUTOREAD_ON,
+  TOAST_NO_BUSINESS_CONNECTION,
+  TOAST_PERMISSIONS_FETCH_FAILED,
+  TOAST_PERMISSIONS_REFRESHED,
+  TOAST_REFRESH_RATE_LIMITED,
+  TOAST_REPLY_EXPIRED,
+  TOAST_STALE_CALLBACK,
+  TOAST_TAP_TRASH_TO_DELETE,
+  WELCOME_NO_CUSTOM,
+  WELCOME_RESET,
+  WELCOME_UPDATED,
+  adminEscalation,
+  botConnectedAlert,
+  botDisconnectedAlert,
+  customerReplyFailedAlert,
+  docAddPrompt,
+  docConfirmDelete,
+  docIngestFailed,
+  docLimitReached,
+  docListEmpty,
+  docListHeader,
+  docTooLarge,
+  editPromptHeader,
+  managementMenu,
+  missingCanReplyAlert,
+  permissionsPanel,
+  replyFailedNoPermission,
+  replyPromptContext,
+  welcomeCurrent,
+  welcomeEditorBody,
+} from "../lib/text";
 
 type BaseCtx = Context & SessionFlavor<Record<string, never>>;
 type BizCtx = BaseCtx & ConversationFlavor<BaseCtx>;
@@ -93,7 +142,7 @@ async function showManagementMenu(ctx: Context, botId: string) {
     where: eq(tenantBots.id, botId),
   });
   if (!botRecord) {
-    await ctx.reply("Bot not found.");
+    await ctx.reply(BOT_NOT_FOUND);
     return;
   }
 
@@ -109,7 +158,11 @@ async function showManagementMenu(ctx: Context, botId: string) {
     .text("🔒 Permissions", "biz_permissions")
     .row();
 
-  const text = `⚙️ @${botRecord.botUsername} Management\n\nStatus: ${statusIcon}\n\nPrompt preview:\n${botRecord.systemPrompt.slice(0, 200)}${botRecord.systemPrompt.length > 200 ? "..." : ""}`;
+  const text = managementMenu({
+    username: botRecord.botUsername ?? "",
+    statusIcon,
+    systemPrompt: botRecord.systemPrompt,
+  });
 
   // Always send a new message. Callers inside a conversation are expected
   // to delete their last tracked screen message before invoking this.
@@ -125,7 +178,7 @@ function makeEditPromptConversation(botId: string) {
       where: eq(tenantBots.id, botId),
     });
     if (!botRecord) {
-      await ctx.reply("Bot not found.");
+      await ctx.reply(BOT_NOT_FOUND);
       return;
     }
 
@@ -139,7 +192,10 @@ function makeEditPromptConversation(botId: string) {
       await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
     }
     let sent = await ctx.reply(
-      `Current prompt for @${botRecord.botUsername}:\n\n${botRecord.systemPrompt}\n\nSend your new prompt, or press Cancel.`,
+      editPromptHeader({
+        username: botRecord.botUsername ?? "",
+        prompt: botRecord.systemPrompt,
+      }),
       { reply_markup: cancelKb },
     );
     screenMsgId = sent.message_id;
@@ -159,7 +215,7 @@ function makeEditPromptConversation(botId: string) {
 
       if (response.callbackQuery) {
         // Unknown / stale button — exit cleanly to the management menu.
-        await response.answerCallbackQuery({ text: "Callback query old" });
+        await response.answerCallbackQuery({ text: TOAST_STALE_CALLBACK });
         await response.deleteMessage().catch(() => {});
         if (screenMsgId !== null) {
           await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
@@ -174,7 +230,7 @@ function makeEditPromptConversation(botId: string) {
         if (screenMsgId !== null) {
           await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
         }
-        sent = await ctx.reply("Please send a text message.", {
+        sent = await ctx.reply(SEND_TEXT_PLEASE, {
           reply_markup: cancelKb,
         });
         screenMsgId = sent.message_id;
@@ -191,7 +247,7 @@ function makeEditPromptConversation(botId: string) {
         await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
         screenMsgId = null;
       }
-      await ctx.reply("✅ Prompt updated!");
+      await ctx.reply(PROMPT_UPDATED);
       await showManagementMenu(ctx, botId);
       return;
     }
@@ -210,7 +266,7 @@ function makeEditWelcomeConversation(
       where: eq(tenantBots.id, botId),
     });
     if (!botRecord) {
-      await ctx.reply("Bot not found.");
+      await ctx.reply(BOT_NOT_FOUND);
       return;
     }
 
@@ -220,8 +276,8 @@ function makeEditWelcomeConversation(
       .text("Cancel", "biz_cancel");
 
     const current = botRecord.welcomeMessage?.trim()
-      ? `Current welcome message:\n\n${botRecord.welcomeMessage}`
-      : "No custom welcome message — the default is shown to customers.";
+      ? welcomeCurrent(botRecord.welcomeMessage)
+      : WELCOME_NO_CUSTOM;
 
     const chatId = ctx.chat!.id;
     let screenMsgId: number | null = ctx.callbackQuery?.message?.message_id ?? null;
@@ -229,10 +285,9 @@ function makeEditWelcomeConversation(
     if (screenMsgId !== null) {
       await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
     }
-    let sent = await ctx.reply(
-      `${current}\n\nSend a new welcome message, or use the buttons below.`,
-      { reply_markup: kb },
-    );
+    let sent = await ctx.reply(welcomeEditorBody(current), {
+      reply_markup: kb,
+    });
     screenMsgId = sent.message_id;
 
     while (true) {
@@ -260,14 +315,14 @@ function makeEditWelcomeConversation(
           await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
           screenMsgId = null;
         }
-        await response.reply("✅ Welcome message reset to default.");
+        await response.reply(WELCOME_RESET);
         await showManagementMenu(response, botId);
         return;
       }
 
       if (response.callbackQuery) {
         // Unknown / stale button — exit cleanly to the management menu.
-        await response.answerCallbackQuery({ text: "Callback query old" });
+        await response.answerCallbackQuery({ text: TOAST_STALE_CALLBACK });
         await response.deleteMessage().catch(() => {});
         if (screenMsgId !== null) {
           await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
@@ -282,7 +337,7 @@ function makeEditWelcomeConversation(
         if (screenMsgId !== null) {
           await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
         }
-        sent = await ctx.reply("Please send a text message.", {
+        sent = await ctx.reply(SEND_TEXT_PLEASE, {
           reply_markup: kb,
         });
         screenMsgId = sent.message_id;
@@ -297,7 +352,7 @@ function makeEditWelcomeConversation(
         await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
         screenMsgId = null;
       }
-      await ctx.reply("✅ Welcome message updated!");
+      await ctx.reply(WELCOME_UPDATED);
       await showManagementMenu(ctx, botId);
       return;
     }
@@ -338,8 +393,11 @@ function makeDocumentManagementConversation(
 
       const text =
         docs.length === 0
-          ? `No documents yet. (Up to ${MAX_DOCUMENTS_PER_BOT}, ${formatBytes(MAX_DOCUMENT_SIZE_BYTES)} each.)`
-          : `📚 ${docs.length}/${MAX_DOCUMENTS_PER_BOT} documents`;
+          ? docListEmpty({
+              max: MAX_DOCUMENTS_PER_BOT,
+              sizeLabel: formatBytes(MAX_DOCUMENT_SIZE_BYTES),
+            })
+          : docListHeader({ count: docs.length, max: MAX_DOCUMENTS_PER_BOT });
 
       if (screenMsgId !== null) {
         await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
@@ -355,7 +413,7 @@ function makeDocumentManagementConversation(
       if (screenMsgId !== null) {
         await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
       }
-      const sent = await ctx.reply(`Delete "${fileName}" and all its data?`, {
+      const sent = await ctx.reply(docConfirmDelete(fileName), {
         reply_markup: confirmKb,
       });
       screenMsgId = sent.message_id;
@@ -390,7 +448,7 @@ function makeDocumentManagementConversation(
             await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
           }
           const sent = await ctx.reply(
-            `❌ You've reached the ${MAX_DOCUMENTS_PER_BOT}-document limit. Delete one before adding another.`,
+            docLimitReached(MAX_DOCUMENTS_PER_BOT),
             {
               reply_markup: new InlineKeyboard().text(
                 "🔙 Back",
@@ -405,7 +463,10 @@ function makeDocumentManagementConversation(
           await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
         }
         const sent = await ctx.reply(
-          `Send me a document to add as knowledge for this bot.\n\nSupported: PDF, TXT, Markdown (.md), Word (.docx), HTML.\n\nMax ${formatBytes(MAX_DOCUMENT_SIZE_BYTES)} per file, up to ${MAX_DOCUMENTS_PER_BOT} documents per bot.`,
+          docAddPrompt({
+            sizeLabel: formatBytes(MAX_DOCUMENT_SIZE_BYTES),
+            max: MAX_DOCUMENTS_PER_BOT,
+          }),
           {
             reply_markup: new InlineKeyboard().text("Cancel", "biz_doc_cancel"),
           },
@@ -416,7 +477,7 @@ function makeDocumentManagementConversation(
 
       if (response.callbackQuery?.data?.startsWith("biz_docitem_")) {
         await response.answerCallbackQuery({
-          text: "Tap 🗑️ to delete this document.",
+          text: TOAST_TAP_TRASH_TO_DELETE,
         });
         continue;
       }
@@ -440,9 +501,9 @@ function makeDocumentManagementConversation(
         const docId = confirmDelMatch[1]!;
         try {
           await deleteDocument(docId);
-          await ctx.reply("✅ Document deleted.");
+          await ctx.reply(DOC_DELETED);
         } catch (err) {
-          await ctx.reply("❌ Failed to delete.");
+          await ctx.reply(DOC_DELETE_FAILED);
         }
         await showDocsList();
         continue;
@@ -450,7 +511,7 @@ function makeDocumentManagementConversation(
 
       if (response.callbackQuery) {
         // Unknown / stale button — exit cleanly to the management menu.
-        await response.answerCallbackQuery({ text: "Callback query old" });
+        await response.answerCallbackQuery({ text: TOAST_STALE_CALLBACK });
         await response.deleteMessage().catch(() => {});
         if (screenMsgId !== null) {
           await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
@@ -465,10 +526,7 @@ function makeDocumentManagementConversation(
         ? detectMimeType(doc.file_name, doc.mime_type)
         : null;
       if (!doc || !detectedMime) {
-        await ctx.reply(
-          "Please send a supported file (PDF, TXT, Markdown, DOCX, or HTML), or press Cancel.",
-          { reply_markup: docCancelKb },
-        );
+        await ctx.reply(DOC_UNSUPPORTED, { reply_markup: docCancelKb });
         continue;
       }
 
@@ -479,13 +537,15 @@ function makeDocumentManagementConversation(
       });
       if (!limitCheck.ok) {
         if (limitCheck.reason === "too_many") {
-          await ctx.reply(
-            `❌ You've reached the ${limitCheck.limit}-document limit. Delete one before adding another.`,
-            { reply_markup: docCancelKb },
-          );
+          await ctx.reply(docLimitReached(limitCheck.limit), {
+            reply_markup: docCancelKb,
+          });
         } else {
           await ctx.reply(
-            `❌ File is too large (${formatBytes(limitCheck.size)}). Max ${formatBytes(limitCheck.limit)} per file.`,
+            docTooLarge({
+              size: formatBytes(limitCheck.size),
+              limit: formatBytes(limitCheck.limit),
+            }),
             { reply_markup: docCancelKb },
           );
         }
@@ -494,16 +554,16 @@ function makeDocumentManagementConversation(
 
       const workUrl = process.env.WORKER_URL;
       if (!workUrl) {
-        await ctx.reply("RAG worker not configured.");
+        await ctx.reply(DOC_RAG_NOT_CONFIGURED);
         return;
       }
 
-      await ctx.reply("📥 Processing document…");
+      await ctx.reply(DOC_PROCESSING);
 
       const file = await ctx.api.getFile(doc.file_id);
       const filePath = file.file_path;
       if (!filePath) {
-        await ctx.reply("Could not access the file.");
+        await ctx.reply(DOC_NO_FILE_ACCESS);
         await showDocsList();
         continue;
       }
@@ -562,11 +622,11 @@ function makeDocumentManagementConversation(
       } catch (err) {
         const msg = err instanceof Error ? err.message : "Unknown error";
         logger.error({ err, fileName: doc.file_name }, "document ingestion failed");
-        await ctx.reply(`❌ Failed to process document: ${msg}`);
+        await ctx.reply(docIngestFailed(msg));
       }
 
       if (queued) {
-        await ctx.reply("✅ Document queued for processing!");
+        await ctx.reply(DOC_QUEUED);
       }
 
       await showDocsList();
@@ -835,7 +895,7 @@ export class BotRegistry {
     bot.callbackQuery("biz_toggle_autoread", async (ctx) => {
       const entry = this.bots.get(botId);
       if (!entry) {
-        await ctx.answerCallbackQuery({ text: "Bot not loaded." });
+        await ctx.answerCallbackQuery({ text: TOAST_BOT_NOT_LOADED });
         return;
       }
       const newValue = !entry.autoReadBusinessMessages;
@@ -844,9 +904,7 @@ export class BotRegistry {
       // up the new value without waiting for a registry reload.
       entry.autoReadBusinessMessages = newValue;
       await ctx.answerCallbackQuery({
-        text: newValue
-          ? "Auto-read enabled — customer messages will show as read."
-          : "Auto-read disabled — customer messages stay unread until you open them.",
+        text: newValue ? TOAST_AUTOREAD_ON : TOAST_AUTOREAD_OFF,
       });
       await ctx.deleteMessage().catch(() => {});
       await showManagementMenu(ctx, botId);
@@ -856,7 +914,7 @@ export class BotRegistry {
       await ctx.answerCallbackQuery();
       const entry = this.bots.get(botId);
       if (!entry) return;
-      const text = `🔒 Bot Permissions\n\n${formatPermissions(entry.businessRights)}`;
+      const text = permissionsPanel(formatPermissions(entry.businessRights));
       const permKb = new InlineKeyboard()
         .text("🔄 Refresh", "biz_refresh_permissions")
         .row()
@@ -868,12 +926,12 @@ export class BotRegistry {
     bot.callbackQuery("biz_refresh_permissions", async (ctx) => {
       const entry = this.bots.get(botId);
       if (!entry) {
-        await ctx.answerCallbackQuery({ text: "Bot not loaded." });
+        await ctx.answerCallbackQuery({ text: TOAST_BOT_NOT_LOADED });
         return;
       }
       if (!entry.businessConnectionId) {
         await ctx.answerCallbackQuery({
-          text: "No business connection yet.",
+          text: TOAST_NO_BUSINESS_CONNECTION,
         });
         return;
       }
@@ -885,7 +943,7 @@ export class BotRegistry {
         .catch(() => ({ success: true } as { success: boolean }));
       if (!rl.success) {
         await ctx.answerCallbackQuery({
-          text: "Already up to date — try again in a moment.",
+          text: TOAST_REFRESH_RATE_LIMITED,
         });
         return;
       }
@@ -908,15 +966,15 @@ export class BotRegistry {
               entry.businessConnectionId,
             ),
           );
-        await ctx.answerCallbackQuery({ text: "Permissions refreshed." });
+        await ctx.answerCallbackQuery({ text: TOAST_PERMISSIONS_REFRESHED });
       } catch (err) {
         logger.warn({ err, botId }, "getBusinessConnection failed");
         await ctx.answerCallbackQuery({
-          text: "Couldn't reach Telegram. Try again in a moment.",
+          text: TOAST_PERMISSIONS_FETCH_FAILED,
         });
         return;
       }
-      const text = `🔒 Bot Permissions\n\n${formatPermissions(entry.businessRights)}`;
+      const text = permissionsPanel(formatPermissions(entry.businessRights));
       const permKb = new InlineKeyboard()
         .text("🔄 Refresh", "biz_refresh_permissions")
         .row()
@@ -941,9 +999,7 @@ export class BotRegistry {
       const ownerId = String(ctx.from?.id ?? "");
       const target = await this.ownerReplyTargets.activate(ownerId, token);
       if (!target) {
-        await ctx.answerCallbackQuery({
-          text: "This reply window expired or was already used.",
-        });
+        await ctx.answerCallbackQuery({ text: TOAST_REPLY_EXPIRED });
         return;
       }
       await ctx.answerCallbackQuery();
@@ -952,16 +1008,16 @@ export class BotRegistry {
       await ctx.deleteMessage().catch(() => {});
 
       const contextLine = target.customerLabel
-        ? `Replying to ${escapeHtml(target.customerLabel)}\n\n`
+        ? replyPromptContext(escapeHtml(target.customerLabel))
         : "";
       const cancelKb = new InlineKeyboard().text(
         "✕ Cancel",
         createReplyCancelCallbackData(token),
       );
-      const prompt = await ctx.reply(
-        `${contextLine}<b>Send your reply</b> — text, photo, voice, sticker, file, anything. The customer will receive an exact copy.\n\nOr tap Cancel.`,
-        { reply_markup: cancelKb, parse_mode: "HTML" },
-      );
+      const prompt = await ctx.reply(`${contextLine}${REPLY_PROMPT_BODY}`, {
+        reply_markup: cancelKb,
+        parse_mode: "HTML",
+      });
       await this.ownerReplyTargets
         .setPromptMessageId(token, prompt.message_id)
         .catch((err) => {
@@ -979,7 +1035,7 @@ export class BotRegistry {
       await ctx.answerCallbackQuery();
       await this.ownerReplyTargets.markUsed(token);
       await ctx.deleteMessage().catch(() => {});
-      await ctx.reply("Reply cancelled.");
+      await ctx.reply(REPLY_CANCELLED);
     });
 
     // Catch-all: callbacks no earlier handler matched. Buttons left over
@@ -993,7 +1049,9 @@ export class BotRegistry {
         await ctx.answerCallbackQuery().catch(() => {});
         return;
       }
-      await ctx.answerCallbackQuery({ text: "Callback query old" }).catch(() => {});
+      await ctx
+        .answerCallbackQuery({ text: TOAST_STALE_CALLBACK })
+        .catch(() => {});
       await ctx.deleteMessage().catch(() => {});
       await showManagementMenu(ctx, botId);
     });
@@ -1078,13 +1136,13 @@ export class BotRegistry {
           { botId, connId: conn.id, firstConnect: wasEnabled === null },
           "business connection enabled",
         );
-        const replyWarning = canReply(rights)
-          ? ""
-          : "\n\n⚠️ Heads up: it doesn't have the 'Reply to messages' permission yet. Grant it under Settings → Business → Chatbots so the bot can actually answer customers.";
         try {
           await ctx.api.sendMessage(
             Number(botEntry.ownerTelegramId),
-            `✅ The bot @${botEntry.botUsername} is now connected to your Telegram Business account. It will reply to customers on your behalf.${replyWarning}`,
+            botConnectedAlert({
+              username: botEntry.botUsername,
+              includesPermissionWarning: !canReply(rights),
+            }),
           );
         } catch (err) {
           logger.warn({ err, botId }, "failed to notify owner of connect");
@@ -1094,7 +1152,7 @@ export class BotRegistry {
         try {
           await ctx.api.sendMessage(
             Number(botEntry.ownerTelegramId),
-            `⚠️ The bot @${botEntry.botUsername} was disconnected from your Telegram Business account. It won't reply to customers until you reconnect it under Telegram → Settings → Business → Chatbots.`,
+            botDisconnectedAlert(botEntry.botUsername),
           );
         } catch (err) {
           logger.warn({ err, botId }, "failed to notify owner of disable");
@@ -1175,7 +1233,10 @@ export class BotRegistry {
             try {
               await ctx.api.sendMessage(
                 Number(ownerTelegramId),
-                `⚠️ ${escapeHtml(customerLabel)} messaged @${botEntry.botUsername}, but the bot doesn't have permission to reply.\n\nOpen Telegram → Settings → Business → Chatbots → @${botEntry.botUsername} and grant <b>Reply to messages</b>.`,
+                missingCanReplyAlert({
+                  customerLabelHtml: escapeHtml(customerLabel),
+                  username: botEntry.botUsername,
+                }),
                 { parse_mode: "HTML" },
               );
             } catch (err) {
@@ -1266,7 +1327,10 @@ export class BotRegistry {
                 );
                 await ctx.api.sendMessage(
                   Number(ownerTelegramId),
-                  `${escapeHtml(customerLabel)}\n\n💬 ${markdownToTelegramHtml(message)}`,
+                  adminEscalation({
+                    customerLabelHtml: escapeHtml(customerLabel),
+                    messageHtml: markdownToTelegramHtml(message),
+                  }),
                   { reply_markup: kb, parse_mode: "HTML" },
                 );
                 return { ok: true };
@@ -1314,7 +1378,7 @@ export class BotRegistry {
               );
               await ctx.api.sendMessage(
                 Number(ownerTelegramId),
-                `⚠️ Failed to reply to customer. Make sure the bot has Business Mode enabled in @BotFather and is added to your Telegram Business account and ensure it has the necessary permissions.\n\n${customerLabel}\n\nCustomer asked: ${question}`,
+                customerReplyFailedAlert({ customerLabel, question }),
               );
             }
           }
@@ -1344,7 +1408,7 @@ export class BotRegistry {
         const entry = this.bots.get(botId);
         if (!canReply(entry?.businessRights)) {
           await ctx.reply(
-            `⚠️ The bot doesn't have permission to reply to customers. Open Telegram → Settings → Business → Chatbots → @${entry?.botUsername ?? "your bot"} and grant 'Reply to messages'.`,
+            replyFailedNoPermission(entry?.botUsername ?? "your bot"),
           );
           return;
         }
@@ -1362,9 +1426,7 @@ export class BotRegistry {
             state.businessConnectionId,
           );
           if (!sent) {
-            await ctx.reply(
-              "⚠️ I can't forward that type of message yet. Please send text, photo, voice, video, audio, document, sticker, animation (GIF), location, or contact.",
-            );
+            await ctx.reply(REPLY_UNSUPPORTED_TYPE);
             return;
           }
           await this.ownerReplyTargets.markUsed(state.token);
@@ -1375,15 +1437,13 @@ export class BotRegistry {
               .deleteMessage(ctx.chat!.id, state.promptMessageId)
               .catch(() => {});
           }
-          await ctx.reply("✅ Sent to customer.");
+          await ctx.reply(REPLY_SENT);
         } catch (e) {
           logger.warn(
             { err: e, botId: state.botId },
             "forwarding owner reply failed",
           );
-          await ctx.reply(
-            "⚠️ Couldn't send. Make sure the bot has Business Mode enabled in @BotFather and is added as admin to your Telegram Business account, with 'Reply to messages' granted.",
-          );
+          await ctx.reply(REPLY_FAILED_GENERIC);
         }
         return;
       }

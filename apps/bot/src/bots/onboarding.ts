@@ -5,6 +5,24 @@ import { logger } from "../lib/logger";
 import { createBot, updateBot, deleteBot, listBots } from "../lib/api";
 import { sequentializeByChat } from "../lib/sequentialize";
 import { UpstashSessionStorage } from "../lib/session-storage";
+import {
+  BOT_NOT_FOUND,
+  DELETE_CONFIRM_PHRASE,
+  MAIN_MENU_TITLE,
+  ONBOARDING_BOT_LIST_AFTER_DELETE_EMPTY,
+  ONBOARDING_BOT_LIST_AFTER_DELETE_HEADER,
+  ONBOARDING_BOT_LIST_EMPTY,
+  ONBOARDING_BOT_LIST_HEADER,
+  ONBOARDING_CREATE_PROMPT,
+  ONBOARDING_INVALID_TOKEN,
+  ONBOARDING_TOKEN_REQUIRED,
+  TOAST_STALE_CALLBACK,
+  deleteBotMismatch,
+  deleteBotPrompt,
+  onboardingBotConnected,
+  onboardingBotStatusLine,
+  onboardingDeleteFailed,
+} from "../lib/text";
 
 type BaseCtx = Context & SessionFlavor<Record<string, never>>;
 type OnCtx = BaseCtx & ConversationFlavor<BaseCtx>;
@@ -33,7 +51,7 @@ async function showBotSettings(ctx: OnCtx, botId: string) {
   const botRecord = bots.find(b => b.id === botId);
   if (!botRecord) {
     await ctx.deleteMessage().catch(() => {});
-    await ctx.reply("Bot not found.", { reply_markup: menuKb });
+    await ctx.reply(BOT_NOT_FOUND, { reply_markup: menuKb });
     return;
   }
 
@@ -50,12 +68,10 @@ async function showBotSettings(ctx: OnCtx, botId: string) {
 
   await ctx.deleteMessage().catch(() => {});
   await ctx.reply(
-    `🤖 @${botRecord.botUsername}\nStatus: ${statusIcon}`,
+    onboardingBotStatusLine(botRecord.botUsername ?? "", statusIcon),
     { reply_markup: kb },
   );
 }
-
-const DELETE_CONFIRM_PHRASE = "Yes, I am totally sure.";
 
 async function deleteBotConversation(
   conversation: Conversation<BaseCtx, BaseCtx>,
@@ -69,9 +85,7 @@ async function deleteBotConversation(
     await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
   }
   let sent = await ctx.reply(
-    "⚠️ This permanently deletes the bot and all associated data.\n\n" +
-      `To confirm, reply with exactly:\n\n<code>${DELETE_CONFIRM_PHRASE}</code>\n\n` +
-      "Or press Cancel.",
+    deleteBotPrompt(DELETE_CONFIRM_PHRASE),
     { reply_markup: cancelKb, parse_mode: "HTML" },
   );
   screenMsgId = sent.message_id;
@@ -88,20 +102,22 @@ async function deleteBotConversation(
       const userId = String(ctx.from!.id);
       const { kb, bots } = await conversation.external(() => botsListKb(userId));
       await response.reply(
-        bots.length === 0 ? "No bots yet. Create one below:" : "Your bots:",
+        bots.length === 0
+          ? ONBOARDING_BOT_LIST_EMPTY
+          : ONBOARDING_BOT_LIST_HEADER,
         { reply_markup: kb },
       );
       return;
     }
 
     if (response.callbackQuery) {
-      await response.answerCallbackQuery({ text: "Callback query old" });
+      await response.answerCallbackQuery({ text: TOAST_STALE_CALLBACK });
       await response.deleteMessage().catch(() => {});
       if (screenMsgId !== null) {
         await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
         screenMsgId = null;
       }
-      await response.reply("Main menu:", { reply_markup: menuKb });
+      await response.reply(MAIN_MENU_TITLE, { reply_markup: menuKb });
       return;
     }
 
@@ -116,8 +132,7 @@ async function deleteBotConversation(
         await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
       }
       sent = await ctx.reply(
-        "❌ That doesn't match. Reply with exactly:\n\n" +
-          `<code>${DELETE_CONFIRM_PHRASE}</code>\n\nOr press Cancel.`,
+        deleteBotMismatch(DELETE_CONFIRM_PHRASE),
         { reply_markup: cancelKb, parse_mode: "HTML" },
       );
       screenMsgId = sent.message_id;
@@ -132,7 +147,7 @@ async function deleteBotConversation(
         await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
         screenMsgId = null;
       }
-      await ctx.reply(`Delete failed: ${errMsg}`, { reply_markup: menuKb });
+      await ctx.reply(onboardingDeleteFailed(errMsg), { reply_markup: menuKb });
       return;
     }
 
@@ -143,7 +158,9 @@ async function deleteBotConversation(
       screenMsgId = null;
     }
     await ctx.reply(
-      bots.length === 0 ? "No bots left. Create one below:" : "✅ Bot deleted. Your bots:",
+      bots.length === 0
+        ? ONBOARDING_BOT_LIST_AFTER_DELETE_EMPTY
+        : ONBOARDING_BOT_LIST_AFTER_DELETE_HEADER,
       { reply_markup: kb },
     );
     return;
@@ -160,13 +177,9 @@ async function createBotConversation(conversation: Conversation<BaseCtx, BaseCtx
   if (screenMsgId !== null) {
     await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
   }
-  let sent = await ctx.reply(
-    "Send me your bot token.\n\n" +
-    "1. Create a bot via @BotFather\n" +
-    "2. Enable Business Mode in BotFather settings\n" +
-    "3. Paste the token here",
-    { reply_markup: cancelKb },
-  );
+  let sent = await ctx.reply(ONBOARDING_CREATE_PROMPT, {
+    reply_markup: cancelKb,
+  });
   screenMsgId = sent.message_id;
 
   while (true) {
@@ -178,19 +191,19 @@ async function createBotConversation(conversation: Conversation<BaseCtx, BaseCtx
         await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
         screenMsgId = null;
       }
-      await response.reply("Main menu:", { reply_markup: menuKb });
+      await response.reply(MAIN_MENU_TITLE, { reply_markup: menuKb });
       return;
     }
 
     if (response.callbackQuery) {
       // Stale button from an older state. Exit cleanly to the main menu.
-      await response.answerCallbackQuery({ text: "Callback query old" });
+      await response.answerCallbackQuery({ text: TOAST_STALE_CALLBACK });
       await response.deleteMessage().catch(() => {});
       if (screenMsgId !== null) {
         await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
         screenMsgId = null;
       }
-      await response.reply("Main menu:", { reply_markup: menuKb });
+      await response.reply(MAIN_MENU_TITLE, { reply_markup: menuKb });
       return;
     }
 
@@ -199,10 +212,9 @@ async function createBotConversation(conversation: Conversation<BaseCtx, BaseCtx
       if (screenMsgId !== null) {
         await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
       }
-      sent = await ctx.reply(
-        "Please send a valid bot token, or press Cancel.",
-        { reply_markup: cancelKb },
-      );
+      sent = await ctx.reply(ONBOARDING_TOKEN_REQUIRED, {
+        reply_markup: cancelKb,
+      });
       screenMsgId = sent.message_id;
       continue;
     }
@@ -247,10 +259,9 @@ async function createBotConversation(conversation: Conversation<BaseCtx, BaseCtx
         if (screenMsgId !== null) {
           await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
         }
-        sent = await ctx.reply(
-          "Invalid token. Send me a valid bot token, or press Cancel.",
-          { reply_markup: cancelKb },
-        );
+        sent = await ctx.reply(ONBOARDING_INVALID_TOKEN, {
+          reply_markup: cancelKb,
+        });
         screenMsgId = sent.message_id;
         continue;
       }
@@ -266,14 +277,9 @@ async function createBotConversation(conversation: Conversation<BaseCtx, BaseCtx
       await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
       screenMsgId = null;
     }
-    await ctx.reply(
-      `✅ Bot @${botUsername} connected!\n\n` +
-        "Next: open Telegram → Settings → Business → Chatbots, " +
-        `add @${botUsername}, and grant at least these permissions:\n` +
-        "• Reply to messages (required)\n" +
-        "• Read messages (recommended)",
-      { reply_markup: menuKb },
-    );
+    await ctx.reply(onboardingBotConnected(botUsername ?? ""), {
+      reply_markup: menuKb,
+    });
     return;
   }
 }
@@ -328,7 +334,7 @@ export async function createOnboardingBot(): Promise<Bot> {
   await bot.init();
 
   bot.command("start", async (ctx) => {
-    await ctx.reply("Main menu:", { reply_markup: menuKb });
+    await ctx.reply(MAIN_MENU_TITLE, { reply_markup: menuKb });
     logger.debug({ userId: String(ctx.from?.id ?? "") }, "onboarding: /start");
   });
 
@@ -344,7 +350,9 @@ export async function createOnboardingBot(): Promise<Bot> {
 
     await ctx.deleteMessage().catch(() => {});
     await ctx.reply(
-      bots.length === 0 ? "No bots yet. Create one below:" : "Your bots:",
+      bots.length === 0
+        ? ONBOARDING_BOT_LIST_EMPTY
+        : ONBOARDING_BOT_LIST_HEADER,
       { reply_markup: kb },
     );
   });
@@ -378,15 +386,17 @@ export async function createOnboardingBot(): Promise<Bot> {
   bot.callbackQuery("menu", async (ctx) => {
     await ctx.answerCallbackQuery();
     await ctx.deleteMessage().catch(() => {});
-    await ctx.reply("Main menu:", { reply_markup: menuKb });
+    await ctx.reply(MAIN_MENU_TITLE, { reply_markup: menuKb });
   });
 
   // Catch-all for callbacks that no specific handler matched — buttons left
   // over after a process restart, or stale buttons whose state is gone.
   bot.on("callback_query:data", async (ctx) => {
-    await ctx.answerCallbackQuery({ text: "Callback query old" }).catch(() => {});
+    await ctx
+      .answerCallbackQuery({ text: TOAST_STALE_CALLBACK })
+      .catch(() => {});
     await ctx.deleteMessage().catch(() => {});
-    await ctx.reply("Main menu:", { reply_markup: menuKb });
+    await ctx.reply(MAIN_MENU_TITLE, { reply_markup: menuKb });
   });
 
   return bot as unknown as Bot;

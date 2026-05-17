@@ -28,7 +28,8 @@
 20. [Persistent State in Redis (Upstash)](#persistent-state-in-redis-upstash)
 21. [Security Model](#security-model)
 22. [Environment Variables](#environment-variables)
-23. [Logging](#logging)
+23. [User-facing Text Constants](#user-facing-text-constants)
+24. [Logging](#logging)
 24. [Commands (Developer Workflow)](#commands-developer-workflow)
 25. [Testing](#testing)
 26. [TypeScript Configuration Quirks](#typescript-configuration-quirks)
@@ -55,7 +56,7 @@ tg-business/
 │   │       ├── index.ts      # Entry point; mounts routes and starts Bun.serve on :3000
 │   │       ├── api/          # REST API routes consumed by Mini App and internal callers
 │   │       ├── bots/         # Bot factories: onboarding bot, tenant bot registry, helpers
-│   │       ├── lib/          # Shared utilities: sequentialize, business-reply, rate limits, etc.
+│   │       ├── lib/          # Shared utilities: sequentialize, business-reply, rate limits, text constants, etc.
 │   │       └── services/     # AI handler (ai.ts) and RAG retrieval (retrieval.ts)
 │   └── rag/                  # RAG worker: Inngest-driven document ingestion pipeline on :3001
 │       └── src/
@@ -857,6 +858,20 @@ Owner identity is `tenants.telegram_owner_id` (Telegram numeric user ID as strin
 Per `CLAUDE.md`: never put real env values in tests, fixtures, or any committed file. `.env` is gitignored — keep it that way.
 
 ---
+
+## User-facing Text Constants
+
+All user-facing strings emitted by the onboarding bot and tenant bots live in `apps/bot/src/lib/text.ts`. This is the single source of truth for copy — tweaks to wording, future i18n, or A/B variants go through that file.
+
+Conventions:
+- `UPPER_SNAKE_CASE` exports for static strings with no variables (e.g. `BOT_NOT_FOUND`, `REPLY_CANCELLED`, `TOAST_STALE_CALLBACK`).
+- `camelCase(...)` exports for messages that interpolate dynamic values (e.g. `botConnectedAlert({ username, includesPermissionWarning })`, `docTooLarge({ size, limit })`).
+- Strings sent with `parse_mode: "HTML"` (escalation message, reply prompt, missing-can_reply alert, delete-bot confirmation prompt) include their `<b>` / `<code>` formatting in the literal so the parse_mode requirement is obvious from the constant.
+- Customer-facing welcome text (`renderCustomerWelcome` in `bots/welcome.ts`) is its own module and was already extracted earlier; `lib/text.ts` does not duplicate it.
+
+Button labels and short status icons (e.g. `"✅"`, `"⏸️"`, `"🔙 Back"`, `"✏️ Reply"`) intentionally stay inline next to their callback-data strings — extracting them would split a single inline-keyboard concept across two files without payoff.
+
+When adding a new owner-facing message, define the constant in `lib/text.ts` first, then reference it from the handler. Do not inline new literal strings in the bot code.
 
 ## Logging
 
