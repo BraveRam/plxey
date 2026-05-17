@@ -41,6 +41,7 @@ import {
 } from "./document-limits";
 import { escapeHtml, markdownToTelegramHtml } from "../lib/markdown-to-html";
 import { sequentializeByChat } from "../lib/sequentialize";
+import { ownerCaptureMiddleware } from "../lib/owner-capture";
 import { limit } from "@grammyjs/ratelimiter";
 import { isBusinessChatUpdate } from "../lib/business-update";
 import {
@@ -747,7 +748,8 @@ export class BotRegistry {
     //
     // Mounted before sequentialize/session/conversations so blocked
     // updates exit before any queue work or DB lookup. Silent drop.
-    bot.filter((ctx) => !isBusinessChatUpdate(ctx.update)).use(
+    const ownerSurface = bot.filter((ctx) => !isBusinessChatUpdate(ctx.update));
+    ownerSurface.use(
       limit({
         timeFrame: 60_000,
         limit: 30,
@@ -755,6 +757,12 @@ export class BotRegistry {
         keyPrefix: `bot:${botId}:`,
       }),
     );
+    // Opportunistic owner-profile upsert. Restricted to the same non-
+    // business-chat filter as the rate limit above so we never capture
+    // customer `from` users (whose updates flow through business_message
+    // / business_connection / edited_business_message etc.) into the
+    // owners table. Customers are not subscription owners.
+    ownerSurface.use(ownerCaptureMiddleware());
     // Must come before session/conversations so concurrent updates from
     // the same chat (e.g. owner pressing Back while a doc upload is still
     // running) don't corrupt the conversations plugin's replay log.

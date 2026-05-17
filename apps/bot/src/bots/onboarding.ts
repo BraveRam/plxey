@@ -4,6 +4,7 @@ import { limit } from "@grammyjs/ratelimiter";
 import { logger } from "../lib/logger";
 import { createBot, updateBot, deleteBot, listBots } from "../lib/api";
 import { sequentializeByChat } from "../lib/sequentialize";
+import { ownerCaptureMiddleware } from "../lib/owner-capture";
 import { UpstashSessionStorage } from "../lib/session-storage";
 import {
   BOT_NOT_FOUND,
@@ -303,6 +304,12 @@ export async function createOnboardingBot(): Promise<Bot> {
       keyPrefix: "onboarding:",
     }),
   );
+  // Opportunistic owner-profile upsert. Runs after rate-limit (so we
+  // don't bother upserting profiles for abusers we're dropping) and
+  // before sequentialize/session/conversations (the upsert is fire-and-
+  // forget, so it doesn't matter where in the chain it sits relative to
+  // those — but earlier is fine and keeps the intent obvious).
+  bot.use(ownerCaptureMiddleware());
   // Must come before session/conversations so updates from the same chat
   // never race on the conversations plugin's per-chat replay log.
   bot.use(sequentializeByChat());
