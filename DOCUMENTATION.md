@@ -290,7 +290,7 @@ apps/rag :3001 ─────────────────────�
 | `message` | `registry.ts:1299` — if owner: active-reply check, forward as business reply, or management menu; if non-owner: customer welcome | conversation-only via `conversation.wait` |
 | `callback_query` | `registry.ts:820–998` — management menu, `oreply_*`, `oreply_cancel_*`; catch-all `registry.ts:990` | `onboarding.ts:335–390` — `create_bot`, `manage`, `bot_*`, `pause_*`, `resume_*`, `delete_*`, `menu`; catch-all `onboarding.ts:386` |
 | `business_message` | `registry.ts:1078` filter; handler `registry.ts:1112`: rate-limit, optional `readBusinessMessage`, conversation load/create, `askAI`, send reply with `business_connection_id` | n/a |
-| `business_connection` | `registry.ts:1003` — upsert row, refresh in-memory `BotEntry`, clear permission alert slot on re-grant, DM owner on disable | n/a |
+| `business_connection` | `registry.ts:1003` — read previous `isEnabled`, upsert row, refresh in-memory `BotEntry`, clear permission alert slot on re-grant, DM owner on `false→true` connect/reconnect transition (with extra warning if `can_reply` isn't granted) AND on `true→false` disconnect transition | n/a |
 | `edited_business_message` | excluded from owner rate limiter by `isBusinessChatUpdate` (`lib/business-update.ts:17`); no dedicated handler | n/a |
 | `deleted_business_messages` | excluded from owner rate limiter; no dedicated handler | n/a |
 | `pre_checkout_query` | no handler (future: Stars subscriptions) | n/a |
@@ -874,7 +874,8 @@ Selected structured event messages:
 | `"document queued for processing"` | info | `registry.ts:558` |
 | `"document ingestion failed"` | error | `registry.ts:564` |
 | `"business connection authorized"` | info | `registry.ts:1061` |
-| `"business connection disabled"` | info | `registry.ts:1064` |
+| `"business connection enabled"` | info | `registry.ts` — fires on first-connect and reconnect transitions |
+| `"business connection disabled"` | info | fires on `true→false` transitions only (no longer on every `is_enabled=false` re-emit) |
 | `"AI response"` | info | `ai.ts:82` |
 | `"send_admin_message tool called"` | info | `ai.ts:38` |
 | `"AI error"` | error | `registry.ts:1251` |

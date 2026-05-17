@@ -1011,9 +1011,19 @@ export class BotRegistry {
       const isEnabled = Boolean(conn.is_enabled);
       const rights = (conn.rights ?? null) as BusinessBotRights | null;
 
-      // Upsert the connection row keyed by business_connection_id. Telegram
-      // re-emits this update whenever rights or is_enabled change, so this
-      // is the authoritative refresh point.
+      // Capture the prior isEnabled BEFORE upsert so we can detect
+      // transitions. `null` means we've never seen this connection.
+      // Telegram re-emits business_connection on every state change
+      // (rights tweaks too), so without this transition check we'd spam
+      // the owner on rights edits.
+      const existing = await db.query.businessConnections.findFirst({
+        where: eq(businessConnections.businessConnectionId, conn.id),
+        columns: { isEnabled: true },
+      });
+      const wasEnabled = existing?.isEnabled ?? null;
+
+      // Upsert the connection row keyed by business_connection_id. This
+      // is the authoritative refresh point for both is_enabled and rights.
       await db
         .insert(businessConnections)
         .values({
@@ -1060,7 +1070,26 @@ export class BotRegistry {
         logger.info({ botId, userId }, "business connection authorized");
       }
 
-      if (!isEnabled) {
+      const justConnected = isEnabled && wasEnabled !== true;
+      const justDisconnected = !isEnabled && wasEnabled === true;
+
+      if (justConnected) {
+        logger.info(
+          { botId, connId: conn.id, firstConnect: wasEnabled === null },
+          "business connection enabled",
+        );
+        const replyWarning = canReply(rights)
+          ? ""
+          : "\n\n⚠️ Heads up: it doesn't have the 'Reply to messages' permission yet. Grant it under Settings → Business → Chatbots so the bot can actually answer customers.";
+        try {
+          await ctx.api.sendMessage(
+            Number(botEntry.ownerTelegramId),
+            `✅ The bot @${botEntry.botUsername} is now connected to your Telegram Business account. It will reply to customers on your behalf.${replyWarning}`,
+          );
+        } catch (err) {
+          logger.warn({ err, botId }, "failed to notify owner of connect");
+        }
+      } else if (justDisconnected) {
         logger.info({ botId, connId: conn.id }, "business connection disabled");
         try {
           await ctx.api.sendMessage(
