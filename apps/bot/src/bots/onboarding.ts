@@ -1,5 +1,6 @@
 import { Bot, type Context, InlineKeyboard, session, type SessionFlavor } from "grammy";
 import { type Conversation, type ConversationFlavor, conversations, createConversation } from "@grammyjs/conversations";
+import { limit } from "@grammyjs/ratelimiter";
 import { logger } from "../lib/logger";
 import { createBot, updateBot, deleteBot, listBots } from "../lib/api";
 import { sequentializeByChat } from "../lib/sequentialize";
@@ -283,6 +284,19 @@ export async function createOnboardingBot(): Promise<Bot> {
 
   const bot = new Bot<OnCtx>(token);
 
+  // Per-user rate limit on every interaction. 20 updates / 60 s is plenty
+  // for a real human poking through the menu and well under what a
+  // button-mashing or scripted client would generate. Must run before
+  // sequentialize/session/conversations so dropped updates don't waste
+  // queue slots or DB lookups. Silent drop — no reply to the abuser.
+  bot.use(
+    limit({
+      timeFrame: 60_000,
+      limit: 20,
+      keyGenerator: (ctx) => ctx.from?.id.toString(),
+      keyPrefix: "onboarding:",
+    }),
+  );
   // Must come before session/conversations so updates from the same chat
   // never race on the conversations plugin's per-chat replay log.
   bot.use(sequentializeByChat());

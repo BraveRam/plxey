@@ -41,6 +41,8 @@ import {
 } from "./document-limits";
 import { escapeHtml, markdownToTelegramHtml } from "../lib/markdown-to-html";
 import { sequentializeByChat } from "../lib/sequentialize";
+import { limit } from "@grammyjs/ratelimiter";
+import { isBusinessChatUpdate } from "../lib/business-update";
 import {
   type BusinessBotRights,
   canReadMessages,
@@ -673,6 +675,26 @@ export class BotRegistry {
     tenantId: string,
   ): Bot<Context> {
     const bot = new Bot<BizCtx>(rawToken);
+    // Owner-side rate limit. 30 updates / 60 s per Telegram user, applied
+    // only to non-business-chat updates — i.e. owner DMs to the bot, the
+    // Reply/Cancel callbacks, doc-upload flows, permission Refresh, etc.
+    //
+    // Customer messages flowing through the Business Connection are
+    // *excluded* here and instead covered by `customerMessageLimiter`
+    // (10/60s per customer) before the AI call — see registry.ts where
+    // it's applied to `business_message`. Two layers would either be
+    // redundant or cap the AI handler with the wrong number.
+    //
+    // Mounted before sequentialize/session/conversations so blocked
+    // updates exit before any queue work or DB lookup. Silent drop.
+    bot.filter((ctx) => !isBusinessChatUpdate(ctx.update)).use(
+      limit({
+        timeFrame: 60_000,
+        limit: 30,
+        keyGenerator: (ctx) => ctx.from?.id.toString(),
+        keyPrefix: `bot:${botId}:`,
+      }),
+    );
     // Must come before session/conversations so concurrent updates from
     // the same chat (e.g. owner pressing Back while a doc upload is still
     // running) don't corrupt the conversations plugin's replay log.
