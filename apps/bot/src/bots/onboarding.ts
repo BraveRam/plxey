@@ -5,6 +5,14 @@ import { logger } from "../lib/logger";
 import { createBot, updateBot, deleteBot, listBots } from "../lib/api";
 import { sequentializeByChat } from "../lib/sequentialize";
 import { ownerCaptureMiddleware } from "../lib/owner-capture";
+import { attachBillingHandlers, buildBillingMenuButton } from "./billing";
+import { attachAdminCommands } from "./admin-commands";
+import {
+  checkQuota,
+  decrementBotCount,
+  incrementBotCount,
+  startTrialOnFirstBot,
+} from "../lib/owners";
 import { UpstashSessionStorage } from "../lib/session-storage";
 import {
   BOT_NOT_FOUND,
@@ -17,7 +25,9 @@ import {
   ONBOARDING_CREATE_PROMPT,
   ONBOARDING_INVALID_TOKEN,
   ONBOARDING_TOKEN_REQUIRED,
+  SUBSCRIBE_TO_CREATE_BOT,
   TOAST_STALE_CALLBACK,
+  botCreateBlocked,
   deleteBotMismatch,
   deleteBotPrompt,
   onboardingBotConnected,
@@ -28,9 +38,21 @@ import {
 type BaseCtx = Context & SessionFlavor<Record<string, never>>;
 type OnCtx = BaseCtx & ConversationFlavor<BaseCtx>;
 
+// Static fallback used inside conversations (which need an instantly-
+// available keyboard for stale-callback recovery). The /start path uses
+// `buildMainMenuKb` so the billing button reflects current owner state.
 const menuKb = new InlineKeyboard()
   .text("🤖 Create Bot", "create_bot")
   .text("⚙️ Manage", "manage");
+
+async function buildMainMenuKb(userId: string): Promise<InlineKeyboard> {
+  const billing = await buildBillingMenuButton(userId);
+  return new InlineKeyboard()
+    .text("🤖 Create Bot", "create_bot")
+    .text("⚙️ Manage", "manage")
+    .row()
+    .text(billing.label, billing.callbackData);
+}
 
 const cancelKb = new InlineKeyboard().text("Cancel", "cancel");
 
@@ -152,6 +174,12 @@ async function deleteBotConversation(
       return;
     }
 
+    // Decrement the per-owner counter on a successful delete. Fail-open in
+    // owners.ts — weekly reconcile cron catches any drift.
+    await conversation.external(() =>
+      decrementBotCount(String(ctx.from!.id)),
+    );
+
     const userId = String(ctx.from!.id);
     const { kb, bots } = await conversation.external(() => botsListKb(userId));
     if (screenMsgId !== null) {
@@ -225,6 +253,30 @@ async function createBotConversation(conversation: Conversation<BaseCtx, BaseCtx
       await ctx.api.deleteMessage(msg.chat.id, msg.message_id).catch(() => {});
     }
 
+    // Plan-cap quota gate. Runs BEFORE the Telegram getMe in createBot so a
+    // bot rejected by quota doesn't burn an API call. Lapsed/banned owners
+    // get the subscribe CTA; at-cap owners on a paid plan get the
+    // plan-aware blocked message.
+    const ownerTelegramId = String(ctx.from!.id);
+    const quota = await conversation.external(() =>
+      checkQuota(ownerTelegramId, "bot"),
+    );
+    if (!quota.ok) {
+      const message =
+        quota.reason === "lapsed" || quota.reason === "banned"
+          ? SUBSCRIBE_TO_CREATE_BOT
+          : botCreateBlocked({
+              cap: quota.limit,
+              planLabel: quota.plan ?? "",
+            });
+      if (screenMsgId !== null) {
+        await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
+        screenMsgId = null;
+      }
+      await ctx.reply(message, { reply_markup: menuKb, parse_mode: "HTML" });
+      return;
+    }
+
     let botUsername: string | null = null;
     try {
       // createBot writes a tenant_bots row (after a Telegram getMe), and
@@ -273,6 +325,14 @@ async function createBotConversation(conversation: Conversation<BaseCtx, BaseCtx
       await ctx.reply(errMsg, { reply_markup: menuKb });
       return;
     }
+
+    // Successful bot creation. Bump the per-owner denormalized counter
+    // and (idempotently) start the trial clock on the owner's first bot.
+    // Both are fail-open inside owners.ts; counter drift is reconciled by
+    // cron/usage.reconcile and startTrialOnFirstBot is a no-op when
+    // trial_ends_at is already set.
+    await conversation.external(() => incrementBotCount(ownerTelegramId));
+    await conversation.external(() => startTrialOnFirstBot(ownerTelegramId));
 
     if (screenMsgId !== null) {
       await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
@@ -338,11 +398,21 @@ export async function createOnboardingBot(): Promise<Bot> {
   bot.use(createConversation(createBotConversation, "createBot"));
   bot.use(createConversation(deleteBotConversation, "deleteBot"));
 
+  // Mount admin commands + billing surface BEFORE the catch-all callback
+  // handler at the bottom — otherwise the catch-all swallows /billing
+  // callbacks.
+  // Bot<OnCtx> is invariant in Context; the attach helpers only use the
+  // base Context surface (callbacks, command, on(...)) so the cast is safe.
+  attachAdminCommands(bot as unknown as Bot<Context>);
+  attachBillingHandlers(bot as unknown as Bot<Context>);
+
   await bot.init();
 
   bot.command("start", async (ctx) => {
-    await ctx.reply(MAIN_MENU_TITLE, { reply_markup: menuKb });
-    logger.debug({ userId: String(ctx.from?.id ?? "") }, "onboarding: /start");
+    const userId = String(ctx.from?.id ?? "");
+    const kb = userId ? await buildMainMenuKb(userId) : menuKb;
+    await ctx.reply(MAIN_MENU_TITLE, { reply_markup: kb });
+    logger.debug({ userId }, "onboarding: /start");
   });
 
   bot.callbackQuery("create_bot", async (ctx) => {
@@ -393,7 +463,9 @@ export async function createOnboardingBot(): Promise<Bot> {
   bot.callbackQuery("menu", async (ctx) => {
     await ctx.answerCallbackQuery();
     await ctx.deleteMessage().catch(() => {});
-    await ctx.reply(MAIN_MENU_TITLE, { reply_markup: menuKb });
+    const userId = String(ctx.from?.id ?? "");
+    const kb = userId ? await buildMainMenuKb(userId) : menuKb;
+    await ctx.reply(MAIN_MENU_TITLE, { reply_markup: kb });
   });
 
   // Catch-all for callbacks that no specific handler matched — buttons left
