@@ -8,6 +8,10 @@ Talk like caveman. Drop articles, filler, hedging. Fragments OK. Technical terms
 
 Also see `AGENTS.md` for the same architecture overview in slightly more detail.
 
+## Documentation upkeep (required)
+
+After implementing any feature, fixing a non-trivial bug, or changing the architecture, update `DOCUMENTATION.md` in the same commit as the code change. That file is the canonical full-system reference — if a section it covers (schema, flows, rate limits, env vars, security model, known gaps, etc.) is now out of date, edit it. Add new sections when the change introduces a concept the doc doesn't yet describe. Trivial refactors, comment-only changes, and test-only changes don't need a doc update.
+
 ## Commands
 
 ```sh
