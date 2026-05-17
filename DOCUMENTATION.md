@@ -1026,6 +1026,10 @@ Per `CLAUDE.md` + `AGENTS.md`:
 
 ---
 
+## Subscriptions
+
+See `SUBSCRIPTION.md` for the full design spec of the upcoming Telegram Stars subscription system: plans, state machine, lifecycle events, schema delta, Inngest event registry, edge cases, and implementation order. Not yet implemented — that document is the locked target.
+
 ## Known Gaps & Future Work
 
 - **No auth on `/api/*`** — relies entirely on per-IP rate limit.
