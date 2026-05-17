@@ -12,15 +12,27 @@ const vector = customType<{ data: number[]; driverData: string }>({
 export const botStatus = pgEnum("bot_status", ["active", "paused", "revoked"]);
 export const docStatus = pgEnum("doc_status", ["processing", "ready", "failed"]);
 export const msgRole = pgEnum("msg_role", ["user", "assistant", "system"]);
+export const subscriptionPlan = pgEnum("subscription_plan", ["trial", "pro", "business"]);
+export const subscriptionStatus = pgEnum("subscription_status", [
+  "trialing",
+  "active",
+  "canceled",
+  "lapsed",
+]);
 
 export const tenants = pgTable("tenants", {
   id: uuid("id").defaultRandom().primaryKey(),
   name: text("name").notNull(),
   slug: text("slug").notNull(),
+  // Locked 1:1 with the owners table — one tenant per Telegram user.
+  // See SUBSCRIPTION.md: plan caps are enforced per owner across all
+  // their bots, and we assume a single tenant per owner to keep that math
+  // simple.
   telegramOwnerId: text("telegram_owner_id").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 }, (t) => ({
   slugUq: uniqueIndex("tenants_slug_uq").on(t.slug),
+  telegramOwnerIdUq: uniqueIndex("tenants_telegram_owner_id_uq").on(t.telegramOwnerId),
 }));
 
 export const tenantBots = pgTable("tenant_bots", {
@@ -34,9 +46,15 @@ export const tenantBots = pgTable("tenant_bots", {
   welcomeMessage: text("welcome_message"),
   autoReadBusinessMessages: boolean("auto_read_business_messages").notNull().default(true),
   connectedBusinessUserId: text("connected_business_user_id"),
+  // Non-null = bot is paused due to plan-cap reasons (distinct from
+  // owner-initiated `status='paused'`). Set by enforceOwnerQuota on
+  // lapse, cleared on re-subscribe. See SUBSCRIPTION.md "Over-Quota
+  // Reconciliation".
+  overQuotaAt: timestamp("over_quota_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 }, (t) => ({
   tenantIdx: index("tenant_bots_tenant_idx").on(t.tenantId),
+  overQuotaIdx: index("tenant_bots_over_quota_idx").on(t.overQuotaAt),
 }));
 
 export const businessConnections = pgTable("business_connections", {
@@ -157,4 +175,116 @@ export const retrievalEvents = pgTable("retrieval_events", {
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 }, (t) => ({
   tenantIdx: index("retrieval_events_tenant_idx").on(t.tenantId),
+}));
+
+// ============================================================================
+// Subscriptions / billing — see SUBSCRIPTION.md for the full design spec.
+// ============================================================================
+
+/**
+ * One row per Telegram user (`telegram_user_id` == `tenants.telegram_owner_id`).
+ * Stores identity captured opportunistically from every owner interaction,
+ * denormalized billing state computed from `subscriptions`, and rollup
+ * counters used by the per-owner plan-cap gates.
+ */
+export const owners = pgTable("owners", {
+  telegramUserId: text("telegram_user_id").primaryKey(),
+
+  // Identity (refreshed on every owner interaction)
+  firstName: text("first_name"),
+  lastName: text("last_name"),
+  username: text("username"),
+  languageCode: text("language_code"),
+  isPremium: boolean("is_premium"),
+
+  // Billing (denormalized from `subscriptions` — recomputed on every
+  // billing event via effectivePlan()). `currentPlan` is nullable when
+  // status='lapsed' with no active subscriptions.
+  currentPlan: subscriptionPlan("current_plan"),
+  subscriptionStatus: subscriptionStatus("subscription_status")
+    .notNull()
+    .default("trialing"),
+  subscriptionRenewsAt: timestamp("subscription_renews_at", { withTimezone: true }),
+  // Set once at first-bot-creation; one-shot, never resets. NULL until then.
+  trialEndsAt: timestamp("trial_ends_at", { withTimezone: true }),
+  lifetimeStarsSpent: integer("lifetime_stars_spent").notNull().default(0),
+
+  // Rollup counters (atomic SQL on every mutation)
+  botCount: integer("bot_count").notNull().default(0),
+  docCount: integer("doc_count").notNull().default(0),
+  messagesThisPeriod: integer("messages_this_period").notNull().default(0),
+  periodStartedAt: timestamp("period_started_at", { withTimezone: true }),
+  lastActiveAt: timestamp("last_active_at", { withTimezone: true }).defaultNow().notNull(),
+
+  // Ops
+  firstSeenAt: timestamp("first_seen_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  notes: text("notes"),
+  isBanned: boolean("is_banned").notNull().default(false),
+}, (t) => ({
+  usernameIdx: index("owners_username_idx").on(t.username),
+  planStatusIdx: index("owners_plan_status_idx").on(t.currentPlan, t.subscriptionStatus),
+  // Used by lapse-sweep cron
+  renewsAtIdx: index("owners_renews_at_idx").on(t.subscriptionRenewsAt),
+  // Used by trial-sweep cron
+  trialEndsAtIdx: index("owners_trial_ends_at_idx").on(t.trialEndsAt),
+}));
+
+/**
+ * Telegram Stars subscription. One row per `telegram_payment_charge_id`
+ * (UNIQUE — provides idempotency against Telegram re-delivering the same
+ * successful_payment update).
+ *
+ * Owners can hold multiple rows at once: e.g. a canceled Pro tail running
+ * alongside an active Business after an upgrade. Effective plan is the
+ * highest tier among rows where status='active' OR (status='canceled'
+ * AND currentPeriodEnd > now()).
+ */
+export const subscriptions = pgTable("subscriptions", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  ownerTelegramUserId: text("owner_telegram_user_id")
+    .notNull()
+    .references(() => owners.telegramUserId, { onDelete: "cascade" }),
+  plan: subscriptionPlan("plan").notNull(),
+  status: subscriptionStatus("status").notNull().default("active"),
+  // Synthetic value `comp:{uuid}` for complimentary rows (no real Telegram
+  // charge). Real subscriptions get Telegram's payment charge id.
+  telegramPaymentChargeId: text("telegram_payment_charge_id").notNull().unique(),
+  starsPerPeriod: integer("stars_per_period").notNull(),
+  currentPeriodEnd: timestamp("current_period_end", { withTimezone: true }).notNull(),
+  canceledAt: timestamp("canceled_at", { withTimezone: true }),
+  cancelReason: text("cancel_reason"),
+  // Comp rows skip lapse-sweep via the year-2099 currentPeriodEnd, but
+  // this flag also marks them for admin reporting / filtering.
+  isComplimentary: boolean("is_complimentary").notNull().default(false),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (t) => ({
+  ownerIdx: index("subscriptions_owner_idx").on(t.ownerTelegramUserId),
+  endIdx: index("subscriptions_end_idx").on(t.currentPeriodEnd),
+  // Used by lapse-sweep query: status='active' AND currentPeriodEnd + 2d < now()
+  statusEndIdx: index("subscriptions_status_end_idx").on(t.status, t.currentPeriodEnd),
+}));
+
+/**
+ * Audit ledger of every Stars money movement: first-recurring payments,
+ * renewals, and refunds (refunds are negative `starsAmount`). Stores the
+ * full raw `successful_payment` payload for debugging and audit.
+ */
+export const starPayments = pgTable("star_payments", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  subscriptionId: uuid("subscription_id").references(() => subscriptions.id, {
+    onDelete: "set null",
+  }),
+  ownerTelegramUserId: text("owner_telegram_user_id")
+    .notNull()
+    .references(() => owners.telegramUserId, { onDelete: "cascade" }),
+  // Negative for refunds; positive for first-recurring + renewals.
+  starsAmount: integer("stars_amount").notNull(),
+  isFirstRecurring: boolean("is_first_recurring").notNull().default(false),
+  invoicePayload: text("invoice_payload").notNull(),
+  rawSuccessfulPayment: jsonb("raw_successful_payment"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (t) => ({
+  ownerIdx: index("star_payments_owner_idx").on(t.ownerTelegramUserId),
+  subIdx: index("star_payments_sub_idx").on(t.subscriptionId),
 }));
