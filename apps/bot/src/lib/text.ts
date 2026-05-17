@@ -290,3 +290,260 @@ export function adminEscalation(args: {
 }): string {
   return `${args.customerLabelHtml}\n\n💬 ${args.messageHtml}`;
 }
+
+// =============================================================================
+// Subscriptions — trial / lifecycle DMs
+// =============================================================================
+
+export const TRIAL_STARTED_DM =
+  "🎫 Trial started — 14 days of full access. Subscribe anytime to lock in your plan.";
+
+export const TRIAL_ENDING_7D_DM =
+  "🎫 Trial ends in 7 days. Subscribe to keep your bots active.";
+
+export const TRIAL_ENDING_1D_DM =
+  "🎫 Trial ends in 1 day. Subscribe to keep your bots active.";
+
+export const TRIAL_EXPIRED_DM =
+  "🎫 Your trial has ended. Subscribe to reactivate your bots.";
+
+export function subscriptionStartedDM(args: {
+  planLabel: string;
+  renewsOn: string;
+}): string {
+  return (
+    `✅ <b>${args.planLabel}</b> active. Renews on ${args.renewsOn}.\n\n` +
+    "Tip: manage auto-renew anytime via Telegram → Settings → Stars."
+  );
+}
+
+export function subscriptionResumedDM(planLabel: string): string {
+  return `✅ <b>${planLabel}</b> continues. Auto-renew is back on.`;
+}
+
+export function subscriptionCanceledDM(args: {
+  planLabel: string;
+  endsOn: string;
+}): string {
+  return `Cancelled. <b>${args.planLabel}</b> continues until ${args.endsOn}.`;
+}
+
+export function cancelEndingSoonDM(args: {
+  planLabel: string;
+  endsOn: string;
+}): string {
+  return (
+    `Your <b>${args.planLabel}</b> ends in 3 days (${args.endsOn}). ` +
+    "Resume or change plan below."
+  );
+}
+
+export function subscriptionLapsedDM(args: {
+  planLabel: string;
+  bots: number;
+}): string {
+  const botWord = args.bots === 1 ? "bot" : "bots";
+  return (
+    `🚫 <b>${args.planLabel}</b> ended. ${args.bots} ${botWord} paused. ` +
+    "Subscribe to reactivate."
+  );
+}
+
+export function renewalFailedDM(bots: number): string {
+  const botWord = bots === 1 ? "bot" : "bots";
+  return `Renewal failed. ${bots} ${botWord} pause in 2 days unless you top up Stars.`;
+}
+
+export function quotaMessagesExceededDM(cap: number): string {
+  return `You've hit ${cap.toLocaleString()} messages this period. Upgrade or wait until renewal.`;
+}
+
+export function pausedBotCustomerPingDM(botUsername: string): string {
+  return `@${botUsername} got a message but is paused due to plan limits. Subscribe to reactivate.`;
+}
+
+// =============================================================================
+// Subscriptions — /billing screen helpers
+// =============================================================================
+
+export function billingHeader(args: {
+  status: "trialing" | "active" | "canceled" | "lapsed";
+  planLabel: string;
+  trialDaysLeft?: number;
+  renewsOn?: string;
+  endsOn?: string;
+}): string {
+  switch (args.status) {
+    case "trialing": {
+      const days = args.trialDaysLeft ?? 0;
+      const dayWord = days === 1 ? "day" : "days";
+      return `🎫 Trial: ${days} ${dayWord} left`;
+    }
+    case "active": {
+      const renews = args.renewsOn ?? "—";
+      return `<b>${args.planLabel}</b> — active\nRenews on ${renews}`;
+    }
+    case "canceled": {
+      const ends = args.endsOn ?? "—";
+      return `<b>${args.planLabel}</b> — canceled\nEnds on ${ends}`;
+    }
+    case "lapsed":
+      return "🚫 No active plan";
+  }
+}
+
+export function billingUsageBlock(args: {
+  bots: number;
+  maxBots: number;
+  docs: number;
+  maxDocs: number;
+  messages: number;
+  maxMessages: number;
+}): string {
+  return (
+    "Usage this period:\n" +
+    `  Bots: ${args.bots}/${args.maxBots}\n` +
+    `  Documents (largest bot): ${args.docs}/${args.maxDocs}\n` +
+    `  Messages: ${args.messages.toLocaleString()}/${args.maxMessages.toLocaleString()}`
+  );
+}
+
+// =============================================================================
+// Subscriptions — plan picker
+// =============================================================================
+
+export const PLAN_PICKER_HEADER = "⭐ Choose your plan:";
+
+export function planPickerLine(args: {
+  planLabel: string;
+  stars: number;
+  maxBots: number;
+  maxDocsPerBot: number;
+  maxMessagesPerPeriod: number;
+}): string {
+  const botWord = args.maxBots === 1 ? "bot" : "bots";
+  const msgs = formatThousands(args.maxMessagesPerPeriod);
+  return (
+    `<b>${args.planLabel}</b> — ${args.stars}⭐/mo\n` +
+    `  ${args.maxBots} ${botWord}, ${args.maxDocsPerBot} docs/bot, ${msgs} msgs`
+  );
+}
+
+/** Internal helper — compact thousands rendering (5000 → "5k"). */
+function formatThousands(n: number): string {
+  if (n >= 1000 && n % 1000 === 0) {
+    return `${n / 1000}k`;
+  }
+  return n.toLocaleString();
+}
+
+// =============================================================================
+// Subscriptions — cancel flow + reasons
+// =============================================================================
+
+export function cancelConfirmPrompt(args: {
+  planLabel: string;
+  endsOn: string;
+}): string {
+  return (
+    `Are you sure you want to cancel? Your <b>${args.planLabel}</b> continues ` +
+    `until ${args.endsOn}, then bots pause.`
+  );
+}
+
+export const CANCEL_REASON_PROMPT = "Why are you canceling? (optional)";
+
+export const CANCEL_REASONS: ReadonlyArray<{ key: string; label: string }> = [
+  { key: "too_expensive", label: "Too expensive" },
+  { key: "not_using", label: "Not using it" },
+  { key: "switching_tools", label: "Switching tools" },
+  { key: "other", label: "Other" },
+];
+
+// =============================================================================
+// Subscriptions — upgrade Pro → Business
+// =============================================================================
+
+export function upgradeConfirmPrompt(args: {
+  stars: number;
+  endsOn: string;
+}): string {
+  return (
+    `⭐ <b>Upgrade to Business</b> — ${args.stars} ⭐/mo\n\n` +
+    `Your current Pro plan continues until ${args.endsOn} at no extra charge, ` +
+    "alongside Business. After that, Business runs solo."
+  );
+}
+
+// =============================================================================
+// Subscriptions — gate / blocked messages
+// =============================================================================
+
+export function botCreateBlocked(args: {
+  cap: number;
+  planLabel: string;
+}): string {
+  const botWord = args.cap === 1 ? "bot" : "bots";
+  return (
+    `<b>${args.planLabel}</b> allows ${args.cap} ${botWord}. ` +
+    "Delete an existing bot or upgrade to add another."
+  );
+}
+
+export function docUploadBlocked(args: {
+  cap: number;
+  planLabel: string;
+}): string {
+  return (
+    `Your <b>${args.planLabel}</b> only allows ${args.cap} docs per bot. ` +
+    "Delete some or upgrade."
+  );
+}
+
+export const SUBSCRIBE_TO_CREATE_BOT = "🚫 Subscribe to create a bot.";
+export const SUBSCRIBE_TO_UPLOAD = "🚫 Subscribe to upload documents.";
+
+// =============================================================================
+// Subscriptions — toasts (callback query answers)
+// =============================================================================
+
+export const TOAST_REPLY_NOT_NOW = "Try again in a moment.";
+export const TOAST_UPGRADE_IN_PROGRESS = "Processing your upgrade…";
+export const TOAST_INVOICE_SENT = "Invoice sent — check the chat.";
+
+// =============================================================================
+// Subscriptions — banned notice (visible to banned owners in /billing)
+// =============================================================================
+
+export const BANNED_NOTICE =
+  "Your account has been restricted. Contact support.";
+
+// =============================================================================
+// Subscriptions — admin command output snippets
+// =============================================================================
+
+export function adminOwnerSummary(args: {
+  ownerId: string;
+  username: string | null;
+  plan: string | null;
+  status: string;
+  botCount: number;
+  lifetimeStarsSpent: number;
+}): string {
+  const handle = args.username ? `@${args.username}` : "(no @username)";
+  const plan = args.plan ?? "—";
+  return (
+    `<b>Owner</b> <code>${args.ownerId}</code> ${handle}\n` +
+    `Plan: ${plan} (${args.status})\n` +
+    `Bots: ${args.botCount}\n` +
+    `Lifetime stars: ${args.lifetimeStarsSpent.toLocaleString()}⭐`
+  );
+}
+
+export const ADMIN_REFUND_SUCCESS = "Refund issued + auto-renew canceled.";
+export const ADMIN_COMP_GRANTED = "Complimentary subscription granted.";
+export const ADMIN_BAN_APPLIED =
+  "Owner banned; subscriptions canceled; bots paused.";
+export const ADMIN_UNBAN_APPLIED = "Owner unbanned.";
+export const ADMIN_OWNER_NOT_FOUND = "Owner not found.";
+export const ADMIN_UNAUTHORIZED = "Not authorized.";
