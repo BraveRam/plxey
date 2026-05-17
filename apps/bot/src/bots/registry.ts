@@ -24,6 +24,14 @@ import { decrypt } from "@tg-business/crypto";
 import { uploadFile, b2BucketId } from "@tg-business/storage";
 import { askAI } from "../services/ai";
 import { updateBot, listDocuments, deleteDocument } from "../lib/api";
+import {
+  checkQuota,
+  decrementDocCount,
+  decrementMessageCount,
+  incrementDocCount,
+  incrementMessageCount,
+} from "../lib/owners";
+import { inngest } from "../inngest/client";
 import { logger } from "../lib/logger";
 import {
   createReplyCallbackData,
@@ -76,6 +84,8 @@ import {
   REPLY_SENT,
   REPLY_UNSUPPORTED_TYPE,
   SEND_TEXT_PLEASE,
+  SUBSCRIBE_TO_UPLOAD,
+  docUploadBlocked,
   TOAST_BOT_NOT_LOADED,
   TOAST_AUTOREAD_OFF,
   TOAST_AUTOREAD_ON,
@@ -364,6 +374,7 @@ function makeDocumentManagementConversation(
   botId: string,
   tenantId: string,
   botToken: string,
+  ownerTelegramId: string,
 ) {
   return async function documentMgmtConversation(
     conversation: Conversation<BaseCtx, BaseCtx>,
@@ -443,6 +454,34 @@ function makeDocumentManagementConversation(
 
       if (response.callbackQuery?.data === "biz_add_doc") {
         await response.answerCallbackQuery();
+        // Plan-cap quota gate. Lapsed/banned owners get the subscribe CTA;
+        // at-cap owners on a paid plan get the plan-aware blocked message.
+        // Falls through to the legacy MAX_DOCUMENTS_PER_BOT only when the
+        // owner has no row / quota check fails open.
+        const quota = await conversation.external(() =>
+          checkQuota(ownerTelegramId, "doc", { botId }),
+        );
+        if (!quota.ok) {
+          const message =
+            quota.reason === "lapsed" || quota.reason === "banned"
+              ? SUBSCRIBE_TO_UPLOAD
+              : docUploadBlocked({
+                  cap: quota.limit,
+                  planLabel: quota.plan ?? "",
+                });
+          if (screenMsgId !== null) {
+            await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
+          }
+          const sent = await ctx.reply(message, {
+            reply_markup: new InlineKeyboard().text(
+              "🔙 Back",
+              "biz_doc_cancel",
+            ),
+            parse_mode: "HTML",
+          });
+          screenMsgId = sent.message_id;
+          continue;
+        }
         const existing = await listDocuments(botId);
         if (existing.length >= MAX_DOCUMENTS_PER_BOT) {
           if (screenMsgId !== null) {
@@ -502,6 +541,9 @@ function makeDocumentManagementConversation(
         const docId = confirmDelMatch[1]!;
         try {
           await deleteDocument(docId);
+          // Decrement the per-owner denormalized counter. Fail-open inside
+          // owners.ts — drift is reconciled by cron/usage.reconcile.
+          await conversation.external(() => decrementDocCount(ownerTelegramId));
           await ctx.reply(DOC_DELETED);
         } catch (err) {
           await ctx.reply(DOC_DELETE_FAILED);
@@ -528,6 +570,28 @@ function makeDocumentManagementConversation(
         : null;
       if (!doc || !detectedMime) {
         await ctx.reply(DOC_UNSUPPORTED, { reply_markup: docCancelKb });
+        continue;
+      }
+
+      // Plan-cap quota gate at upload time. Mirrors the same check on the
+      // Add Document tap above so an in-flight conversation can't race past
+      // the cap (e.g. owner had the upload prompt open when their sub
+      // lapsed). On block: silent skip of the upload, plain reply to owner.
+      const uploadQuota = await conversation.external(() =>
+        checkQuota(ownerTelegramId, "doc", { botId }),
+      );
+      if (!uploadQuota.ok) {
+        const message =
+          uploadQuota.reason === "lapsed" || uploadQuota.reason === "banned"
+            ? SUBSCRIBE_TO_UPLOAD
+            : docUploadBlocked({
+                cap: uploadQuota.limit,
+                planLabel: uploadQuota.plan ?? "",
+              });
+        await ctx.reply(message, {
+          reply_markup: docCancelKb,
+          parse_mode: "HTML",
+        });
         continue;
       }
 
@@ -627,6 +691,8 @@ function makeDocumentManagementConversation(
       }
 
       if (queued) {
+        // Bump the per-owner doc counter. Fail-open in owners.ts.
+        await conversation.external(() => incrementDocCount(ownerTelegramId));
         await ctx.reply(DOC_QUEUED);
       }
 
@@ -683,7 +749,12 @@ export class BotRegistry {
     });
     if (!tenant) throw new Error("Tenant not found");
 
-    const bot = this.buildBizBot(rawToken, botId, row.tenantId);
+    const bot = this.buildBizBot(
+      rawToken,
+      botId,
+      row.tenantId,
+      tenant.telegramOwnerId,
+    );
     await bot.init();
     await this.setWebhook(bot, botId, row.webhookSecret);
     this.attachHandlers(
@@ -734,6 +805,7 @@ export class BotRegistry {
     rawToken: string,
     botId: string,
     tenantId: string,
+    ownerTelegramId: string,
   ): Bot<Context> {
     const bot = new Bot<BizCtx>(rawToken);
     // Owner-side rate limit. 30 updates / 60 s per Telegram user, applied
@@ -803,7 +875,12 @@ export class BotRegistry {
     );
     bot.use(
       createConversation(
-        makeDocumentManagementConversation(botId, tenantId, rawToken),
+        makeDocumentManagementConversation(
+          botId,
+          tenantId,
+          rawToken,
+          ownerTelegramId,
+        ),
         "documentMgmt",
       ),
     );
@@ -815,7 +892,12 @@ export class BotRegistry {
     token: string,
     tenant: typeof tenants.$inferSelect,
   ): Promise<Bot<Context>> {
-    const bot = this.buildBizBot(token, row.id, row.tenantId);
+    const bot = this.buildBizBot(
+      token,
+      row.id,
+      row.tenantId,
+      tenant.telegramOwnerId,
+    );
     await bot.init();
     await this.setWebhook(bot, row.id, row.webhookSecret);
     this.attachHandlers(
@@ -1226,6 +1308,33 @@ export class BotRegistry {
           return;
         }
 
+        // Over-quota short-circuit. If this bot is paused due to plan limits
+        // (`over_quota_at` set), customer gets silence and the owner is DM'd
+        // — throttled inside the Inngest handler. Read from DB on each call
+        // rather than caching in BotEntry: cheap with bot_idx, and the
+        // bot/over.quota.message handler dedups via Redis anyway.
+        const overQuotaRow = await db.query.tenantBots.findFirst({
+          where: eq(tenantBots.id, botId),
+          columns: { overQuotaAt: true },
+        });
+        if (overQuotaRow?.overQuotaAt !== null && overQuotaRow?.overQuotaAt !== undefined) {
+          try {
+            await inngest.send({
+              name: "bot/over.quota.message",
+              data: {
+                botId,
+                customerTelegramUserId: String(from?.id ?? ""),
+              },
+            });
+          } catch (err) {
+            logger.warn(
+              { err, botId },
+              "failed to enqueue bot/over.quota.message",
+            );
+          }
+          return;
+        }
+
         // Pre-flight: without can_reply we can't actually send a response,
         // so don't burn AI tokens. Alert the owner so they can fix it —
         // throttled to once per 30 min per bot via a Redis NX+EX lock so
@@ -1281,6 +1390,36 @@ export class BotRegistry {
           return;
         }
 
+        // Per-owner message quota check. Runs after the customer rate-limit
+        // but before any DB writes or the AI call. On block: silent
+        // customer-side (bot does not reply) per SUBSCRIPTION.md "Message
+        // counter". At-cap fires bot/usage.exceeded for a once-per-period
+        // owner DM (throttled inside the Inngest handler). Lapsed/banned
+        // owners also bail here, but in those cases the over_quota_at
+        // short-circuit above will normally have caught them already.
+        const msgQuota = await checkQuota(ownerTelegramId, "message");
+        if (!msgQuota.ok) {
+          if (msgQuota.reason === "at_cap") {
+            try {
+              await inngest.send({
+                name: "bot/usage.exceeded",
+                data: {
+                  botId,
+                  ownerTelegramUserId: ownerTelegramId,
+                  messagesThisPeriod: msgQuota.used,
+                  cap: msgQuota.limit,
+                },
+              });
+            } catch (err) {
+              logger.warn(
+                { err, botId },
+                "failed to enqueue bot/usage.exceeded",
+              );
+            }
+          }
+          return;
+        }
+
         // Mark the customer's message as read (double-check) if the owner
         // opted in AND the bot was actually granted can_read_messages.
         // Skipping the API call when the right is missing saves a doomed
@@ -1313,6 +1452,11 @@ export class BotRegistry {
         });
 
         await this.sendTypingAction(ctx, chatId, connId, botId);
+
+        // Increment the per-owner message counter BEFORE the AI call.
+        // Doomed calls (AI throws / returns null) decrement back in the
+        // catch path below so failed calls don't burn the owner's budget.
+        await incrementMessageCount(ownerTelegramId);
 
         const result: Awaited<ReturnType<typeof askAI>> = await askAI(
           question,
@@ -1348,8 +1492,11 @@ export class BotRegistry {
               }
             },
           },
-        ).catch((err): Awaited<ReturnType<typeof askAI>> => {
+        ).catch(async (err): Promise<Awaited<ReturnType<typeof askAI>>> => {
           logger.error({ err, botId }, "AI error");
+          // Roll back the pre-call increment so a failed AI round-trip
+          // doesn't count against the owner's monthly cap.
+          await decrementMessageCount(ownerTelegramId).catch(() => {});
           return { text: null };
         });
 

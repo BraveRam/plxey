@@ -3,6 +3,7 @@ import { serve as serveInngest } from "inngest/hono";
 import { randomBytes } from "crypto";
 import { createOnboardingBot } from "./bots/onboarding";
 import { registry } from "./bots/registry";
+import { isBotOwnerBanned } from "./lib/banned";
 import { logger, pinoLogger } from "./lib/logger";
 import { api } from "./api/routes";
 import { verifyWebhookSecret, WEBHOOK_SECRET_HEADER } from "./lib/webhook-secret";
@@ -51,6 +52,15 @@ app.post("/webhook/onboarding", async (c) => {
 app.post("/webhook/tenant/:id", async (c) => {
   try {
     const id = c.req.param("id");
+
+    // Banned-owner ingress drop. Return 200 to Telegram (so it stops
+    // retrying) but skip the bot load + handler entirely — no DB hits, no
+    // AI calls, no costs incurred on banned owners' traffic. See
+    // SUBSCRIPTION.md "Bans".
+    if (await isBotOwnerBanned(id)) {
+      return c.text("OK", 200);
+    }
+
     const bot = await registry.get(id);
     if (!bot) return c.text("Bot not active", 200);
 
