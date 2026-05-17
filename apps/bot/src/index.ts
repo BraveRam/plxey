@@ -1,14 +1,25 @@
 import { Hono } from "hono";
+import { serve as serveInngest } from "inngest/hono";
 import { randomBytes } from "crypto";
 import { createOnboardingBot } from "./bots/onboarding";
 import { registry } from "./bots/registry";
 import { logger, pinoLogger } from "./lib/logger";
 import { api } from "./api/routes";
 import { verifyWebhookSecret, WEBHOOK_SECRET_HEADER } from "./lib/webhook-secret";
+import { inngest } from "./inngest/client";
+import { functions as inngestFunctions } from "./inngest/functions";
 
 const app = new Hono();
 
 app.use(pinoLogger());
+
+// Inngest mounts before the /api router so its Sync/PUT/POST traffic
+// bypasses the per-IP /api rate limiter and isn't shadowed by api routes.
+const inngestHandler = serveInngest({
+  client: inngest,
+  functions: inngestFunctions,
+});
+app.all("/api/inngest", async (c) => inngestHandler(c));
 
 app.route("/api", api);
 
