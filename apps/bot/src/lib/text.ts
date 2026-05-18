@@ -409,7 +409,7 @@ export function billingUsageBlock(args: {
   return (
     "Usage this period:\n" +
     `  Bots: ${args.bots}/${args.maxBots}\n` +
-    `  Documents (largest bot): ${args.docs}/${args.maxDocs}\n` +
+    `  Documents (all bots): ${args.docs}/${args.maxDocs}\n` +
     `  Messages: ${args.messages.toLocaleString()}/${args.maxMessages.toLocaleString()}`
   );
 }

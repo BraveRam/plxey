@@ -146,7 +146,10 @@ interface BillingState {
   trialEndsAt: Date | null;
   subscriptionRenewsAt: Date | null;
   botCount: number;
-  largestBotDocCount: number;
+  /** Sum of documents across ALL of the owner's bots. The cap is per-bot
+   *  (planLimits.maxDocsPerBot) so the displayed denominator is
+   *  maxDocsPerBot × botCount — i.e. the aggregate ceiling. */
+  totalDocCount: number;
   messagesThisPeriod: number;
   subs: OwnerSubRow[];
 }
@@ -300,7 +303,7 @@ async function loadBillingState(ownerId: string): Promise<BillingState> {
     trialEndsAt: null,
     subscriptionRenewsAt: null,
     botCount: 0,
-    largestBotDocCount: 0,
+    totalDocCount: 0,
     messagesThisPeriod: 0,
     subs: [],
   };
@@ -332,36 +335,9 @@ async function loadBillingState(ownerId: string): Promise<BillingState> {
       orderBy: [desc(subscriptions.createdAt)],
     });
 
-    // Compute "largest bot doc count" for the usage block. Pulls the max
-    // document count among any of the owner's tenant's bots. Cheap query
-    // since both tables are small and indexed by tenant.
-    let largestBotDocCount = 0;
-    try {
-      const rows = await db
-        .select({
-          botId: documents.tenantBotId,
-          count: sql<number>`count(*)::int`,
-        })
-        .from(documents)
-        .innerJoin(tenants, eq(documents.tenantId, tenants.id))
-        .innerJoin(
-          tenantBots,
-          and(
-            eq(tenantBots.tenantId, tenants.id),
-            eq(tenantBots.id, documents.tenantBotId),
-          ),
-        )
-        .where(eq(tenants.telegramOwnerId, ownerId))
-        .groupBy(documents.tenantBotId);
-      for (const r of rows) {
-        if (r.count > largestBotDocCount) largestBotDocCount = r.count;
-      }
-    } catch (err) {
-      logger.warn(
-        { err, ownerId },
-        "loadBillingState: largest-bot-doc-count query failed",
-      );
-    }
+    // Total doc count comes from `owners.doc_count` — already denormalized,
+    // bumped on every doc create/delete by lib/owners.ts. No second query
+    // needed.
 
     return {
       ownerId,
@@ -370,7 +346,7 @@ async function loadBillingState(ownerId: string): Promise<BillingState> {
       trialEndsAt: ownerRow.trialEndsAt,
       subscriptionRenewsAt: ownerRow.subscriptionRenewsAt,
       botCount: ownerRow.botCount,
-      largestBotDocCount,
+      totalDocCount: ownerRow.docCount,
       messagesThisPeriod: ownerRow.messagesThisPeriod,
       subs: subRows.map((s) => ({
         id: s.id,
@@ -432,11 +408,14 @@ function composeBillingScreen(state: BillingState): string {
   // Usage block — driven by the effective plan's caps. If lapsed/no plan,
   // fall back to trial caps as a sane baseline for the layout.
   const limits = planLimits(planForLabel);
+  // Doc cap is enforced per-bot, so the aggregate ceiling shown here is
+  // maxDocsPerBot × botCount. If the owner has 0 bots, the cap is 0 too.
+  const aggregateDocCap = limits.maxDocsPerBot * state.botCount;
   const usage = billingUsageBlock({
     bots: state.botCount,
     maxBots: limits.maxBots,
-    docs: state.largestBotDocCount,
-    maxDocs: limits.maxDocsPerBot,
+    docs: state.totalDocCount,
+    maxDocs: aggregateDocCap,
     messages: state.messagesThisPeriod,
     maxMessages: limits.maxMessagesPerPeriod,
   });

@@ -93,7 +93,7 @@ function stateFactory(overrides: Partial<BillingState> = {}): BillingState {
     trialEndsAt: null,
     subscriptionRenewsAt: null,
     botCount: 0,
-    largestBotDocCount: 0,
+    totalDocCount: 0,
     messagesThisPeriod: 0,
     subs: [],
     ...overrides,
@@ -108,7 +108,7 @@ describe("composeBillingScreen", () => {
         status: "trialing",
         trialEndsAt: fiveDays,
         botCount: 1,
-        largestBotDocCount: 2,
+        totalDocCount: 2,
         messagesThisPeriod: 42,
       }),
     );
@@ -116,7 +116,8 @@ describe("composeBillingScreen", () => {
     expect(out).toContain("days left");
     expect(out).toContain("Usage this period:");
     expect(out).toContain("Bots: 1/1");
-    expect(out).toContain("Documents (largest bot): 2/3");
+    // Aggregate doc cap = maxDocsPerBot (3) × botCount (1) = 3
+    expect(out).toContain("Documents (all bots): 2/3");
     expect(out).toContain("Messages: 42/500");
     expect(out).toContain("⭐ Choose your plan:");
     expect(out).toContain("Pro");
@@ -131,7 +132,7 @@ describe("composeBillingScreen", () => {
         effectivePlan: "pro",
         subscriptionRenewsAt: renews,
         botCount: 2,
-        largestBotDocCount: 7,
+        totalDocCount: 7,
         messagesThisPeriod: 234,
       }),
     );
@@ -139,7 +140,8 @@ describe("composeBillingScreen", () => {
     expect(out).toContain("Renews on");
     expect(out).toContain("Usage this period:");
     expect(out).toContain("Bots: 2/3");
-    expect(out).toContain("Documents (largest bot): 7/10");
+    // Pro: maxDocsPerBot (10) × botCount (2) = 20
+    expect(out).toContain("Documents (all bots): 7/20");
     expect(out).toContain("Messages: 234/5,000");
     // Active screens do NOT show the plan picker.
     expect(out).not.toContain("⭐ Choose your plan:");
@@ -152,13 +154,14 @@ describe("composeBillingScreen", () => {
         effectivePlan: "business",
         subscriptionRenewsAt: new Date("2026-06-15T00:00:00.000Z"),
         botCount: 5,
-        largestBotDocCount: 12,
+        totalDocCount: 12,
         messagesThisPeriod: 999,
       }),
     );
     expect(out).toContain("<b>Business</b> — active");
     expect(out).toContain("Bots: 5/10");
-    expect(out).toContain("Documents (largest bot): 12/50");
+    // Business: maxDocsPerBot (50) × botCount (5) = 250
+    expect(out).toContain("Documents (all bots): 12/250");
     expect(out).toContain("Messages: 999/50,000");
   });
 
@@ -178,7 +181,7 @@ describe("composeBillingScreen", () => {
           },
         ],
         botCount: 1,
-        largestBotDocCount: 0,
+        totalDocCount: 0,
         messagesThisPeriod: 0,
       }),
     );
