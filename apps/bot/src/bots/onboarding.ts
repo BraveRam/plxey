@@ -253,30 +253,12 @@ async function createBotConversation(conversation: Conversation<BaseCtx, BaseCtx
       await ctx.api.deleteMessage(msg.chat.id, msg.message_id).catch(() => {});
     }
 
-    // Plan-cap quota gate. Runs BEFORE the Telegram getMe in createBot so a
-    // bot rejected by quota doesn't burn an API call. Lapsed/banned owners
-    // get the subscribe CTA; at-cap owners on a paid plan get the
-    // plan-aware blocked message.
-    const ownerTelegramId = String(ctx.from!.id);
-    const quota = await conversation.external(() =>
-      checkQuota(ownerTelegramId, "bot"),
-    );
-    if (!quota.ok) {
-      const message =
-        quota.reason === "lapsed" || quota.reason === "banned"
-          ? SUBSCRIBE_TO_CREATE_BOT
-          : botCreateBlocked({
-              cap: quota.limit,
-              planLabel: quota.plan ?? "",
-            });
-      if (screenMsgId !== null) {
-        await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
-        screenMsgId = null;
-      }
-      await ctx.reply(message, { reply_markup: menuKb, parse_mode: "HTML" });
-      return;
-    }
+    // Note: the bot-creation quota gate runs at button-tap time
+    // (`create_bot` callback handler below), not here. Re-checking after
+    // the owner has already pasted a token would burn the round-trip,
+    // and an owner can't subscribe inside the conversation anyway.
 
+    const ownerTelegramId = String(ctx.from!.id);
     let botUsername: string | null = null;
     try {
       // createBot writes a tenant_bots row (after a Telegram getMe), and
@@ -416,6 +398,28 @@ export async function createOnboardingBot(): Promise<Bot> {
   });
 
   bot.callbackQuery("create_bot", async (ctx) => {
+    // Plan-cap quota gate. Runs at button-tap so the owner sees the
+    // subscribe / upgrade CTA before they're prompted for a bot token.
+    // Lapsed/banned owners get the subscribe wall; at-cap owners on a
+    // paid plan get the plan-aware blocked message.
+    const ownerTelegramId = String(ctx.from?.id ?? "");
+    if (ownerTelegramId) {
+      const quota = await checkQuota(ownerTelegramId, "bot");
+      if (!quota.ok) {
+        await ctx.answerCallbackQuery();
+        const message =
+          quota.reason === "lapsed" || quota.reason === "banned"
+            ? SUBSCRIBE_TO_CREATE_BOT
+            : botCreateBlocked({
+                cap: quota.limit,
+                planLabel: quota.plan ?? "",
+              });
+        const kb = await buildMainMenuKb(ownerTelegramId);
+        await ctx.deleteMessage().catch(() => {});
+        await ctx.reply(message, { reply_markup: kb, parse_mode: "HTML" });
+        return;
+      }
+    }
     await ctx.answerCallbackQuery();
     await ctx.conversation.enter("createBot");
   });
