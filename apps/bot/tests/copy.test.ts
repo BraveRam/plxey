@@ -5,6 +5,7 @@ import {
   TOAST_STALE_CALLBACK,
   dailyCapButtonLabel,
   dailyCapUpdated,
+  managementMenu,
   onboardingWelcome,
   truncateMid,
 } from "../src/lib/text";
@@ -75,6 +76,56 @@ describe("onboardingWelcome", () => {
     expect(onboardingWelcome("Alex")).toContain(
       "Choose an option below to get started.",
     );
+  });
+});
+
+describe("managementMenu", () => {
+  test("greets the owner by first name in bold when available", () => {
+    const out = managementMenu({
+      username: "mybot",
+      statusIcon: "✅ Active",
+      systemPrompt: "be helpful",
+      firstName: "Alex",
+    });
+    expect(out).toContain("<b>Hi Alex</b>");
+    expect(out).toContain("Managing <b>@mybot</b>");
+    expect(out).toContain("Status: ✅ Active");
+    expect(out).toContain("<b>Prompt preview</b>");
+  });
+
+  test("omits the greeting line when first name is missing", () => {
+    const out = managementMenu({
+      username: "mybot",
+      statusIcon: "⏸ Paused",
+      systemPrompt: "be helpful",
+      firstName: null,
+    });
+    expect(out).not.toContain("Hi ");
+    expect(out.startsWith("Managing <b>@mybot</b>")).toBe(true);
+  });
+
+  test("escapes HTML in dynamic fields to prevent parse errors", () => {
+    const out = managementMenu({
+      username: "<bad>",
+      statusIcon: "✅ Active",
+      systemPrompt: "uses <code> tags & such",
+      firstName: "A<lex>",
+    });
+    expect(out).toContain("@&lt;bad&gt;");
+    expect(out).toContain("A&lt;lex&gt;");
+    expect(out).toContain("&lt;code&gt;");
+    expect(out).toContain("&amp;");
+  });
+
+  test("truncates long prompts with an ellipsis", () => {
+    const long = "x".repeat(300);
+    const out = managementMenu({
+      username: "mybot",
+      statusIcon: "✅ Active",
+      systemPrompt: long,
+      firstName: null,
+    });
+    expect(out).toContain(`${"x".repeat(200)}…`);
   });
 });
 

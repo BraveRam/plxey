@@ -146,15 +146,40 @@ export function deleteBotMismatch(phrase: string): string {
 // Tenant bot — owner management menu
 // =============================================================================
 
+/**
+ * Tenant-bot management menu header. Renders as HTML; the caller sends
+ * with `parse_mode: "HTML"`.
+ *
+ * `firstName` personalizes the greeting when Telegram exposes it.
+ * `systemPrompt` is truncated to a 200-char preview with an ellipsis.
+ */
 export function managementMenu(args: {
   username: string;
   statusIcon: string;
   systemPrompt: string;
+  firstName?: string | null;
 }): string {
-  const { username, statusIcon, systemPrompt } = args;
+  const { username, statusIcon, systemPrompt, firstName } = args;
   const preview = systemPrompt.slice(0, 200);
-  const ellipsis = systemPrompt.length > 200 ? "..." : "";
-  return `⚙️ @${username} Management\n\nStatus: ${statusIcon}\n\nPrompt preview:\n${preview}${ellipsis}`;
+  const ellipsis = systemPrompt.length > 200 ? "…" : "";
+  const greeting = firstName?.trim()
+    ? `👋 <b>Hi ${escapeHtml(firstName.trim())}</b>\n\n`
+    : "";
+  return (
+    `${greeting}` +
+    `Managing <b>@${escapeHtml(username)}</b>\n\n` +
+    `Status: ${statusIcon}\n\n` +
+    `<b>Prompt preview</b>\n${escapeHtml(preview)}${ellipsis}`
+  );
+}
+
+/** Minimal HTML escape for the four characters Telegram parses. */
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
 }
 
 // =============================================================================

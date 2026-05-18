@@ -198,11 +198,12 @@ async function showManagementMenu(ctx: Context, botId: string) {
     username: botRecord.botUsername ?? "",
     statusIcon,
     systemPrompt: botRecord.systemPrompt,
+    firstName: ctx.from?.first_name ?? null,
   });
 
   // Always send a new message. Callers inside a conversation are expected
   // to delete their last tracked screen message before invoking this.
-  await ctx.reply(text, { reply_markup: kb });
+  await ctx.reply(text, { reply_markup: kb, parse_mode: "HTML" });
 }
 
 function makeEditPromptConversation(botId: string) {
