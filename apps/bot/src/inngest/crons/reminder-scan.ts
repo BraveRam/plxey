@@ -3,7 +3,7 @@
  * and fire `notify/owner` events.
  *
  * Thresholds (from SUBSCRIPTION.md "Notifications"):
- *   - Trial T-7d: trialing owners whose trial_ends_at is in the (now+6d, now+7d] window.
+ *   - Trial T-3d: trialing owners whose trial_ends_at is in the (now+2d, now+3d] window.
  *   - Trial T-1d: trialing owners whose trial_ends_at is in the (now+0d, now+1d] window.
  *   - Cancel T-3d-before-end: canceled subs whose currentPeriodEnd is in the (now+2d, now+3d] window.
  *
@@ -38,24 +38,24 @@ export const reminderScan = inngest.createFunction(
   },
   async ({ step }) => {
     const now = new Date();
-    const t7 = thresholdWindow(now, 7);
+    const t3 = thresholdWindow(now, 3);
     const t1 = thresholdWindow(now, 1);
     const cancel3 = thresholdWindow(now, 3);
 
-    // 1. Trial T-7d: owners trialing, trial_ends_at in (now+6d, now+7d].
-    const trial7d = await step.run("find-trial-7d", async () => {
+    // 1. Trial T-3d: owners trialing, trial_ends_at in (now+2d, now+3d].
+    const trial3d = await step.run("find-trial-3d", async () => {
       const rows = await db.query.owners.findMany({
         where: and(
           eq(owners.subscriptionStatus, "trialing"),
           not(isNull(owners.trialEndsAt)),
-          gt(owners.trialEndsAt, t7.start),
-          lte(owners.trialEndsAt, t7.end),
+          gt(owners.trialEndsAt, t3.start),
+          lte(owners.trialEndsAt, t3.end),
         ),
         columns: { telegramUserId: true },
       });
       return rows.map<ReminderMatch>((r) => ({
         ownerTelegramUserId: r.telegramUserId,
-        kind: "trial_ending_7d",
+        kind: "trial_ending_3d",
       }));
     });
 
@@ -100,7 +100,7 @@ export const reminderScan = inngest.createFunction(
       }));
     });
 
-    const all = [...trial7d, ...trial1d, ...cancel3d];
+    const all = [...trial3d, ...trial1d, ...cancel3d];
     if (all.length === 0) {
       return { matches: 0 };
     }
@@ -131,7 +131,7 @@ export const reminderScan = inngest.createFunction(
 
     return {
       matches: all.length,
-      trial7d: trial7d.length,
+      trial3d: trial3d.length,
       trial1d: trial1d.length,
       cancel3d: cancel3d.length,
     };

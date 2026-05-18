@@ -39,7 +39,7 @@
 
 Telegram Stars (`XTR`) powers all billing. Owners pay through Telegram's native invoice flow. The bot reads `successful_payment` updates and maintains subscription state in our DB. Owners can only purchase service inside the onboarding bot.
 
-Three tiers: **Trial** (one-shot 14-day, automatic on first bot creation), **Pro**, **Business**. There is **no permanent Free tier** — when an owner's plan ends without an active subscription, all their bots are paused until they pay.
+Three tiers: **Trial** (one-shot 7-day, automatic on first bot creation), **Pro**, **Business**. There is **no permanent Free tier** — when an owner's plan ends without an active subscription, all their bots are paused until they pay.
 
 Subscriptions are managed by us via the Bot API methods `createInvoiceLink`, `editUserStarSubscription`, and `refundStarPayment`. Telegram has no native upgrade/downgrade API; we model these by combining cancel + new invoice.
 
@@ -49,7 +49,7 @@ Subscriptions are managed by us via the Bot API methods `createInvoiceLink`, `ed
 
 | Plan | Stars / month | Max bots | Max docs / bot | Max messages / period |
 |---|---|---|---|---|
-| Trial (14 days, one-shot) | 0 | 1 | 3 | 500 (over the full 14d as one bucket) |
+| Trial (7 days, one-shot) | 0 | 1 | 3 | 500 (over the full 7d as one bucket) |
 | Pro | 500 ⭐ (~$10) | 3 | 10 | 5,000 |
 | Business | 2,000 ⭐ (~$40) | 10 | 50 | 50,000 |
 
@@ -62,12 +62,12 @@ Subscriptions are managed by us via the Bot API methods `createInvoiceLink`, `ed
 ## Trial
 
 - **Clock starts** at first bot creation by the owner (`POST /api/bots` succeeds for the first time for that `telegramOwnerId`). Not at `/start`.
-- **Duration**: 14 days from start.
+- **Duration**: 7 days from start.
 - **One-shot, lifetime**. Deleting and recreating bots within or after the trial window does NOT reset the clock. `owners.trial_ends_at` is set once.
-- **Caps during trial**: 1 bot, 3 docs/bot, 500 messages across the full 14-day window (a single bucket, no monthly rollover).
-- **Welcome DM** on trial start: "🎫 Trial started — 14 days of full access. Subscribe anytime to lock in your plan."
-- **Reminders**: DM at T-7d and T-1d.
-- **Pay during trial = stack model**: trial keeps running until `trial_ends_at`. Paid period runs in parallel from the moment of payment. Owner gets ~14d free + 30d paid for one Stars charge. Telegram's auto-renew fires at T+30d from payment. After trial ends, only paid subscription continues.
+- **Caps during trial**: 1 bot, 3 docs/bot, 500 messages across the full 7-day window (a single bucket, no monthly rollover).
+- **Welcome DM** on trial start: "🎫 Trial started — 7 days of full access. Subscribe anytime to lock in your plan."
+- **Reminders**: DM at T-3d and T-1d.
+- **Pay during trial = stack model**: trial keeps running until `trial_ends_at`. Paid period runs in parallel from the moment of payment. Owner gets up to 7d free + 30d paid for one Stars charge. Telegram's auto-renew fires at T+30d from payment. After trial ends, only paid subscription continues.
 - **Refund during trial-after-payment**: subscription becomes `lapsed` immediately. Trial is considered consumed regardless of refund outcome.
 
 ---
@@ -409,7 +409,7 @@ When a lapsed owner subscribes again, `subscription/started` fires:
   - **Silent customer-side**: bot does not reply.
   - **DM owner once per period**: "You've hit {cap} messages this period. Upgrade or wait until renewal."
 - Reset: at subscription period boundary (`successful_payment` of `is_recurring=true` resets the counter and sets `periodStartedAt = now()`).
-- For trial owners: counter resets... never. 500 over the full 14-day trial bucket. On trial expiry, the row is no longer relevant — owner is `lapsed`.
+- For trial owners: counter resets... never. 500 over the full 7-day trial bucket. On trial expiry, the row is no longer relevant — owner is `lapsed`.
 
 ### Bot count and doc count denormalization
 
@@ -523,7 +523,7 @@ All owner-facing DMs route through Inngest `notify/owner` (one function, discrim
 | `kind` | When | Throttle |
 |---|---|---|
 | `trial_started` | When trial begins (first bot created) | once per owner |
-| `trial_ending_7d` | T-7d before trial_ends_at | once |
+| `trial_ending_3d` | T-3d before trial_ends_at | once |
 | `trial_ending_1d` | T-1d before trial_ends_at | once |
 | `trial_expired` | At trial lapse | once per lapse |
 | `subscription_started` | First successful_payment | once per charge |

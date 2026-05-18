@@ -31,7 +31,7 @@ import {
 import { inngest } from "../inngest/client";
 import { logger } from "./logger";
 
-const TRIAL_DAYS = 14;
+const TRIAL_DAYS = 7;
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
 // ---------------------------------------------------------------------------
@@ -112,7 +112,7 @@ export async function touchOwner(telegramUserId: string): Promise<void> {
 /**
  * Called once when the owner's first bot is successfully created
  * (`POST /api/bots` succeeds for the first time for that owner). Sets
- * `trial_ends_at = now + 14 days` IFF still null, then fires
+ * `trial_ends_at = now + 7 days` IFF still null, then fires
  * `owner/first.bot.created` so the welcome DM goes out.
  *
  * Idempotent: re-running does NOT reset `trial_ends_at` and does NOT

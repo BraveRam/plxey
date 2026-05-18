@@ -523,10 +523,10 @@ export function adminEscalation(args: {
 // =============================================================================
 
 export const TRIAL_STARTED_DM =
-  "🎫 Trial started — 14 days of full access. Subscribe anytime to lock in your plan.";
+  "🎫 Trial started — 7 days of full access. Subscribe anytime to lock in your plan.";
 
-export const TRIAL_ENDING_7D_DM =
-  "🎫 Trial ends in 7 days. Subscribe to keep your bots active.";
+export const TRIAL_ENDING_3D_DM =
+  "🎫 Trial ends in 3 days. Subscribe to keep your bots active.";
 
 export const TRIAL_ENDING_1D_DM =
   "🎫 Trial ends in 1 day. Subscribe to keep your bots active.";
@@ -606,7 +606,7 @@ export function billingHeader(args: {
       // but trial_ends_at hasn't been set yet — they haven't created their
       // first bot. Show a pre-trial nudge instead of "0 days left".
       if (args.trialDaysLeft === null || args.trialDaysLeft === undefined) {
-        return "🎫 14-day trial — create your first bot to start the clock";
+        return "🎫 7-day trial — create your first bot to start the clock";
       }
       const days = args.trialDaysLeft;
       const dayWord = days === 1 ? "day" : "days";

@@ -65,7 +65,7 @@ export type BotUsageExceededEventData = {
 
 export type NotifyOwnerKind =
   | "trial_started"
-  | "trial_ending_7d"
+  | "trial_ending_3d"
   | "trial_ending_1d"
   | "trial_expired"
   | "subscription_started"

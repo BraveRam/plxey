@@ -21,7 +21,7 @@ import { redis } from "../../lib/redis";
 import { sendOwnerDm } from "./_telegram";
 import {
   TRIAL_STARTED_DM,
-  TRIAL_ENDING_7D_DM,
+  TRIAL_ENDING_3D_DM,
   TRIAL_ENDING_1D_DM,
   TRIAL_EXPIRED_DM,
   subscriptionStartedDM,
@@ -69,7 +69,7 @@ function dedupSuffix(
   const today = new Date().toISOString().slice(0, 10);
   switch (kind) {
     case "trial_started":
-    case "trial_ending_7d":
+    case "trial_ending_3d":
     case "trial_ending_1d":
     case "trial_expired":
       // Once total per (owner, kind) — large TTL means re-sends from a
@@ -121,8 +121,8 @@ function buildText(
   switch (kind) {
     case "trial_started":
       return TRIAL_STARTED_DM;
-    case "trial_ending_7d":
-      return TRIAL_ENDING_7D_DM;
+    case "trial_ending_3d":
+      return TRIAL_ENDING_3D_DM;
     case "trial_ending_1d":
       return TRIAL_ENDING_1D_DM;
     case "trial_expired":

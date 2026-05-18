@@ -1051,7 +1051,7 @@ Telegram Stars billing is now implemented. `SUBSCRIPTION.md` remains the authori
 
 | Plan | Price | Bots | Docs/bot | Messages/period |
 |---|---|---|---|---|
-| Trial (14d, one-shot) | 0 ⭐ | 1 | 3 | 500 (whole 14d as one bucket) |
+| Trial (7d, one-shot) | 0 ⭐ | 1 | 3 | 500 (whole 7d as one bucket) |
 | Pro | 500 ⭐/mo | 3 | 10 | 5,000 |
 | Business | 2,000 ⭐/mo | 10 | 50 | 50,000 |
 
