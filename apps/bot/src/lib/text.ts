@@ -369,13 +369,19 @@ export function pausedBotCustomerPingDM(botUsername: string): string {
 export function billingHeader(args: {
   status: "trialing" | "active" | "canceled" | "lapsed";
   planLabel: string;
-  trialDaysLeft?: number;
+  trialDaysLeft?: number | null;
   renewsOn?: string;
   endsOn?: string;
 }): string {
   switch (args.status) {
     case "trialing": {
-      const days = args.trialDaysLeft ?? 0;
+      // `trialDaysLeft = null` (or undefined) means the owner row exists
+      // but trial_ends_at hasn't been set yet — they haven't created their
+      // first bot. Show a pre-trial nudge instead of "0 days left".
+      if (args.trialDaysLeft === null || args.trialDaysLeft === undefined) {
+        return "🎫 14-day trial — create your first bot to start the clock";
+      }
+      const days = args.trialDaysLeft;
       const dayWord = days === 1 ? "day" : "days";
       return `🎫 Trial: ${days} ${dayWord} left`;
     }

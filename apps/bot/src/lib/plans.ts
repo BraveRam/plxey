@@ -69,7 +69,11 @@ export type EffectivePlanResult =
  *   1. `live` = subs where status="active" OR (status="canceled" AND currentPeriodEnd > now).
  *   2. If any live sub is business → "business".
  *   3. Else if any live sub is pro → "pro".
- *   4. Else if owner is trialing and trialEndsAt > now → "trial".
+ *   4. Else if owner is trialing AND (trialEndsAt is null OR trialEndsAt > now) → "trial".
+ *      Null trialEndsAt means "trial hasn't started yet" — the owner row was
+ *      seeded by owner-capture middleware before they created their first bot.
+ *      Treating that as trial (not lapsed) lets the bot-create gate pass so
+ *      `startTrialOnFirstBot` can actually run and set trialEndsAt.
  *   5. Else → lapsed.
  *
  * When multiple live subs share the winning tier, prefer "active" over "canceled".
@@ -99,12 +103,13 @@ export function effectivePlan(input: EffectivePlanInput): EffectivePlanResult {
     };
   }
 
-  if (
-    input.subscriptionStatus === "trialing" &&
-    input.trialEndsAt !== null &&
-    input.trialEndsAt.getTime() > now.getTime()
-  ) {
-    return { plan: "trial", status: "trialing" };
+  if (input.subscriptionStatus === "trialing") {
+    const trialStillLive =
+      input.trialEndsAt === null ||
+      input.trialEndsAt.getTime() > now.getTime();
+    if (trialStillLive) {
+      return { plan: "trial", status: "trialing" };
+    }
   }
 
   return { plan: null, status: "lapsed" };

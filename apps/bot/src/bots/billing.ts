@@ -366,14 +366,17 @@ function composeBillingScreen(state: BillingState): string {
 
   let header: string;
   if (state.status === "trialing") {
-    const daysLeft = state.trialEndsAt
+    // Null trial_ends_at = pre-trial (owner hasn't created their first bot
+    // yet). Pass `null` through so the header renders the pre-trial nudge
+    // instead of "0 days left".
+    const daysLeft: number | null = state.trialEndsAt
       ? Math.max(
           0,
           Math.ceil(
             (state.trialEndsAt.getTime() - Date.now()) / (24 * 60 * 60 * 1000),
           ),
         )
-      : 0;
+      : null;
     header = billingHeader({
       status: "trialing",
       planLabel,

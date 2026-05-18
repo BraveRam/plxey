@@ -75,6 +75,18 @@ describe("effectivePlan", () => {
     expect(result).toEqual({ plan: null, status: "lapsed" });
   });
 
+  test("returns trial when trialing AND trialEndsAt is null (pre-trial: owner exists but hasn't created first bot)", () => {
+    const result = effectivePlan({
+      subscriptionStatus: "trialing",
+      trialEndsAt: null,
+      subscriptions: [],
+      now: NOW,
+    });
+    // Null trial_ends_at means startTrialOnFirstBot hasn't run yet.
+    // We treat it as live trial so the bot-create gate lets them through.
+    expect(result).toEqual({ plan: "trial", status: "trialing" });
+  });
+
   test("returns lapsed when trialEndsAt is null and no subscriptions exist", () => {
     const result = effectivePlan({
       subscriptionStatus: "lapsed",
