@@ -19,7 +19,7 @@
  * sweep.
  */
 
-import { and, eq, inArray, lt, sql } from "drizzle-orm";
+import { and, eq, inArray, lt, or, sql } from "drizzle-orm";
 import { db, subscriptions } from "@tg-business/db";
 import { inngest } from "../client";
 import { logger } from "../../lib/logger";
@@ -33,14 +33,29 @@ export const lapseSweep = inngest.createFunction(
     triggers: [{ cron: "0 * * * *" }],
   },
   async ({ step }) => {
+    // Two distinct lapse paths:
+    //   1. status='active' past 2d grace — renewal failed silently.
+    //   2. status='canceled' past currentPeriodEnd — owner explicitly
+    //      opted out, no grace because they chose to end it.
+    // is_complimentary rows skip both (year-2099 currentPeriodEnd
+    // makes them invisible anyway, but the explicit filter is belt-
+    // and-suspenders).
     const expired = await step.run("find-expired", async () => {
       return db.query.subscriptions.findMany({
         where: and(
-          eq(subscriptions.status, "active"),
           eq(subscriptions.isComplimentary, false),
-          lt(
-            sql`${subscriptions.currentPeriodEnd} + interval '2 days'`,
-            sql`now()`,
+          or(
+            and(
+              eq(subscriptions.status, "active"),
+              lt(
+                sql`${subscriptions.currentPeriodEnd} + interval '2 days'`,
+                sql`now()`,
+              ),
+            ),
+            and(
+              eq(subscriptions.status, "canceled"),
+              lt(subscriptions.currentPeriodEnd, sql`now()`),
+            ),
           ),
         ),
         columns: { id: true, ownerTelegramUserId: true },
