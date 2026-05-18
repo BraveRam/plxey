@@ -191,11 +191,16 @@ export function attachBillingHandlers(bot: Bot<Context>): void {
     await handleCancelTap(ctx);
   });
 
-  // "Keep subscription" — owner backed out of the cancel prompt. Just
-  // dismiss the prompt; do not re-render /billing.
+  // "Keep subscription" — owner backed out of the cancel prompt. Delete
+  // the prompt and re-render /billing (the prior /billing message was
+  // already deleted in handleCancelTap, so this restores the surface).
   bot.callbackQuery(CB.keepSubscription, async (ctx) => {
     await ctx.answerCallbackQuery().catch(() => {});
     await ctx.deleteMessage().catch(() => {});
+    const userId = ctx.from?.id;
+    if (userId !== undefined) {
+      await renderBillingScreen(ctx, String(userId));
+    }
   });
 
   bot.callbackQuery(CANCEL_CONFIRM_RE, async (ctx) => {
