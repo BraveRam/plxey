@@ -1338,6 +1338,28 @@ export class BotRegistry {
     bot.command("start", async (ctx) => {
       const ownerId = String(ctx.from?.id ?? "");
       if (this.findByOwner(ownerId)) {
+        // Register /start and /help in the owner's slash-menu the first
+        // time they /start. Scoped to this chat, so customers using the
+        // same bot don't see /help (which would confuse them — it's a
+        // management surface they shouldn't tap into). Fire-and-forget;
+        // a transient Telegram error here shouldn't block the menu.
+        const fromId = ctx.from?.id;
+        if (fromId !== undefined) {
+          ctx.api
+            .setMyCommands(
+              [
+                { command: "start", description: "Open the management menu" },
+                { command: "help", description: "Show help" },
+              ],
+              { scope: { type: "chat", chat_id: fromId } },
+            )
+            .catch((err) => {
+              logger.warn(
+                { err, botId, fromId },
+                "setMyCommands for owner failed",
+              );
+            });
+        }
         await showManagementMenu(ctx, botId);
         return;
       }
