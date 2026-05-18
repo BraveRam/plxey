@@ -8,12 +8,43 @@ import type { Context } from "grammy";
 const upsertCalls: Array<{ id: number; is_bot?: boolean }> = [];
 let nextUpsertResult: Promise<void> = Promise.resolve();
 
+// `mock.module` in Bun is process-wide and persists across test files.
+// We stub `upsertOwnerProfile` / `touchOwner` to test the middleware in
+// isolation, but other test files (billing.test.ts, owners.test.ts,
+// registry.test.ts) import additional symbols from this module
+// transitively (`recomputeEffectivePlan`, `selectActiveBots`,
+// `incrementMessageCount`, etc.). Bun's `mock.module` REPLACES the
+// module's full export shape — if we omit those, downstream test files
+// crash with "Export named X not found" on whatever order CI happens
+// to run them in. Stub them all as harmless no-ops to keep the mock
+// from leaking into a CI-only failure mode.
 mock.module("../src/lib/owners", () => ({
   upsertOwnerProfile: (from: { id: number; is_bot?: boolean }): Promise<void> => {
     upsertCalls.push(from);
     return nextUpsertResult;
   },
   touchOwner: (_id: string): Promise<void> => Promise.resolve(),
+  startTrialOnFirstBot: (_id: string): Promise<void> => Promise.resolve(),
+  incrementBotCount: (_id: string): Promise<void> => Promise.resolve(),
+  decrementBotCount: (_id: string): Promise<void> => Promise.resolve(),
+  incrementDocCount: (_id: string): Promise<void> => Promise.resolve(),
+  decrementDocCount: (_id: string): Promise<void> => Promise.resolve(),
+  incrementMessageCount: (_id: string): Promise<void> => Promise.resolve(),
+  decrementMessageCount: (_id: string): Promise<void> => Promise.resolve(),
+  resetMessageCount: (_id: string, _at: Date): Promise<void> => Promise.resolve(),
+  checkQuota: () =>
+    Promise.resolve({
+      ok: false,
+      plan: null,
+      used: 0,
+      limit: 0,
+      reason: "lapsed" as const,
+    }),
+  recomputeEffectivePlan: () =>
+    Promise.resolve({ plan: null, status: "lapsed" as const }),
+  selectActiveBots: <T,>(bots: T[]) => ({ active: bots, overQuota: [] as T[] }),
+  enforceOwnerQuota: () => Promise.resolve({ paused: [] as string[] }),
+  swapPrimaryBot: (_a: string, _b: string): Promise<void> => Promise.resolve(),
 }));
 
 // Import AFTER the mock so the middleware picks up the stub.
