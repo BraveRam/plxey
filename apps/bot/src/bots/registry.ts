@@ -183,14 +183,12 @@ async function showManagementMenu(ctx: Context, botId: string) {
   // single `tenantBots.findFirst` only when the cache miss happens —
   // process restart, lazy load, or some other rare path.
   const entry = registry.getEntry(botId);
-  let botUsername: string;
   let isActive: boolean;
   let autoReadBusinessMessages: boolean;
   let dailyUserAiReplyLimit: number | null;
   let connectionLinked: boolean;
 
   if (entry) {
-    botUsername = entry.botUsername;
     autoReadBusinessMessages = entry.autoReadBusinessMessages;
     dailyUserAiReplyLimit = entry.dailyUserAiReplyLimit;
     connectionLinked = entry.businessConnectionId !== null;
@@ -206,7 +204,6 @@ async function showManagementMenu(ctx: Context, botId: string) {
       await ctx.reply(BOT_NOT_FOUND);
       return;
     }
-    botUsername = botRecord.botUsername ?? "";
     isActive = botRecord.status === "active";
     autoReadBusinessMessages = botRecord.autoReadBusinessMessages;
     dailyUserAiReplyLimit = botRecord.dailyUserAiReplyLimit;
@@ -230,7 +227,6 @@ async function showManagementMenu(ctx: Context, botId: string) {
     .row();
 
   const text = managementMenu({
-    username: botUsername,
     statusIcon,
     connectionLinked,
     firstName: ctx.from?.first_name ?? null,
@@ -264,11 +260,8 @@ function makeEditPromptConversation(botId: string) {
       await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
     }
     let sent = await ctx.reply(
-      editPromptHeader({
-        username: botRecord.botUsername ?? "",
-        prompt: botRecord.systemPrompt,
-      }),
-      { reply_markup: cancelKb },
+      editPromptHeader({ prompt: botRecord.systemPrompt }),
+      { reply_markup: cancelKb, parse_mode: "HTML" },
     );
     screenMsgId = sent.message_id;
 
@@ -1403,11 +1396,7 @@ export class BotRegistry {
       // Only respond to the bot owner. Customers hitting /help would just
       // be confused by management-menu copy, so silently ignore them.
       if (!this.findByOwner(ownerId)) return;
-      const botEntry = this.bots.get(botId);
-      await ctx.reply(
-        tenantHelp({ username: botEntry?.botUsername ?? "" }),
-        { parse_mode: "HTML" },
-      );
+      await ctx.reply(tenantHelp(), { parse_mode: "HTML" });
     });
 
     bot.callbackQuery("biz_edit_prompt", async (ctx) => {
@@ -1436,16 +1425,12 @@ export class BotRegistry {
     // inside 60s — see analytics-stats.ts).
     bot.callbackQuery("biz_analytics", async (ctx) => {
       await ctx.answerCallbackQuery();
-      const entry = this.bots.get(botId);
       const stats = await getBotStats(botId);
       const hasAnyActivity =
         stats.lastMessageAt !== null ||
         stats.today.received > 0 ||
         stats.last30d.received > 0;
-      const text = analyticsLanding({
-        username: entry?.botUsername ?? "",
-        hasAnyActivity,
-      });
+      const text = analyticsLanding({ hasAnyActivity });
       const kb = new InlineKeyboard();
       if (hasAnyActivity) {
         kb.text("Today", "biz_analytics_today").row();
@@ -1466,7 +1451,6 @@ export class BotRegistry {
       window: AnalyticsWindow,
     ): Promise<void> => {
       await ctx.answerCallbackQuery();
-      const entry = this.bots.get(botId);
       const stats = await getBotStats(botId);
       const bucket =
         window === "today"
@@ -1475,7 +1459,6 @@ export class BotRegistry {
             ? stats.last7d
             : stats.last30d;
       const text = analyticsBucketScreen({
-        username: entry?.botUsername ?? "",
         window,
         bucket,
         lastMessageAt: stats.lastMessageAt,

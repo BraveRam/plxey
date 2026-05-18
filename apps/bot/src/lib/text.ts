@@ -93,11 +93,12 @@ export const ONBOARDING_HELP =
 
 /**
  * /help for a tenant bot, shown to the owner only. Renders as HTML.
- * `username` is the bot's @username so the message reads naturally.
+ * No username in the body — the owner is chatting with this bot
+ * already.
  */
-export function tenantHelp(args: { username: string }): string {
+export function tenantHelp(): string {
   return (
-    `<b>Managing @${escapeHtml(args.username)}</b>\n\n` +
+    `<b>Bot help</b>\n\n` +
     "Use <b>/start</b> here at any time to open the management menu.\n\n" +
     "<b>What each option does</b>\n" +
     "• <b>✏️ Prompt</b> — the system prompt that tells the AI how to behave. " +
@@ -236,12 +237,11 @@ export function deleteBotMismatch(phrase: string): string {
  * owners can open the 📚 Knowledge button to see the doc list.
  */
 export function managementMenu(args: {
-  username: string;
   statusIcon: string;
   connectionLinked: boolean;
   firstName?: string | null;
 }): string {
-  const { username, statusIcon, connectionLinked, firstName } = args;
+  const { statusIcon, connectionLinked, firstName } = args;
   const greeting = firstName?.trim()
     ? `👋 <b>Hi ${escapeHtml(firstName.trim())}</b>\n\n`
     : "";
@@ -250,7 +250,7 @@ export function managementMenu(args: {
     : "Connection: ⏳ Not linked yet";
   return (
     `${greeting}` +
-    `Managing <b>@${escapeHtml(username)}</b>\n\n` +
+    `<b>Bot management</b>\n\n` +
     `Status: ${statusIcon}\n` +
     `${connectionLine}`
   );
@@ -343,11 +343,8 @@ export function dailyCapMessageUpdated(value: string): string {
 // Prompt editor
 // =============================================================================
 
-export function editPromptHeader(args: {
-  username: string;
-  prompt: string;
-}): string {
-  return `Current prompt for @${args.username}:\n\n${args.prompt}\n\nSend your new prompt, or press Cancel.`;
+export function editPromptHeader(args: { prompt: string }): string {
+  return `<b>Current prompt</b>\n\n${args.prompt}\n\nSend your new prompt, or press Cancel.`;
 }
 
 export const PROMPT_UPDATED = "✅ Prompt updated.";
@@ -409,11 +406,8 @@ export function analyticsWindowLabel(window: AnalyticsWindow): string {
  * buttons (rendered by the caller). When the bot has never seen
  * a customer message, we show the empty hint instead.
  */
-export function analyticsLanding(args: {
-  username: string;
-  hasAnyActivity: boolean;
-}): string {
-  const header = `📊 <b>Analytics — @${escapeHtml(args.username)}</b>`;
+export function analyticsLanding(args: { hasAnyActivity: boolean }): string {
+  const header = `📊 <b>Analytics</b>`;
   if (!args.hasAnyActivity) {
     return `${header}\n\n${ANALYTICS_EMPTY_HINT}`;
   }
@@ -430,14 +424,13 @@ export function analyticsLanding(args: {
  * (the three buttons stay visible so they can switch quickly).
  */
 export function analyticsBucketScreen(args: {
-  username: string;
   window: AnalyticsWindow;
   bucket: AnalyticsScreenBucket;
   lastMessageAt: Date | null;
   now?: Date;
 }): string {
   const windowLabel = analyticsWindowLabel(args.window);
-  const header = `📊 <b>${windowLabel} — @${escapeHtml(args.username)}</b>`;
+  const header = `📊 <b>${windowLabel}</b>`;
   const lastLine = args.lastMessageAt
     ? `Last message: ${formatRelativeAgo(args.lastMessageAt, args.now)}`
     : "Last message: —";

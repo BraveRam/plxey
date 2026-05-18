@@ -89,31 +89,28 @@ describe("onboardingWelcome", () => {
 describe("managementMenu", () => {
   test("greets the owner by first name in bold when available", () => {
     const out = managementMenu({
-      username: "mybot",
       statusIcon: "✅ Active",
       connectionLinked: true,
       firstName: "Alex",
     });
     expect(out).toContain("<b>Hi Alex</b>");
-    expect(out).toContain("Managing <b>@mybot</b>");
+    expect(out).toContain("<b>Bot management</b>");
     expect(out).toContain("Status: ✅ Active");
     expect(out).toContain("Connection: ✅ Linked");
   });
 
   test("omits the greeting line when first name is missing", () => {
     const out = managementMenu({
-      username: "mybot",
       statusIcon: "⏸ Paused",
       connectionLinked: false,
       firstName: null,
     });
     expect(out).not.toContain("Hi ");
-    expect(out.startsWith("Managing <b>@mybot</b>")).toBe(true);
+    expect(out.startsWith("<b>Bot management</b>")).toBe(true);
   });
 
   test("shows the pending-connection state when not yet linked", () => {
     const out = managementMenu({
-      username: "mybot",
       statusIcon: "✅ Active",
       connectionLinked: false,
       firstName: null,
@@ -121,12 +118,22 @@ describe("managementMenu", () => {
     expect(out).toContain("Connection: ⏳ Not linked yet");
   });
 
+  test("does not echo the bot @username (owner is already in the bot)", () => {
+    // Regression guard: previous versions rendered "Managing
+    // @{botUsername}" which is redundant inside the bot's own chat.
+    const out = managementMenu({
+      statusIcon: "✅ Active",
+      connectionLinked: true,
+      firstName: "Alex",
+    });
+    expect(out).not.toContain("@");
+  });
+
   test("does not echo the system prompt", () => {
     // Owners already wrote their prompt; the menu shouldn't re-print it
     // every time they open settings. Regression guard against re-adding
     // a prompt preview field.
     const out = managementMenu({
-      username: "mybot",
       statusIcon: "✅ Active",
       connectionLinked: true,
       firstName: "Alex",
@@ -139,7 +146,6 @@ describe("managementMenu", () => {
     // line, which required an extra DB COUNT(*) on every owner /start.
     // We dropped it — knowledge size is one tap away via 📚 Knowledge.
     const out = managementMenu({
-      username: "mybot",
       statusIcon: "✅ Active",
       connectionLinked: true,
       firstName: "Alex",
@@ -148,14 +154,12 @@ describe("managementMenu", () => {
     expect(out).not.toContain("documents");
   });
 
-  test("escapes HTML in dynamic fields to prevent parse errors", () => {
+  test("escapes HTML in the first-name greeting", () => {
     const out = managementMenu({
-      username: "<bad>",
       statusIcon: "✅ Active",
       connectionLinked: true,
       firstName: "A<lex>",
     });
-    expect(out).toContain("@&lt;bad&gt;");
     expect(out).toContain("A&lt;lex&gt;");
   });
 });
@@ -204,14 +208,14 @@ describe("ONBOARDING_HELP", () => {
 });
 
 describe("tenantHelp", () => {
-  test("addresses the bot by @username", () => {
-    expect(tenantHelp({ username: "supportbot" })).toContain(
-      "<b>Managing @supportbot</b>",
-    );
+  test("uses a generic 'Bot help' header — no @username", () => {
+    const out = tenantHelp();
+    expect(out).toContain("<b>Bot help</b>");
+    expect(out).not.toContain("@");
   });
 
   test("explains every management-menu button", () => {
-    const out = tenantHelp({ username: "supportbot" });
+    const out = tenantHelp();
     expect(out).toContain("✏️ Prompt");
     expect(out).toContain("💬 Welcome");
     expect(out).toContain("📚 Knowledge");
@@ -223,11 +227,7 @@ describe("tenantHelp", () => {
   });
 
   test("describes the human-reply escalation flow", () => {
-    expect(tenantHelp({ username: "supportbot" })).toContain("✏️ Reply");
-  });
-
-  test("escapes HTML in the username", () => {
-    expect(tenantHelp({ username: "<bad>" })).toContain("@&lt;bad&gt;");
+    expect(tenantHelp()).toContain("✏️ Reply");
   });
 });
 
@@ -240,23 +240,23 @@ describe("analyticsWindowLabel", () => {
 });
 
 describe("analyticsLanding", () => {
-  test("renders header with bot username (HTML-escaped) and the picker prompt", () => {
-    const out = analyticsLanding({
-      username: "<evil>",
-      hasAnyActivity: true,
-    });
-    expect(out).toContain("📊 <b>Analytics — @&lt;evil&gt;</b>");
-    expect(out).toContain("Pick a window");
+  test("renders the generic Analytics header and the picker prompt", () => {
+    const out = analyticsLanding({ hasAnyActivity: true });
+    expect(out).toBe(
+      `📊 <b>Analytics</b>\n\nPick a window to see how many customers messaged this bot, how many the AI replied to, and how many of those were unique people.`,
+    );
   });
 
   test("renders the empty hint when there's never been a customer message", () => {
-    const out = analyticsLanding({
-      username: "supportbot",
-      hasAnyActivity: false,
-    });
-    expect(out).toContain("📊 <b>Analytics — @supportbot</b>");
+    const out = analyticsLanding({ hasAnyActivity: false });
+    expect(out).toContain("📊 <b>Analytics</b>");
     expect(out).toContain(ANALYTICS_EMPTY_HINT);
     expect(out).not.toContain("Pick a window");
+  });
+
+  test("does not echo the bot @username", () => {
+    expect(analyticsLanding({ hasAnyActivity: true })).not.toContain("@");
+    expect(analyticsLanding({ hasAnyActivity: false })).not.toContain("@");
   });
 });
 
@@ -264,26 +264,25 @@ describe("analyticsBucketScreen", () => {
   const NOW = new Date("2026-05-18T12:00:00.000Z");
   const sample = { received: 124, answered: 98, customers: 18 };
 
-  test("renders the window label in the header", () => {
+  test("renders the window label in the header — no @username", () => {
     const out = analyticsBucketScreen({
-      username: "supportbot",
       window: "today",
       bucket: sample,
       lastMessageAt: new Date("2026-05-18T11:56:00.000Z"),
       now: NOW,
     });
-    expect(out).toContain("📊 <b>Today — @supportbot</b>");
+    expect(out).toContain("📊 <b>Today</b>");
+    expect(out).not.toContain("@");
   });
 
   test("renders the three numbers", () => {
     const out = analyticsBucketScreen({
-      username: "supportbot",
       window: "last7d",
       bucket: { received: 812, answered: 692, customers: 47 },
       lastMessageAt: new Date("2026-05-18T11:56:00.000Z"),
       now: NOW,
     });
-    expect(out).toContain("📊 <b>Last 7 days — @supportbot</b>");
+    expect(out).toContain("📊 <b>Last 7 days</b>");
     expect(out).toContain("Messages received:  812");
     expect(out).toContain("AI replies sent:    692");
     expect(out).toContain("Unique customers:   47");
@@ -291,7 +290,6 @@ describe("analyticsBucketScreen", () => {
 
   test("only renders one bucket — not all three", () => {
     const out = analyticsBucketScreen({
-      username: "supportbot",
       window: "today",
       bucket: sample,
       lastMessageAt: null,
@@ -303,7 +301,6 @@ describe("analyticsBucketScreen", () => {
 
   test("renders the relative-time line for the last customer message", () => {
     const out = analyticsBucketScreen({
-      username: "supportbot",
       window: "today",
       bucket: sample,
       lastMessageAt: new Date("2026-05-18T11:56:00.000Z"),
@@ -314,24 +311,12 @@ describe("analyticsBucketScreen", () => {
 
   test("renders an em-dash when lastMessageAt is null", () => {
     const out = analyticsBucketScreen({
-      username: "supportbot",
       window: "today",
       bucket: { received: 0, answered: 0, customers: 0 },
       lastMessageAt: null,
       now: NOW,
     });
     expect(out).toContain("Last message: —");
-  });
-
-  test("HTML-escapes the bot username", () => {
-    const out = analyticsBucketScreen({
-      username: "<evil>",
-      window: "last30d",
-      bucket: sample,
-      lastMessageAt: null,
-      now: NOW,
-    });
-    expect(out).toContain("@&lt;evil&gt;");
   });
 });
 
