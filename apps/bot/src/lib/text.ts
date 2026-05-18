@@ -113,9 +113,7 @@ export function tenantHelp(args: { username: string }): string {
     "• <b>👁 Auto-read</b> — toggle whether the bot marks incoming customer " +
     "messages as read automatically.\n" +
     "• <b>🔒 Permissions</b> — check what your Business connection has " +
-    "granted the bot.\n" +
-    "• <b>🖼 Profile photo</b> — set the bot's avatar. Telegram may take " +
-    "a few minutes to refresh it for customers.\n\n" +
+    "granted the bot.\n\n" +
     "<b>Replying to a customer yourself</b>\n" +
     "When the AI escalates, you'll get a message with a <b>✏️ Reply</b> " +
     "button. Tap it, send your message in any format (text, photo, voice, " +
@@ -338,30 +336,6 @@ export function editPromptHeader(args: {
 }
 
 export const PROMPT_UPDATED = "✅ Prompt updated.";
-
-// =============================================================================
-// Profile photo editor
-// =============================================================================
-
-export function botPhotoEditorBody(args: { username: string }): string {
-  return (
-    `🖼 <b>Profile photo for @${escapeHtml(args.username)}</b>\n\n` +
-    "Send a photo (as a photo, not a file) to use as this bot's avatar. " +
-    "Square images work best. Telegram may take a few minutes to refresh " +
-    "the picture on customers' screens.\n\n" +
-    "Or press Cancel."
-  );
-}
-
-export const BOT_PHOTO_INVALID =
-  "Send the image as a <b>photo</b>, not as a file. Tap the paperclip → " +
-  "Gallery → pick the image. Or press Cancel.";
-
-export const BOT_PHOTO_UPDATED =
-  "✅ Profile photo updated. Telegram may take a few minutes to refresh it for customers.";
-
-export const BOT_PHOTO_FAILED =
-  "Couldn't update the profile photo. Telegram returned an error — try again, or send a different image.";
 
 // =============================================================================
 // Welcome editor
