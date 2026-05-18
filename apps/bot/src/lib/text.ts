@@ -390,36 +390,60 @@ function formatBucket(b: AnalyticsScreenBucket): string {
   );
 }
 
+export type AnalyticsWindow = "today" | "last7d" | "last30d";
+
+export function analyticsWindowLabel(window: AnalyticsWindow): string {
+  switch (window) {
+    case "today":
+      return "Today";
+    case "last7d":
+      return "Last 7 days";
+    case "last30d":
+      return "Last 30 days";
+  }
+}
+
 /**
- * Renders the owner-facing analytics screen. HTML; caller sends with
- * `parse_mode: "HTML"`. When every bucket is empty AND there has
- * never been a customer message, returns the empty-state hint
- * instead of a wall of zeros.
+ * Top-level Analytics landing card. The owner taps it from the
+ * management menu; we show a short prompt and three window-pick
+ * buttons (rendered by the caller). When the bot has never seen
+ * a customer message, we show the empty hint instead.
  */
-export function analyticsScreen(args: {
+export function analyticsLanding(args: {
   username: string;
-  today: AnalyticsScreenBucket;
-  last7d: AnalyticsScreenBucket;
-  last30d: AnalyticsScreenBucket;
+  hasAnyActivity: boolean;
+}): string {
+  const header = `📊 <b>Analytics — @${escapeHtml(args.username)}</b>`;
+  if (!args.hasAnyActivity) {
+    return `${header}\n\n${ANALYTICS_EMPTY_HINT}`;
+  }
+  return (
+    `${header}\n\n` +
+    "Pick a window to see how many customers messaged this bot, how " +
+    "many the AI replied to, and how many of those were unique people."
+  );
+}
+
+/**
+ * Per-window drill-in card. Owner taps Today / Last 7 days /
+ * Last 30 days from the landing card or from another drill-in
+ * (the three buttons stay visible so they can switch quickly).
+ */
+export function analyticsBucketScreen(args: {
+  username: string;
+  window: AnalyticsWindow;
+  bucket: AnalyticsScreenBucket;
   lastMessageAt: Date | null;
   now?: Date;
 }): string {
-  const header = `📊 <b>Analytics — @${escapeHtml(args.username)}</b>`;
-  if (
-    args.lastMessageAt === null &&
-    args.today.received === 0 &&
-    args.last30d.received === 0
-  ) {
-    return `${header}\n\n${ANALYTICS_EMPTY_HINT}`;
-  }
+  const windowLabel = analyticsWindowLabel(args.window);
+  const header = `📊 <b>${windowLabel} — @${escapeHtml(args.username)}</b>`;
   const lastLine = args.lastMessageAt
     ? `Last message: ${formatRelativeAgo(args.lastMessageAt, args.now)}`
     : "Last message: —";
   return (
     `${header}\n\n` +
-    `<b>Today</b>\n${formatBucket(args.today)}\n\n` +
-    `<b>Last 7 days</b>\n${formatBucket(args.last7d)}\n\n` +
-    `<b>Last 30 days</b>\n${formatBucket(args.last30d)}\n\n` +
+    `${formatBucket(args.bucket)}\n\n` +
     lastLine
   );
 }

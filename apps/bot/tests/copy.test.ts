@@ -6,7 +6,9 @@ import {
   TOAST_AUTOREAD_OFF,
   TOAST_AUTOREAD_ON,
   TOAST_STALE_CALLBACK,
-  analyticsScreen,
+  analyticsBucketScreen,
+  analyticsLanding,
+  analyticsWindowLabel,
   dailyCapButtonLabel,
   dailyCapUpdated,
   managementMenu,
@@ -229,79 +231,107 @@ describe("tenantHelp", () => {
   });
 });
 
-describe("analyticsScreen", () => {
-  const NOW = new Date("2026-05-18T12:00:00.000Z");
-  const filled = {
-    today: { received: 124, answered: 98, customers: 18 },
-    last7d: { received: 812, answered: 692, customers: 47 },
-    last30d: { received: 3210, answered: 2884, customers: 119 },
-  };
+describe("analyticsWindowLabel", () => {
+  test("maps each window enum to its display label", () => {
+    expect(analyticsWindowLabel("today")).toBe("Today");
+    expect(analyticsWindowLabel("last7d")).toBe("Last 7 days");
+    expect(analyticsWindowLabel("last30d")).toBe("Last 30 days");
+  });
+});
 
-  test("renders header with bot username (HTML-escaped)", () => {
-    const out = analyticsScreen({
+describe("analyticsLanding", () => {
+  test("renders header with bot username (HTML-escaped) and the picker prompt", () => {
+    const out = analyticsLanding({
       username: "<evil>",
-      ...filled,
-      lastMessageAt: new Date("2026-05-18T11:56:00.000Z"),
-      now: NOW,
+      hasAnyActivity: true,
     });
     expect(out).toContain("📊 <b>Analytics — @&lt;evil&gt;</b>");
+    expect(out).toContain("Pick a window");
   });
 
-  test("renders all three buckets with received / answered / customers", () => {
-    const out = analyticsScreen({
+  test("renders the empty hint when there's never been a customer message", () => {
+    const out = analyticsLanding({
       username: "supportbot",
-      ...filled,
+      hasAnyActivity: false,
+    });
+    expect(out).toContain("📊 <b>Analytics — @supportbot</b>");
+    expect(out).toContain(ANALYTICS_EMPTY_HINT);
+    expect(out).not.toContain("Pick a window");
+  });
+});
+
+describe("analyticsBucketScreen", () => {
+  const NOW = new Date("2026-05-18T12:00:00.000Z");
+  const sample = { received: 124, answered: 98, customers: 18 };
+
+  test("renders the window label in the header", () => {
+    const out = analyticsBucketScreen({
+      username: "supportbot",
+      window: "today",
+      bucket: sample,
       lastMessageAt: new Date("2026-05-18T11:56:00.000Z"),
       now: NOW,
     });
-    expect(out).toContain("<b>Today</b>");
-    expect(out).toContain("Messages received:  124");
-    expect(out).toContain("AI replies sent:    98");
-    expect(out).toContain("Unique customers:   18");
-    expect(out).toContain("<b>Last 7 days</b>");
+    expect(out).toContain("📊 <b>Today — @supportbot</b>");
+  });
+
+  test("renders the three numbers", () => {
+    const out = analyticsBucketScreen({
+      username: "supportbot",
+      window: "last7d",
+      bucket: { received: 812, answered: 692, customers: 47 },
+      lastMessageAt: new Date("2026-05-18T11:56:00.000Z"),
+      now: NOW,
+    });
+    expect(out).toContain("📊 <b>Last 7 days — @supportbot</b>");
     expect(out).toContain("Messages received:  812");
-    expect(out).toContain("<b>Last 30 days</b>");
-    expect(out).toContain("Messages received:  3,210");
-    expect(out).toContain("Unique customers:   119");
+    expect(out).toContain("AI replies sent:    692");
+    expect(out).toContain("Unique customers:   47");
+  });
+
+  test("only renders one bucket — not all three", () => {
+    const out = analyticsBucketScreen({
+      username: "supportbot",
+      window: "today",
+      bucket: sample,
+      lastMessageAt: null,
+      now: NOW,
+    });
+    expect(out).not.toContain("Last 7 days");
+    expect(out).not.toContain("Last 30 days");
   });
 
   test("renders the relative-time line for the last customer message", () => {
-    const out = analyticsScreen({
+    const out = analyticsBucketScreen({
       username: "supportbot",
-      ...filled,
+      window: "today",
+      bucket: sample,
       lastMessageAt: new Date("2026-05-18T11:56:00.000Z"),
       now: NOW,
     });
     expect(out).toContain("Last message: 4 minutes ago");
   });
 
-  test("renders the empty hint when there's never been a customer message", () => {
-    const out = analyticsScreen({
+  test("renders an em-dash when lastMessageAt is null", () => {
+    const out = analyticsBucketScreen({
       username: "supportbot",
-      today: { received: 0, answered: 0, customers: 0 },
-      last7d: { received: 0, answered: 0, customers: 0 },
-      last30d: { received: 0, answered: 0, customers: 0 },
+      window: "today",
+      bucket: { received: 0, answered: 0, customers: 0 },
       lastMessageAt: null,
       now: NOW,
     });
-    expect(out).toContain("📊 <b>Analytics — @supportbot</b>");
-    expect(out).toContain(ANALYTICS_EMPTY_HINT);
-    expect(out).not.toContain("Today");
-    expect(out).not.toContain("Last 7 days");
+    expect(out).toContain("Last message: —");
   });
 
-  test("does NOT show the empty hint when at least one bucket has activity", () => {
-    const out = analyticsScreen({
-      username: "supportbot",
-      today: { received: 0, answered: 0, customers: 0 },
-      last7d: { received: 0, answered: 0, customers: 0 },
-      last30d: { received: 3, answered: 2, customers: 1 },
-      lastMessageAt: new Date("2026-05-10T11:56:00.000Z"),
+  test("HTML-escapes the bot username", () => {
+    const out = analyticsBucketScreen({
+      username: "<evil>",
+      window: "last30d",
+      bucket: sample,
+      lastMessageAt: null,
       now: NOW,
     });
-    expect(out).not.toContain(ANALYTICS_EMPTY_HINT);
-    expect(out).toContain("Last 30 days");
-    expect(out).toContain("Messages received:  3");
+    expect(out).toContain("@&lt;evil&gt;");
   });
 });
 

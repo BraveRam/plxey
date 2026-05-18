@@ -134,7 +134,9 @@ import {
   docListHeader,
   docTooLarge,
   editPromptHeader,
-  analyticsScreen,
+  type AnalyticsWindow,
+  analyticsBucketScreen,
+  analyticsLanding,
   managementMenu,
   missingCanReplyAlert,
   permissionsPanel,
@@ -1428,20 +1430,77 @@ export class BotRegistry {
       await (ctx as unknown as BizCtx).conversation.enter("editDailyCap");
     });
 
+    // Analytics landing: short blurb + 3 window-pick buttons. Reads
+    // stats once to decide between landing-with-buttons and the
+    // empty-state hint, but the buttons re-read on tap (cache hit
+    // inside 60s — see analytics-stats.ts).
     bot.callbackQuery("biz_analytics", async (ctx) => {
       await ctx.answerCallbackQuery();
       const entry = this.bots.get(botId);
       const stats = await getBotStats(botId);
-      const text = analyticsScreen({
+      const hasAnyActivity =
+        stats.lastMessageAt !== null ||
+        stats.today.received > 0 ||
+        stats.last30d.received > 0;
+      const text = analyticsLanding({
         username: entry?.botUsername ?? "",
-        today: stats.today,
-        last7d: stats.last7d,
-        last30d: stats.last30d,
-        lastMessageAt: stats.lastMessageAt,
+        hasAnyActivity,
       });
-      const kb = new InlineKeyboard().text("⬅ Back to menu", "biz_analytics_back");
+      const kb = new InlineKeyboard();
+      if (hasAnyActivity) {
+        kb.text("Today", "biz_analytics_today").row();
+        kb.text("Last 7 days", "biz_analytics_7d").row();
+        kb.text("Last 30 days", "biz_analytics_30d").row();
+      }
+      kb.text("⬅ Back to menu", "biz_analytics_back");
       await ctx.deleteMessage().catch(() => {});
       await ctx.reply(text, { reply_markup: kb, parse_mode: "HTML" });
+    });
+
+    // Per-window drill-in. The three buttons stay visible (with the
+    // current window's button hidden) so the owner can flip quickly
+    // without going back through the landing card. Bottom row has
+    // Back-to-Analytics-landing and Back-to-menu.
+    const renderBucket = async (
+      ctx: Context,
+      window: AnalyticsWindow,
+    ): Promise<void> => {
+      await ctx.answerCallbackQuery();
+      const entry = this.bots.get(botId);
+      const stats = await getBotStats(botId);
+      const bucket =
+        window === "today"
+          ? stats.today
+          : window === "last7d"
+            ? stats.last7d
+            : stats.last30d;
+      const text = analyticsBucketScreen({
+        username: entry?.botUsername ?? "",
+        window,
+        bucket,
+        lastMessageAt: stats.lastMessageAt,
+      });
+      const kb = new InlineKeyboard();
+      // Switcher row — current window is omitted to make the active
+      // selection obvious (only the other two are tappable).
+      if (window !== "today") kb.text("Today", "biz_analytics_today");
+      if (window !== "last7d") kb.text("Last 7 days", "biz_analytics_7d");
+      if (window !== "last30d") kb.text("Last 30 days", "biz_analytics_30d");
+      kb.row();
+      kb.text("⬅ Analytics", "biz_analytics").row();
+      kb.text("⬅ Back to menu", "biz_analytics_back");
+      await ctx.deleteMessage().catch(() => {});
+      await ctx.reply(text, { reply_markup: kb, parse_mode: "HTML" });
+    };
+
+    bot.callbackQuery("biz_analytics_today", async (ctx) => {
+      await renderBucket(ctx, "today");
+    });
+    bot.callbackQuery("biz_analytics_7d", async (ctx) => {
+      await renderBucket(ctx, "last7d");
+    });
+    bot.callbackQuery("biz_analytics_30d", async (ctx) => {
+      await renderBucket(ctx, "last30d");
     });
 
     bot.callbackQuery("biz_analytics_back", async (ctx) => {
