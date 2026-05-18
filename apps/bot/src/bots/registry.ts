@@ -1072,19 +1072,24 @@ export class BotRegistry {
     return this.bots.get(botId);
   }
 
+  /**
+   * Evict a bot from the cache. Status-changing paths (pause/resume,
+   * over-quota set/clear, delete) must call this so the next
+   * `registry.get` re-reads from DB. Without invalidation a paused bot
+   * would still serve webhooks because `get` no longer re-checks the
+   * status column on a cache hit.
+   */
+  invalidate(botId: string): void {
+    this.bots.delete(botId);
+  }
+
   async get(botId: string): Promise<Bot<Context> | null> {
     const existing = this.bots.get(botId);
-    if (existing) {
-      const row = await db.query.tenantBots.findFirst({
-        where: eq(tenantBots.id, botId),
-        columns: { status: true },
-      });
-      if (!row || row.status !== "active") {
-        this.bots.delete(botId);
-        return null;
-      }
-      return existing.bot;
-    }
+    // Trust the cache. The status column is read once on load; any
+    // status change (pause/resume, over-quota, delete) is responsible
+    // for calling `registry.invalidate(botId)` so the next get re-reads
+    // from DB. This keeps the hot webhook path at zero DB round-trips.
+    if (existing) return existing.bot;
 
     const row = await db.query.tenantBots.findFirst({
       where: eq(tenantBots.id, botId),

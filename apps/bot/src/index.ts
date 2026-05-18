@@ -3,7 +3,10 @@ import { serve as serveInngest } from "inngest/hono";
 import { randomBytes } from "crypto";
 import { createOnboardingBot } from "./bots/onboarding";
 import { registry } from "./bots/registry";
-import { isBotOwnerBanned } from "./lib/banned";
+import {
+  isOwnerBannedCached,
+  loadBannedOwnersCache,
+} from "./lib/banned";
 import { logger, pinoLogger } from "./lib/logger";
 import { api } from "./api/routes";
 import { verifyWebhookSecret, WEBHOOK_SECRET_HEADER } from "./lib/webhook-secret";
@@ -53,16 +56,21 @@ app.post("/webhook/tenant/:id", async (c) => {
   try {
     const id = c.req.param("id");
 
-    // Banned-owner ingress drop. Return 200 to Telegram (so it stops
-    // retrying) but skip the bot load + handler entirely — no DB hits, no
-    // AI calls, no costs incurred on banned owners' traffic. See
-    // SUBSCRIPTION.md "Bans".
-    if (await isBotOwnerBanned(id)) {
-      return c.text("OK", 200);
-    }
-
+    // Resolve the bot from the in-memory registry. Cache hit: zero DB
+    // round-trips (registry.get only goes to DB on miss). The banned
+    // check below uses the cached BotEntry.ownerTelegramId + the
+    // in-memory banned-owners Set, also zero DB hits. Net: a typical
+    // /start hits Telegram once and does no DB I/O before handleUpdate.
     const bot = await registry.get(id);
     if (!bot) return c.text("Bot not active", 200);
+
+    // Banned-owner ingress drop. Return 200 to Telegram (so it stops
+    // retrying) but skip handler entirely — no AI calls, no costs
+    // incurred on banned owners' traffic. See SUBSCRIPTION.md "Bans".
+    const entry = registry.getEntry(id);
+    if (entry && isOwnerBannedCached(entry.ownerTelegramId)) {
+      return c.text("OK", 200);
+    }
 
     const secret = registry.getWebhookSecret(id);
     if (
@@ -91,6 +99,16 @@ async function start() {
   });
 
   logger.info({ port: server.port }, "bot server started");
+
+  // Hydrate the in-memory banned-owners cache before accepting webhooks
+  // so the first request after a restart isn't a DB round-trip. Fail-
+  // open: log and continue with an empty set if Neon is unreachable.
+  try {
+    await loadBannedOwnersCache();
+    logger.info("banned-owners cache loaded");
+  } catch (err) {
+    logger.warn({ err }, "banned-owners cache load failed — starting empty");
+  }
 
   const webhookBase = process.env.PUBLIC_URL;
   if (webhookBase) {

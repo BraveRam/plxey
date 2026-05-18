@@ -7,6 +7,7 @@ import { sequentializeByChat } from "../lib/sequentialize";
 import { ownerCaptureMiddleware } from "../lib/owner-capture";
 import { attachBillingHandlers, buildBillingMenuButton } from "./billing";
 import { attachAdminCommands } from "./admin-commands";
+import { registry } from "./registry";
 import {
   checkQuota,
   decrementBotCount,
@@ -171,6 +172,13 @@ async function deleteBotConversation(
 
     try {
       await conversation.external(() => deleteBot(botId));
+      // Evict from the registry cache so webhook attempts after delete
+      // short-circuit at registry.get instead of serving handlers from
+      // a now-orphaned entry. Safe to run inside conversation.external —
+      // it's synchronous and idempotent.
+      await conversation.external(() => {
+        registry.invalidate(botId);
+      });
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : "Unknown error";
       if (screenMsgId !== null) {
@@ -478,6 +486,10 @@ export async function createOnboardingBot(): Promise<Bot> {
     await ctx.answerCallbackQuery();
     const botId = ctx.match![1]!;
     await updateBot(botId, { status: "paused" });
+    // Evict from registry so the next webhook re-reads status and
+    // returns "Bot not active". Without this the cached entry would
+    // keep serving webhooks despite the DB status flip.
+    registry.invalidate(botId);
     await showBotSettings(ctx, botId);
   });
 
@@ -485,6 +497,9 @@ export async function createOnboardingBot(): Promise<Bot> {
     await ctx.answerCallbackQuery();
     const botId = ctx.match![1]!;
     await updateBot(botId, { status: "active" });
+    // Force a fresh load so any state that changed while paused (e.g.
+    // welcome message tweaks via the API) is picked up cleanly.
+    registry.invalidate(botId);
     await showBotSettings(ctx, botId);
   });
 
