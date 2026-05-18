@@ -1,64 +1,52 @@
-import { describe, expect, test, mock } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import type { Context } from "grammy";
+import type { User } from "grammy/types";
+import { ownerCaptureMiddleware } from "../src/lib/owner-capture";
 
-// Stub the owners module before importing the middleware so we don't
-// touch the real upsertOwnerProfile (which talks to the DB). The
-// parallel Phase 2a agent owns `lib/owners.ts`; we test the middleware
-// in isolation against the contract.
-const upsertCalls: Array<{ id: number; is_bot?: boolean }> = [];
-let nextUpsertResult: Promise<void> = Promise.resolve();
+// Dependency-injected stubs. Avoid `bun:test`'s `mock.module` here —
+// it registers a process-wide module replacement that leaks into every
+// later test file in the same `bun test` run, and we tripped that on
+// CI when other suites tried to import additional symbols from the
+// real `lib/owners`.
 
-// `mock.module` in Bun is process-wide and persists across test files.
-// We stub `upsertOwnerProfile` / `touchOwner` to test the middleware in
-// isolation, but other test files (billing.test.ts, owners.test.ts,
-// registry.test.ts) import additional symbols from this module
-// transitively (`recomputeEffectivePlan`, `selectActiveBots`,
-// `incrementMessageCount`, etc.). Bun's `mock.module` REPLACES the
-// module's full export shape — if we omit those, downstream test files
-// crash with "Export named X not found" on whatever order CI happens
-// to run them in. Stub them all as harmless no-ops to keep the mock
-// from leaking into a CI-only failure mode.
-mock.module("../src/lib/owners", () => ({
-  upsertOwnerProfile: (from: { id: number; is_bot?: boolean }): Promise<void> => {
-    upsertCalls.push(from);
-    return nextUpsertResult;
-  },
-  touchOwner: (_id: string): Promise<void> => Promise.resolve(),
-  startTrialOnFirstBot: (_id: string): Promise<void> => Promise.resolve(),
-  incrementBotCount: (_id: string): Promise<void> => Promise.resolve(),
-  decrementBotCount: (_id: string): Promise<void> => Promise.resolve(),
-  incrementDocCount: (_id: string): Promise<void> => Promise.resolve(),
-  decrementDocCount: (_id: string): Promise<void> => Promise.resolve(),
-  incrementMessageCount: (_id: string): Promise<void> => Promise.resolve(),
-  decrementMessageCount: (_id: string): Promise<void> => Promise.resolve(),
-  resetMessageCount: (_id: string, _at: Date): Promise<void> => Promise.resolve(),
-  checkQuota: () =>
-    Promise.resolve({
-      ok: false,
-      plan: null,
-      used: 0,
-      limit: 0,
-      reason: "lapsed" as const,
-    }),
-  recomputeEffectivePlan: () =>
-    Promise.resolve({ plan: null, status: "lapsed" as const }),
-  selectActiveBots: <T,>(bots: T[]) => ({ active: bots, overQuota: [] as T[] }),
-  enforceOwnerQuota: () => Promise.resolve({ paused: [] as string[] }),
-  swapPrimaryBot: (_a: string, _b: string): Promise<void> => Promise.resolve(),
-}));
+function makeStubs(): {
+  deps: {
+    upsertOwnerProfile: (from: User) => Promise<void>;
+    identifyOwner: (from: User) => void;
+  };
+  upsertCalls: User[];
+  identifyCalls: User[];
+  setNextUpsertResult: (p: Promise<void>) => void;
+} {
+  const upsertCalls: User[] = [];
+  const identifyCalls: User[] = [];
+  let nextUpsertResult: Promise<void> = Promise.resolve();
+  return {
+    deps: {
+      upsertOwnerProfile: (from: User) => {
+        upsertCalls.push(from);
+        return nextUpsertResult;
+      },
+      identifyOwner: (from: User) => {
+        identifyCalls.push(from);
+      },
+    },
+    upsertCalls,
+    identifyCalls,
+    setNextUpsertResult: (p) => {
+      nextUpsertResult = p;
+    },
+  };
+}
 
-// Import AFTER the mock so the middleware picks up the stub.
-const { ownerCaptureMiddleware } = await import("../src/lib/owner-capture");
-
-function makeCtx(from: { id: number; is_bot?: boolean } | undefined): Context {
+function makeCtx(from: User | undefined): Context {
   return { from } as unknown as Context;
 }
 
 describe("ownerCaptureMiddleware", () => {
   test("passes through to next()", async () => {
-    upsertCalls.length = 0;
-    nextUpsertResult = Promise.resolve();
-    const mw = ownerCaptureMiddleware();
+    const { deps } = makeStubs();
+    const mw = ownerCaptureMiddleware(deps);
     let called = false;
     await mw(makeCtx(undefined), async () => {
       called = true;
@@ -67,44 +55,45 @@ describe("ownerCaptureMiddleware", () => {
   });
 
   test("skips updates with no `from` user", async () => {
-    upsertCalls.length = 0;
-    nextUpsertResult = Promise.resolve();
-    const mw = ownerCaptureMiddleware();
+    const { deps, upsertCalls } = makeStubs();
+    const mw = ownerCaptureMiddleware(deps);
     await mw(makeCtx(undefined), async () => {});
     expect(upsertCalls).toEqual([]);
   });
 
   test("skips bot users", async () => {
-    upsertCalls.length = 0;
-    nextUpsertResult = Promise.resolve();
-    const mw = ownerCaptureMiddleware();
-    await mw(makeCtx({ id: 42, is_bot: true }), async () => {});
+    const { deps, upsertCalls } = makeStubs();
+    const mw = ownerCaptureMiddleware(deps);
+    await mw(makeCtx({ id: 42, is_bot: true } as User), async () => {});
     expect(upsertCalls).toEqual([]);
   });
 
   test("upserts profile for human users", async () => {
-    upsertCalls.length = 0;
-    nextUpsertResult = Promise.resolve();
-    const mw = ownerCaptureMiddleware();
-    await mw(makeCtx({ id: 7, is_bot: false }), async () => {});
+    const { deps, upsertCalls } = makeStubs();
+    const mw = ownerCaptureMiddleware(deps);
+    await mw(makeCtx({ id: 7, is_bot: false } as User), async () => {});
     // Let the fire-and-forget upsert resolve.
     await Promise.resolve();
-    expect(upsertCalls).toEqual([{ id: 7, is_bot: false }]);
+    expect(upsertCalls).toEqual([{ id: 7, is_bot: false } as User]);
+  });
+
+  test("identifies the human user in analytics", async () => {
+    const { deps, identifyCalls } = makeStubs();
+    const mw = ownerCaptureMiddleware(deps);
+    await mw(makeCtx({ id: 7, is_bot: false } as User), async () => {});
+    expect(identifyCalls).toEqual([{ id: 7, is_bot: false } as User]);
   });
 
   test("does not propagate upsert errors to the handler", async () => {
-    upsertCalls.length = 0;
-    nextUpsertResult = Promise.reject(new Error("db down"));
-    const mw = ownerCaptureMiddleware();
+    const { deps, setNextUpsertResult } = makeStubs();
+    setNextUpsertResult(Promise.reject(new Error("db down")));
+    const mw = ownerCaptureMiddleware(deps);
     let nextCalled = false;
-    // Must not throw even though upsertOwnerProfile rejected.
-    await mw(makeCtx({ id: 9, is_bot: false }), async () => {
+    await mw(makeCtx({ id: 9, is_bot: false } as User), async () => {
       nextCalled = true;
     });
     expect(nextCalled).toBe(true);
     // Drain the unhandled-rejection microtask so it doesn't leak.
     await new Promise<void>((resolve) => setTimeout(resolve, 0));
-    // Reset for any subsequent tests.
-    nextUpsertResult = Promise.resolve();
   });
 });
