@@ -76,7 +76,9 @@ async function showBotSettings(ctx: OnCtx, botId: string) {
   const botRecord = bots.find(b => b.id === botId);
   if (!botRecord) {
     await ctx.deleteMessage().catch(() => {});
-    await ctx.reply(BOT_NOT_FOUND, { reply_markup: menuKb });
+    await ctx.reply(BOT_NOT_FOUND, {
+      reply_markup: await buildMainMenuKb(String(ctx.from!.id)),
+    });
     return;
   }
 
@@ -143,7 +145,9 @@ async function deleteBotConversation(
         await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
         screenMsgId = null;
       }
-      await response.reply(MAIN_MENU_TITLE, { reply_markup: menuKb });
+      await response.reply(MAIN_MENU_TITLE, {
+        reply_markup: await buildMainMenuKb(String(ctx.from!.id)),
+      });
       return;
     }
 
@@ -173,7 +177,9 @@ async function deleteBotConversation(
         await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
         screenMsgId = null;
       }
-      await ctx.reply(onboardingDeleteFailed(errMsg), { reply_markup: menuKb });
+      await ctx.reply(onboardingDeleteFailed(errMsg), {
+        reply_markup: await buildMainMenuKb(String(ctx.from!.id)),
+      });
       return;
     }
 
@@ -225,7 +231,9 @@ async function createBotConversation(conversation: Conversation<BaseCtx, BaseCtx
         await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
         screenMsgId = null;
       }
-      await response.reply(MAIN_MENU_TITLE, { reply_markup: menuKb });
+      await response.reply(MAIN_MENU_TITLE, {
+        reply_markup: await buildMainMenuKb(String(ctx.from!.id)),
+      });
       return;
     }
 
@@ -237,7 +245,9 @@ async function createBotConversation(conversation: Conversation<BaseCtx, BaseCtx
         await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
         screenMsgId = null;
       }
-      await response.reply(MAIN_MENU_TITLE, { reply_markup: menuKb });
+      await response.reply(MAIN_MENU_TITLE, {
+        reply_markup: await buildMainMenuKb(String(ctx.from!.id)),
+      });
       return;
     }
 
@@ -309,7 +319,9 @@ async function createBotConversation(conversation: Conversation<BaseCtx, BaseCtx
         await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
         screenMsgId = null;
       }
-      await ctx.reply(errMsg, { reply_markup: menuKb });
+      await ctx.reply(errMsg, {
+        reply_markup: await buildMainMenuKb(String(ctx.from!.id)),
+      });
       return;
     }
 
@@ -326,7 +338,7 @@ async function createBotConversation(conversation: Conversation<BaseCtx, BaseCtx
       screenMsgId = null;
     }
     await ctx.reply(onboardingBotConnected(botUsername ?? ""), {
-      reply_markup: menuKb,
+      reply_markup: await buildMainMenuKb(ownerTelegramId),
     });
     return;
   }
@@ -497,7 +509,9 @@ export async function createOnboardingBot(): Promise<Bot> {
       .answerCallbackQuery({ text: TOAST_STALE_CALLBACK })
       .catch(() => {});
     await ctx.deleteMessage().catch(() => {});
-    await ctx.reply(MAIN_MENU_TITLE, { reply_markup: menuKb });
+    const userId = String(ctx.from?.id ?? "");
+    const kb = userId ? await buildMainMenuKb(userId) : menuKb;
+    await ctx.reply(MAIN_MENU_TITLE, { reply_markup: kb });
   });
 
   return bot as unknown as Bot;
