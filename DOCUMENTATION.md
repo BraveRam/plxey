@@ -854,6 +854,7 @@ Owner identity is `tenants.telegram_owner_id` (Telegram numeric user ID as strin
 | `BOT_PORT` | No | Bot server port. Default 3000 | Local dev |
 | `LOG_LEVEL` | No | Pino level override | Hosting env |
 | `NODE_ENV` | No | `production` disables pino-pretty, sets level default to `info` | Hosting env |
+| `ADMIN_TELEGRAM_USER_ID` | Recommended (prod) | Telegram user id allowed to run admin commands (`/owner`, `/refund`, `/grant_comp`, `/ban`, `/unban`). Fail-closed if unset. | Generated |
 
 Per `CLAUDE.md`: never put real env values in tests, fixtures, or any committed file. `.env` is gitignored — keep it that way.
 
@@ -1028,7 +1029,104 @@ Per `CLAUDE.md` + `AGENTS.md`:
 
 ## Subscriptions
 
-See `SUBSCRIPTION.md` for the full design spec of the upcoming Telegram Stars subscription system: plans, state machine, lifecycle events, schema delta, Inngest event registry, edge cases, and implementation order. Not yet implemented — that document is the locked target.
+Telegram Stars billing is now implemented. `SUBSCRIPTION.md` remains the authoritative design spec; this section is the operational quick-reference.
+
+### Plans
+
+| Plan | Price | Bots | Docs/bot | Messages/period |
+|---|---|---|---|---|
+| Trial (14d, one-shot) | 0 ⭐ | 1 | 3 | 500 (whole 14d as one bucket) |
+| Pro | 500 ⭐/mo | 3 | 10 | 5,000 |
+| Business | 2,000 ⭐/mo | 10 | 50 | 50,000 |
+
+Plan config lives in `apps/bot/src/lib/plans.ts` (`PLANS` constant). `subscription_period` is locked to `2592000` (30 days, only legal value for Telegram Stars). Trial starts on first bot creation, never resets per Telegram user.
+
+### State model
+
+`subscription_status` enum: `trialing | active | canceled | lapsed`. No `free` value — when an owner is `lapsed` all their bots get `tenant_bots.over_quota_at = now` and stay paused until they pay.
+
+Owners can hold multiple subscription rows at once (e.g. canceled-Pro tail + active-Business after an upgrade). `effectivePlan(owner, subs)` in `lib/plans.ts` computes the highest-tier live plan; `recomputeEffectivePlan(ownerId)` in `lib/owners.ts` writes it back to the denormalized `owners.current_plan` column on every billing event.
+
+### New tables
+
+| Table | Purpose |
+|---|---|
+| `owners` | Per-Telegram-user profile, denormalized billing state, rollup counters (`bot_count`, `doc_count`, `messages_this_period`), `trial_ends_at`, `is_banned`, `notes`. |
+| `subscriptions` | One row per `telegram_payment_charge_id` (UNIQUE for idempotency). `is_complimentary` for admin-granted comps. |
+| `star_payments` | Audit ledger; negative `stars_amount` for refunds; full raw `successful_payment` JSON. |
+| `tenant_bots.over_quota_at` | New column. Non-null = system-paused due to plan caps (distinct from owner-paused `bot_status='paused'`). |
+| `tenants.telegram_owner_id` UNIQUE | Locks 1:1 owner-tenant relationship. |
+
+See `packages/db/src/schema.ts` for the full DDL.
+
+### Surface
+
+`apps/bot/src/bots/billing.ts` exports `attachBillingHandlers(bot)` and `buildBillingMenuButton(ownerId)`. Mounted on the onboarding bot at `createOnboardingBot`. Provides:
+
+- `/billing` command + dynamic main-menu button (`⭐ Subscribe` for trialing/lapsed, `⚙️ Plan & Billing` for active/canceled).
+- Plan picker with side-by-side Pro / Business invoice buttons.
+- `pre_checkout_query` validation (payload format, banned, already-subscribed-same-plan, nonce dedup).
+- `message:successful_payment` handler that records the ledger row and fires `subscription/started` or `subscription/renewed`.
+- Cancel flow with optional reason survey (`CANCEL_REASONS`).
+- Resume button for canceled-but-not-yet-lapsed subs.
+- Upgrade Pro → Business via service overlap (cancel Pro auto-renew + mint Business invoice).
+
+Plan-cap enforcement lives in:
+- `apps/bot/src/bots/onboarding.ts` `createBot` conversation (bot creation gate before `getMe`).
+- `apps/bot/src/bots/registry.ts` `business_message` handler (`over_quota_at` short-circuit + message counter gate around `askAI`).
+- `apps/bot/src/bots/registry.ts` `documentMgmt` conversation (doc upload gate).
+- `apps/bot/src/api/routes.ts` (banned-owner write block on all POST/PATCH/DELETE routes).
+- `apps/bot/src/index.ts` (banned-owner webhook ingress drop on `/webhook/tenant/:id`).
+
+### Admin commands
+
+`apps/bot/src/bots/admin-commands.ts` exports `attachAdminCommands(bot)`. Gated by `ADMIN_TELEGRAM_USER_ID` env var.
+
+| Command | Effect |
+|---|---|
+| `/owner <id_or_@username>` | Inspect owner state (plan, subs, bots, usage). |
+| `/refund <chargeId>` | `refundStarPayment` + `cancelStarSubscription` + fire `subscription/refunded`. |
+| `/grant_comp <ownerId> <pro\|business>` | Create complimentary subscription (year-2099 `currentPeriodEnd`, `is_complimentary=true`). |
+| `/ban <ownerId>` | Flip `is_banned=true`, fire `owner/banned` (handler cancels subs + force-pauses bots). |
+| `/unban <ownerId>` | Flip `is_banned=false`. No auto-resubscribe. |
+
+### Inngest functions
+
+All Inngest functions for the bot live under `apps/bot/src/inngest/`. Served at `/api/inngest`.
+
+**Cron (4 functions):**
+
+| Function | Schedule | Purpose |
+|---|---|---|
+| `cron-lapse-sweep` | hourly :00 | Lapse paid subs past 2-day grace; fire `subscription/lapsed` per unique owner. |
+| `cron-trial-sweep` | hourly :05 | Lapse trialing owners past `trial_ends_at` with no live sub. |
+| `cron-reminder-scan` | daily 10:00 UTC | Fire `notify/owner` for trial T-7d, T-1d, cancel T-3d-before-end. |
+| `cron-usage-reconcile` | weekly Sun 04:00 UTC | Recompute `bot_count`, `doc_count` from base tables. Drift insurance. |
+
+**Event-driven (10 functions):** `subscription-started`, `subscription-renewed`, `subscription-canceled`, `subscription-refunded`, `subscription-lapsed`, `owner-first-bot-created`, `owner-banned`, `bot-over-quota-message`, `bot-usage-exceeded`, `notify-owner` (single fan-out function discriminated by `kind`).
+
+Throttle: DM-fanout functions cap at `concurrency: 10` + `throttle: 30/sec` to stay under Telegram's global outbound limit.
+
+### New env vars
+
+- `ADMIN_TELEGRAM_USER_ID` — Telegram user id for the admin command surface. If unset, admin commands are silently denied (fail-closed).
+
+### New Redis key prefixes
+
+| Prefix | TTL | Purpose |
+|---|---|---|
+| `invoice:{ownerId}:{plan}` | 5min | Cache invoice link to prevent double-tap double-pay. |
+| `nonce-pending:{nonce}` | 10min | Marks a nonce as in-flight after pre_checkout_query approval. |
+| `nonce-used:{nonce}` | 24h | Locks a nonce after successful_payment. |
+| `notify:{kind}:{ownerId}:{periodOrDate}` | 30d | DM dedup for the notify/owner fan-out. |
+| `over-quota-nudge:{botId}` | 24h | Throttle for the customer-pinged-paused-bot owner DM. |
+| `usage-exceeded:{ownerId}:{periodStart}` | period length | Throttle for the message-cap-exceeded owner DM. |
+
+### Idempotency keys
+
+- `subscriptions.telegram_payment_charge_id` UNIQUE → Telegram redeliveries don't double-process.
+- `subscriptions.is_complimentary` + year-2099 `currentPeriodEnd` → lapse-sweep naturally skips comp rows.
+- Inngest dedup via Redis keys above for owner-facing notifications.
 
 ## Known Gaps & Future Work
 
@@ -1037,10 +1135,11 @@ See `SUBSCRIPTION.md` for the full design spec of the upcoming Telegram Stars su
 - **No webhook-ingress rate limit on `/webhook/tenant/:id`** — defense in depth in case of secret leak.
 - **No HNSW or IVFFlat index on `document_chunks.embedding`** — sequential scan today; will degrade with scale.
 - **Crypto fallback to SHA-256(`BOT_TOKEN`)** when `ENCRYPTION_KEY` is missing — must not happen in production but only `console.warn`ed.
-- **Migration drift**: several columns currently in `packages/db/src/schema.ts` were added via `bun run db:push` and are NOT reflected in `drizzle/0000_unusual_cerebro.sql`. Future `drizzle-kit generate` runs should reconcile.
-- **No Telegram Stars subscriptions yet** — owners table, plans, `subscription_period` invoice flow, `successful_payment` handler, lapse-sweep cron all unbuilt.
-- **No per-message AI usage cap** — once a customer is past the 10/60s limit, AI Gateway cost is unbounded per tenant per month.
+- **Migration drift**: several columns currently in `packages/db/src/schema.ts` were added via `bun run db:push` and are NOT reflected in `drizzle/0000_unusual_cerebro.sql`. The Phase 0 subscription tables/columns also need a versioned migration generated.
 - **No integration tests** — Neon/AI Gateway/Inngest paths are exercised only manually.
 - **No CI** — pre-merge checks happen locally only.
 - **`findByOwner` is in-memory only** — if a bot row exists but isn't loaded, the owner is treated as a stranger.
 - **AI failures are silent** — customer sees nothing if `askAI` throws.
+- **GDPR / right-to-be-forgotten** is deferred — no UI flow today; handle out-of-band via DB script if requested.
+- **Fiat payments** — schema is stars-only. Future fiat support requires a `currency` column on `subscriptions` + `star_payments`.
+- **i18n** — `owners.language_code` is captured but only English DMs are emitted in v1.

@@ -2,7 +2,7 @@
 
 > Locked design for the Telegram Stars-powered subscription system. Captures every decision made during the planning sessions. Implementation work tracks back to this document; if behavior diverges from this spec, update it in the same commit (per the documentation-upkeep rule in `CLAUDE.md`).
 
-This spec is **not implemented yet**. It defines the target state for the upcoming work.
+**Status: implemented.** Schema, helpers, Inngest registry, cron sweeps, lifecycle handlers, payment surface, quota enforcement, admin commands, and cancel/resume/upgrade flows all landed across commits `7467b64`..`ca24ba4`. See `DOCUMENTATION.md` "Subscriptions" for the operational quick-reference; this file remains the authoritative design spec.
 
 ---
 
