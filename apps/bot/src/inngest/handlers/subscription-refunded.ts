@@ -20,7 +20,7 @@ import type { Events } from "../events";
 export const subscriptionRefunded = inngest.createFunction(
   {
     id: "subscription-refunded",
-    concurrency: { limit: 10 },
+    concurrency: { limit: 5 },
     triggers: [{ event: "subscription/refunded" }],
   },
   async ({ event, step }) => {

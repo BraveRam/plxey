@@ -28,7 +28,7 @@ import {
 export const subscriptionLapsed = inngest.createFunction(
   {
     id: "subscription-lapsed",
-    concurrency: { limit: 10 },
+    concurrency: { limit: 5 },
     // Throttle DMs so a large batch from lapse-sweep can't saturate
     // Telegram's 30-msg/sec global outbound budget.
     throttle: { limit: 30, period: "1s" },

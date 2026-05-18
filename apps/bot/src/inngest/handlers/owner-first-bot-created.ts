@@ -15,7 +15,7 @@ import type { Events } from "../events";
 export const ownerFirstBotCreated = inngest.createFunction(
   {
     id: "owner-first-bot-created",
-    concurrency: { limit: 10 },
+    concurrency: { limit: 5 },
     triggers: [{ event: "owner/first.bot.created" }],
   },
   async ({ event, step }) => {

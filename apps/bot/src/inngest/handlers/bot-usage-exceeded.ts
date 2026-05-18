@@ -19,7 +19,7 @@ import { redis } from "../../lib/redis";
 export const botUsageExceeded = inngest.createFunction(
   {
     id: "bot-usage-exceeded",
-    concurrency: { limit: 10 },
+    concurrency: { limit: 5 },
     triggers: [{ event: "bot/usage.exceeded" }],
   },
   async ({ event, step }) => {

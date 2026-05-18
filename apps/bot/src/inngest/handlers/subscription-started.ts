@@ -22,7 +22,7 @@ import {
 export const subscriptionStarted = inngest.createFunction(
   {
     id: "subscription-started",
-    concurrency: { limit: 10 },
+    concurrency: { limit: 5 },
     triggers: [{ event: "subscription/started" }],
   },
   async ({ event, step }) => {

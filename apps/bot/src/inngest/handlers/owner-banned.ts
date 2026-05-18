@@ -25,7 +25,7 @@ import { logger } from "../../lib/logger";
 export const ownerBanned = inngest.createFunction(
   {
     id: "owner-banned",
-    concurrency: { limit: 10 },
+    concurrency: { limit: 5 },
     triggers: [{ event: "owner/banned" }],
   },
   async ({ event, step }) => {

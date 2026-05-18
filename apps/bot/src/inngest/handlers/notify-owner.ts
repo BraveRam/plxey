@@ -171,7 +171,7 @@ function buildText(
 export const notifyOwner = inngest.createFunction(
   {
     id: "notify-owner",
-    concurrency: { limit: 10 },
+    concurrency: { limit: 5 },
     throttle: { limit: 30, period: "1s" },
     triggers: [{ event: "notify/owner" }],
   },

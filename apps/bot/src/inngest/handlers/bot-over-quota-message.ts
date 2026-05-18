@@ -21,7 +21,7 @@ import { redis } from "../../lib/redis";
 export const botOverQuotaMessage = inngest.createFunction(
   {
     id: "bot-over-quota-message",
-    concurrency: { limit: 10 },
+    concurrency: { limit: 5 },
     triggers: [{ event: "bot/over.quota.message" }],
   },
   async ({ event, step }) => {

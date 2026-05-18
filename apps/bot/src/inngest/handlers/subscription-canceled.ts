@@ -22,7 +22,7 @@ import { recomputeEffectivePlan } from "../../lib/owners";
 export const subscriptionCanceled = inngest.createFunction(
   {
     id: "subscription-canceled",
-    concurrency: { limit: 10 },
+    concurrency: { limit: 5 },
     triggers: [{ event: "subscription/canceled" }],
   },
   async ({ event, step }) => {
