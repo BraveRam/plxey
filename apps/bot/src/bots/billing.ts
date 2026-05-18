@@ -644,6 +644,8 @@ async function handleCancelConfirm(
   subId: string,
 ): Promise<void> {
   await ctx.answerCallbackQuery().catch(() => {});
+  // Drop the "Are you sure?" prompt immediately — owner committed.
+  await ctx.deleteMessage().catch(() => {});
   const userId = ctx.from?.id;
   if (userId === undefined) return;
   const ownerTelegramUserId = String(userId);
