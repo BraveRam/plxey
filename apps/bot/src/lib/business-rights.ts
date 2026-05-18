@@ -36,7 +36,7 @@ export function formatPermissions(rights: BusinessBotRights | null): string {
   if (!rights) {
     return (
       "No business connection yet.\n\n" +
-      "Open Telegram → Settings → Business → Chatbots, add this bot, " +
+      "Open Telegram → Settings → Profile → Chat Automation, add this bot, " +
       "and grant 'Reply to messages' (required) plus 'Read messages' " +
       "(recommended)."
     );

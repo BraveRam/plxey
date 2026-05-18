@@ -78,7 +78,7 @@ export const ONBOARDING_HELP =
   "1. Create a bot via @BotFather and enable <i>Business Mode</i> in its " +
   "settings.\n" +
   "2. Tap <b>🤖 New bot</b> and paste the token.\n" +
-  "3. Open Telegram → <i>Settings → Business → Chatbots</i>, add your bot, " +
+  "3. Open Telegram → <i>Settings → Profile → Chat Automation</i>, add your bot, " +
   "and grant at least <i>Reply to messages</i> (Read messages recommended).\n" +
   "4. Once connected, open the bot directly and tap <b>/start</b> to manage " +
   "its prompt, welcome message, knowledge base, and limits.\n\n" +
@@ -181,7 +181,7 @@ export const ONBOARDING_INVALID_TOKEN =
 export function onboardingBotConnected(username: string): string {
   return (
     `✅ Bot @${username} connected!\n\n` +
-    "Next: open Telegram → Settings → Business → Chatbots, " +
+    "Next: open Telegram → Settings → Profile → Chat Automation, " +
     `add @${username}, and grant at least these permissions:\n` +
     "• Reply to messages (required)\n" +
     "• Read messages (recommended)"
@@ -535,7 +535,7 @@ export function replyPromptContext(customerLabelHtml: string): string {
 }
 
 export function replyFailedNoPermission(username: string): string {
-  return `⚠️ The bot doesn't have permission to reply to customers. Open Telegram → Settings → Business → Chatbots → @${username} and grant 'Reply to messages'.`;
+  return `⚠️ The bot doesn't have permission to reply to customers. Open Telegram → Settings → Profile → Chat Automation → @${username} and grant 'Reply to messages'.`;
 }
 
 export const REPLY_FAILED_GENERIC =
@@ -550,13 +550,13 @@ export function botConnectedAlert(args: {
   includesPermissionWarning: boolean;
 }): string {
   const replyWarning = args.includesPermissionWarning
-    ? "\n\n⚠️ Heads up: it doesn't have the 'Reply to messages' permission yet. Grant it under Settings → Business → Chatbots so the bot can actually answer customers."
+    ? "\n\n⚠️ Heads up: it doesn't have the 'Reply to messages' permission yet. Grant it under Settings → Profile → Chat Automation so the bot can actually answer customers."
     : "";
   return `✅ The bot @${args.username} is now connected to your Telegram Business account. It will reply to customers on your behalf.${replyWarning}`;
 }
 
 export function botDisconnectedAlert(username: string): string {
-  return `⚠️ The bot @${username} was disconnected from your Telegram Business account. It won't reply to customers until you reconnect it under Telegram → Settings → Business → Chatbots.`;
+  return `⚠️ The bot @${username} was disconnected from your Telegram Business account. It won't reply to customers until you reconnect it under Telegram → Settings → Profile → Chat Automation.`;
 }
 
 // =============================================================================
@@ -567,7 +567,7 @@ export function missingCanReplyAlert(args: {
   customerLabelHtml: string;
   username: string;
 }): string {
-  return `⚠️ ${args.customerLabelHtml} messaged @${args.username}, but the bot doesn't have permission to reply.\n\nOpen Telegram → Settings → Business → Chatbots → @${args.username} and grant <b>Reply to messages</b>.`;
+  return `⚠️ ${args.customerLabelHtml} messaged @${args.username}, but the bot doesn't have permission to reply.\n\nOpen Telegram → Settings → Profile → Chat Automation → @${args.username} and grant <b>Reply to messages</b>.`;
 }
 
 // =============================================================================
