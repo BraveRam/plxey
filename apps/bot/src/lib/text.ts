@@ -419,7 +419,8 @@ export function permissionsPanel(formatted: string): string {
 // Owner reply flow (admin → customer)
 // =============================================================================
 
-export const REPLY_CANCELLED = "Reply cancelled.";
+export const REPLY_CANCELLED =
+  "Reply cancelled. Tap ✏️ Reply on the customer's message anytime to try again.";
 export const REPLY_SENT = "✅ Sent to customer.";
 export const REPLY_UNSUPPORTED_TYPE =
   "⚠️ I can't forward that type of message yet. Please send text, photo, voice, video, audio, document, sticker, animation (GIF), location, or contact.";

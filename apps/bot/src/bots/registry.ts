@@ -1486,10 +1486,15 @@ export class BotRegistry {
     });
 
     // "✏️ Reply" button on admin escalation notifications. Activates the
-    // reply target, deletes the notification, and shows a "Send your
-    // reply" prompt with a Cancel button. The owner's next message of
-    // any type is copied to the customer via copyMessage on the business
-    // connection.
+    // reply target and shows a "Send your reply" prompt with a Cancel
+    // button. The owner's next message of any type is copied to the
+    // customer via copyMessage on the business connection.
+    //
+    // We deliberately do NOT delete the original notification: if the
+    // owner cancels, they should still see the customer's escalation
+    // and be able to re-tap Reply. The Cancel handler clears the
+    // selection (but leaves the token usable); successful Send marks
+    // usedAt so subsequent taps cleanly surface TOAST_REPLY_EXPIRED.
     bot.callbackQuery(/^oreply_([a-f0-9]{16})$/, async (ctx) => {
       const token = ctx.match![1]!;
       const ownerId = String(ctx.from?.id ?? "");
@@ -1499,9 +1504,6 @@ export class BotRegistry {
         return;
       }
       await ctx.answerCallbackQuery();
-      // Drop the notification (the Reply button is one-shot — re-tapping
-      // a stale notification after a send/cancel shouldn't be possible).
-      await ctx.deleteMessage().catch(() => {});
 
       const contextLine = target.customerLabel
         ? replyPromptContext(escapeHtml(target.customerLabel))
@@ -1524,12 +1526,14 @@ export class BotRegistry {
         });
     });
 
-    // "✕ Cancel" button on the reply prompt — discard the active reply
-    // target, delete the prompt, and let the owner know.
+    // "✕ Cancel" button on the reply prompt — clear the active
+    // selection (leaving the token usable), delete the prompt, and let
+    // the owner know they can retry by tapping Reply again on the
+    // original notification.
     bot.callbackQuery(/^oreply_cancel_([a-f0-9]{16})$/, async (ctx) => {
       const token = ctx.match![1]!;
       await ctx.answerCallbackQuery();
-      await this.ownerReplyTargets.markUsed(token);
+      await this.ownerReplyTargets.clearSelection(token);
       await ctx.deleteMessage().catch(() => {});
       await ctx.reply(REPLY_CANCELLED);
     });

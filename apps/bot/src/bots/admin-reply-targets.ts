@@ -24,6 +24,13 @@ export interface AdminReplyTargets {
   setPromptMessageId(token: string, promptMessageId: number): Promise<void>;
   getActive(ownerTelegramId: string): Promise<OwnerReplyTarget | null>;
   markUsed(token: string): Promise<void>;
+  /**
+   * Clear the active selection on `token` without marking it used. After
+   * this call the token can be re-activated (e.g. the owner taps Reply
+   * on the original notification again). Used by the Cancel button so a
+   * cancellation isn't a dead-end.
+   */
+  clearSelection(token: string): Promise<void>;
   clearBot(botId: string): Promise<void>;
 }
 
@@ -100,6 +107,14 @@ export class InMemoryAdminReplyTargets implements AdminReplyTargets {
   async markUsed(token: string): Promise<void> {
     const target = this.targets.get(token);
     if (target) target.usedAt = new Date();
+  }
+
+  async clearSelection(token: string): Promise<void> {
+    const target = this.targets.get(token);
+    if (!target || target.usedAt) return;
+    target.selectedByOwnerTelegramId = null;
+    target.selectedAt = null;
+    target.promptMessageId = null;
   }
 
   async clearBot(botId: string): Promise<void> {
@@ -206,6 +221,19 @@ export class DbAdminReplyTargets implements AdminReplyTargets {
       .update(adminReplyTargets)
       .set({ usedAt: new Date() })
       .where(eq(adminReplyTargets.token, token));
+  }
+
+  async clearSelection(token: string): Promise<void> {
+    await this.database
+      .update(adminReplyTargets)
+      .set({
+        selectedByOwnerTelegramId: null,
+        selectedAt: null,
+        promptMessageId: null,
+      })
+      .where(
+        and(eq(adminReplyTargets.token, token), isNull(adminReplyTargets.usedAt)),
+      );
   }
 
   async clearBot(botId: string): Promise<void> {

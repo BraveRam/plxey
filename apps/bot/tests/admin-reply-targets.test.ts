@@ -131,6 +131,54 @@ test("markUsed prevents re-activation of same token", async () => {
   expect(await targets.activate("admin-1", token)).toBeNull();
 });
 
+test("clearSelection drops the active selection but keeps the token usable", async () => {
+  // The Cancel button on the reply prompt calls clearSelection so the
+  // owner can re-tap Reply on the original notification afterwards.
+  const targets = new InMemoryAdminReplyTargets(() => "token-cs");
+  const token = await targets.create({
+    botId: "bot-1",
+    chatId: 111,
+    businessConnectionId: "conn-a",
+    customerLabel: "👤 Alex",
+  });
+  await targets.activate("admin-1", token);
+  expect(await targets.getActive("admin-1")).not.toBeNull();
+
+  await targets.clearSelection(token);
+
+  // No active target for this admin anymore — owner's next message
+  // doesn't route anywhere.
+  expect(await targets.getActive("admin-1")).toBeNull();
+
+  // But the token can be re-activated (the original Reply button still
+  // works).
+  const reactivated = await targets.activate("admin-1", token);
+  expect(reactivated).not.toBeNull();
+  expect(reactivated?.customerLabel).toBe("👤 Alex");
+});
+
+test("clearSelection on an already-used token is a no-op", async () => {
+  const targets = new InMemoryAdminReplyTargets(() => "token-cs2");
+  const token = await targets.create({
+    botId: "bot-1",
+    chatId: 111,
+    businessConnectionId: "conn-a",
+  });
+  await targets.activate("admin-1", token);
+  await targets.markUsed(token);
+  // markUsed has already nuked the token; clearSelection shouldn't
+  // resurrect it.
+  await targets.clearSelection(token);
+  expect(await targets.activate("admin-1", token)).toBeNull();
+});
+
+test("clearSelection on unknown token is a no-op", async () => {
+  const targets = new InMemoryAdminReplyTargets(() => "token-cs3");
+  await targets.clearSelection("does-not-exist");
+  // No throw, no side-effects.
+  expect(await targets.getActive("admin-1")).toBeNull();
+});
+
 test("clearBot removes all targets for that bot only", async () => {
   const targets = new InMemoryAdminReplyTargets(() => "token-a");
   await targets.create({ botId: "bot-1", chatId: 111, businessConnectionId: "conn-a" });
