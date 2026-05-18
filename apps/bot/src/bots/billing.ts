@@ -44,6 +44,7 @@ import { logger } from "../lib/logger";
 import { PLANS, planLimits, type PlanKey } from "../lib/plans";
 import { recomputeEffectivePlan } from "../lib/owners";
 import { redis } from "../lib/redis";
+import { cbd } from "../lib/callback-data";
 import {
   CANCEL_REASON_PROMPT,
   CANCEL_REASONS,
@@ -640,7 +641,7 @@ async function handleCancelTap(ctx: Context): Promise<void> {
     endsOn: formatDate(primary.currentPeriodEnd),
   });
   const kb = new InlineKeyboard()
-    .text("Yes, cancel", `${CB.cancelConfirmPrefix}${primary.id}`)
+    .text("Yes, cancel", cbd(`${CB.cancelConfirmPrefix}${primary.id}`))
     .row()
     .text("Keep subscription", CB.keepSubscription);
 
@@ -737,7 +738,7 @@ async function handleCancelConfirm(
   for (const reason of CANCEL_REASONS) {
     kb.text(
       reason.label,
-      `${CB.cancelReasonPrefix}${reason.key}_${subId}`,
+      cbd(`${CB.cancelReasonPrefix}${reason.key}_${subId}`),
     ).row();
   }
   kb.text("Skip", CB.menu);
