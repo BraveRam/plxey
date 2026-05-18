@@ -101,9 +101,13 @@ const CB = {
    *  charge id (~140 chars) because Telegram caps callback_data at 64
    *  bytes. The handler resolves UUID → chargeId via a DB lookup. */
   cancelConfirmPrefix: "billing_cancel_confirm_",
-  /** Prefix for `billing_cancel_reason_{key}_{subUuid}`. Same reason as
-   *  cancelConfirmPrefix — UUID, not chargeId. */
-  cancelReasonPrefix: "billing_cancel_reason_",
+  /** Prefix for `bcr_{key}_{subUuid}` (Billing Cancel Reason). Kept short
+   *  because the full encoding (prefix + 'switching_tools_' + 36-char
+   *  UUID) needs to fit inside Telegram's 64-byte callback_data cap.
+   *  Counterintuitively, the verbose `billing_cancel_reason_` prefix
+   *  pushed the longest reason key to 74 bytes — Telegram silently
+   *  rejected the whole sendMessage and the reason picker never showed. */
+  cancelReasonPrefix: "bcr_",
 } as const;
 
 /** Regex for `billing_cancel_confirm_{subUuid}`. */
@@ -212,7 +216,7 @@ export function attachBillingHandlers(bot: Bot<Context>): void {
     await handleCancelConfirm(ctx, subId);
   });
 
-  bot.callbackQuery(/^billing_cancel_reason_/, async (ctx) => {
+  bot.callbackQuery(/^bcr_/, async (ctx) => {
     const parsed = parseCancelReasonCallback(ctx.callbackQuery?.data);
     if (!parsed) {
       await ctx.answerCallbackQuery().catch(() => {});

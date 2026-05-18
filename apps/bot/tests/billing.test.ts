@@ -222,7 +222,7 @@ describe("callback data ids", () => {
     expect(CB.cancel).toBe("billing_cancel");
     expect(CB.resume).toBe("billing_resume");
     expect(CB.cancelConfirmPrefix).toBe("billing_cancel_confirm_");
-    expect(CB.cancelReasonPrefix).toBe("billing_cancel_reason_");
+    expect(CB.cancelReasonPrefix).toBe("bcr_");
   });
 });
 
@@ -274,7 +274,7 @@ describe("parseCancelConfirmCallback", () => {
 describe("parseCancelReasonCallback", () => {
   test("parses every shipped reason key against a simple charge id", () => {
     for (const reason of CANCEL_REASONS) {
-      const data = `billing_cancel_reason_${reason.key}_charge42`;
+      const data = `bcr_${reason.key}_charge42`;
       const parsed = parseCancelReasonCallback(data);
       expect(parsed).toEqual({ key: reason.key, subId: "charge42" });
     }
@@ -282,7 +282,7 @@ describe("parseCancelReasonCallback", () => {
 
   test("preserves charge ids that contain underscores", () => {
     const parsed = parseCancelReasonCallback(
-      "billing_cancel_reason_too_expensive_Stars_42_abc",
+      "bcr_too_expensive_Stars_42_abc",
     );
     expect(parsed).toEqual({
       key: "too_expensive",
@@ -292,14 +292,14 @@ describe("parseCancelReasonCallback", () => {
 
   test("returns null on unknown reason key", () => {
     expect(
-      parseCancelReasonCallback("billing_cancel_reason_bogus_abc123"),
+      parseCancelReasonCallback("bcr_bogus_abc123"),
     ).toBeNull();
   });
 
   test("returns null when the reason key is present but the charge id is empty", () => {
-    // "billing_cancel_reason_other_" — trailing underscore but no id.
+    // "bcr_other_" — trailing underscore but no id.
     expect(
-      parseCancelReasonCallback("billing_cancel_reason_other_"),
+      parseCancelReasonCallback("bcr_other_"),
     ).toBeNull();
   });
 
