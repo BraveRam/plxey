@@ -1,7 +1,15 @@
 import { describe, expect, test } from "bun:test";
 import { _internals } from "../src/bots/billing";
+import { CANCEL_REASONS } from "../src/lib/text";
 
-const { parsePayload, composeBillingScreen, planLabelFor, CB } = _internals;
+const {
+  parsePayload,
+  parseCancelConfirmCallback,
+  parseCancelReasonCallback,
+  composeBillingScreen,
+  planLabelFor,
+  CB,
+} = _internals;
 
 describe("parsePayload", () => {
   test("parses a happy-path pro payload", () => {
@@ -209,7 +217,114 @@ describe("callback data ids", () => {
     expect(CB.subscribePro).toBe("billing_subscribe_pro");
     expect(CB.subscribeBusiness).toBe("billing_subscribe_business");
     expect(CB.upgradeBusiness).toBe("billing_upgrade_business");
+    expect(CB.upgradeConfirm).toBe("billing_upgrade_confirm");
     expect(CB.cancel).toBe("billing_cancel");
     expect(CB.resume).toBe("billing_resume");
+    expect(CB.cancelConfirmPrefix).toBe("billing_cancel_confirm_");
+    expect(CB.cancelReasonPrefix).toBe("billing_cancel_reason_");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// parseCancelConfirmCallback
+// ---------------------------------------------------------------------------
+
+describe("parseCancelConfirmCallback", () => {
+  test("extracts a simple alphanumeric charge id", () => {
+    expect(parseCancelConfirmCallback("billing_cancel_confirm_abc123")).toBe(
+      "abc123",
+    );
+  });
+
+  test("extracts a charge id that contains underscores", () => {
+    // Telegram charge ids are opaque — preserve every character after the prefix.
+    const id = "Stars_1234567890abcdef";
+    expect(
+      parseCancelConfirmCallback(`billing_cancel_confirm_${id}`),
+    ).toBe(id);
+  });
+
+  test("extracts a charge id that contains dashes", () => {
+    const id = "abc-def-ghi";
+    expect(
+      parseCancelConfirmCallback(`billing_cancel_confirm_${id}`),
+    ).toBe(id);
+  });
+
+  test("returns null on prefix mismatch", () => {
+    expect(parseCancelConfirmCallback("billing_cancel_abc")).toBeNull();
+    expect(parseCancelConfirmCallback("billing_menu")).toBeNull();
+  });
+
+  test("returns null when charge id is empty", () => {
+    expect(parseCancelConfirmCallback("billing_cancel_confirm_")).toBeNull();
+  });
+
+  test("returns null for undefined / non-string input", () => {
+    expect(parseCancelConfirmCallback(undefined)).toBeNull();
+    expect(parseCancelConfirmCallback("")).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// parseCancelReasonCallback
+// ---------------------------------------------------------------------------
+
+describe("parseCancelReasonCallback", () => {
+  test("parses every shipped reason key against a simple charge id", () => {
+    for (const reason of CANCEL_REASONS) {
+      const data = `billing_cancel_reason_${reason.key}_charge42`;
+      const parsed = parseCancelReasonCallback(data);
+      expect(parsed).toEqual({ key: reason.key, chargeId: "charge42" });
+    }
+  });
+
+  test("preserves charge ids that contain underscores", () => {
+    const parsed = parseCancelReasonCallback(
+      "billing_cancel_reason_too_expensive_Stars_42_abc",
+    );
+    expect(parsed).toEqual({
+      key: "too_expensive",
+      chargeId: "Stars_42_abc",
+    });
+  });
+
+  test("returns null on unknown reason key", () => {
+    expect(
+      parseCancelReasonCallback("billing_cancel_reason_bogus_abc123"),
+    ).toBeNull();
+  });
+
+  test("returns null when the reason key is present but the charge id is empty", () => {
+    // "billing_cancel_reason_other_" — trailing underscore but no id.
+    expect(
+      parseCancelReasonCallback("billing_cancel_reason_other_"),
+    ).toBeNull();
+  });
+
+  test("returns null on prefix mismatch", () => {
+    expect(parseCancelReasonCallback("billing_cancel_other_abc")).toBeNull();
+    expect(parseCancelReasonCallback("billing_menu")).toBeNull();
+  });
+
+  test("returns null for undefined / empty input", () => {
+    expect(parseCancelReasonCallback(undefined)).toBeNull();
+    expect(parseCancelReasonCallback("")).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// upgrade-confirm callback id is the static contract for the upgrade flow
+// ---------------------------------------------------------------------------
+
+describe("upgrade flow callback contract", () => {
+  test("upgradeConfirm is a static (no-arg) callback id", () => {
+    // The Business invoice link is minted server-side from the static
+    // `billing_upgrade_confirm` callback; no chargeId is encoded into the
+    // callback data because the upgrade flow operates on whichever Pro
+    // subscription the owner currently holds.
+    expect(CB.upgradeConfirm).toBe("billing_upgrade_confirm");
+    // Sanity: no overlap with the cancel-confirm prefix that DOES carry an id.
+    expect(CB.upgradeConfirm.startsWith(CB.cancelConfirmPrefix)).toBe(false);
   });
 });

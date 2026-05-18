@@ -36,15 +36,23 @@ import {
 import { sql } from "drizzle-orm";
 import { inngest } from "../inngest/client";
 import type { Events } from "../inngest/events";
+import {
+  cancelStarSubscription,
+  resumeStarSubscription,
+} from "../inngest/handlers/_telegram";
 import { logger } from "../lib/logger";
 import { PLANS, planLimits, type PlanKey } from "../lib/plans";
 import { redis } from "../lib/redis";
 import {
+  CANCEL_REASON_PROMPT,
+  CANCEL_REASONS,
   PLAN_PICKER_HEADER,
   TOAST_INVOICE_SENT,
   billingHeader,
   billingUsageBlock,
+  cancelConfirmPrompt,
   planPickerLine,
+  upgradeConfirmPrompt,
 } from "../lib/text";
 
 // ---------------------------------------------------------------------------
@@ -82,9 +90,26 @@ const CB = {
   subscribePro: "billing_subscribe_pro",
   subscribeBusiness: "billing_subscribe_business",
   upgradeBusiness: "billing_upgrade_business",
+  upgradeConfirm: "billing_upgrade_confirm",
   cancel: "billing_cancel",
   resume: "billing_resume",
+  /** Prefix for `billing_cancel_confirm_{chargeId}`. */
+  cancelConfirmPrefix: "billing_cancel_confirm_",
+  /** Prefix for `billing_cancel_reason_{key}_{chargeId}`. */
+  cancelReasonPrefix: "billing_cancel_reason_",
 } as const;
+
+/** Regex for `billing_cancel_confirm_{chargeId}`. Charge ids are
+ *  Telegram-provided alphanumeric strings (we also allow underscores/dashes
+ *  defensively — Telegram has historically used `_` separators). */
+const CANCEL_CONFIRM_RE = /^billing_cancel_confirm_(.+)$/;
+
+/** Regex for `billing_cancel_reason_{reasonKey}_{chargeId}`. Reason key is
+ *  one of `CANCEL_REASONS` (snake-case, no underscores between key + id
+ *  beyond the canonical separator). We use a non-greedy split: the FIRST
+ *  underscore-delimited token after the prefix is the reason key; the rest
+ *  is the charge id. Reason keys are statically allow-listed below. */
+const CANCEL_REASON_KEYS = new Set(CANCEL_REASONS.map((r) => r.key));
 
 // ---------------------------------------------------------------------------
 // Types
@@ -146,17 +171,37 @@ export function attachBillingHandlers(bot: Bot<Context>): void {
   });
 
   bot.callbackQuery(CB.upgradeBusiness, async (ctx) => {
-    // Phase 5 owns the editUserStarSubscription cancel-Pro step. For now,
-    // surface that the flow is not wired yet.
-    await ctx.answerCallbackQuery({ text: "Coming soon" });
+    await handleUpgradeTap(ctx);
+  });
+
+  bot.callbackQuery(CB.upgradeConfirm, async (ctx) => {
+    await handleUpgradeConfirm(ctx);
   });
 
   bot.callbackQuery(CB.cancel, async (ctx) => {
-    await ctx.answerCallbackQuery({ text: "Coming soon" });
+    await handleCancelTap(ctx);
+  });
+
+  bot.callbackQuery(CANCEL_CONFIRM_RE, async (ctx) => {
+    const chargeId = parseCancelConfirmCallback(ctx.callbackQuery?.data);
+    if (!chargeId) {
+      await ctx.answerCallbackQuery().catch(() => {});
+      return;
+    }
+    await handleCancelConfirm(ctx, chargeId);
+  });
+
+  bot.callbackQuery(/^billing_cancel_reason_/, async (ctx) => {
+    const parsed = parseCancelReasonCallback(ctx.callbackQuery?.data);
+    if (!parsed) {
+      await ctx.answerCallbackQuery().catch(() => {});
+      return;
+    }
+    await handleCancelReason(ctx, parsed.key, parsed.chargeId);
   });
 
   bot.callbackQuery(CB.resume, async (ctx) => {
-    await ctx.answerCallbackQuery({ text: "Coming soon" });
+    await handleResumeTap(ctx);
   });
 
   bot.on("pre_checkout_query", async (ctx) => {
@@ -535,6 +580,359 @@ function generateNonce(): string {
 }
 
 // ---------------------------------------------------------------------------
+// Cancel flow
+// ---------------------------------------------------------------------------
+
+/**
+ * "Cancel subscription" button tap. Loads the owner's primary subscription
+ * (highest tier with status='active', or canceled-still-in-period as fall
+ * back) and shows the typed confirm prompt with two buttons.
+ */
+async function handleCancelTap(ctx: Context): Promise<void> {
+  await ctx.answerCallbackQuery().catch(() => {});
+  const userId = ctx.from?.id;
+  if (userId === undefined) return;
+  const ownerId = String(userId);
+
+  const primary = await loadPrimarySubscription(ownerId);
+  if (!primary) {
+    // Nothing to cancel — re-render the menu so the owner gets a fresh
+    // surface rather than a silent no-op.
+    await ctx.deleteMessage().catch(() => {});
+    await renderBillingScreen(ctx, ownerId);
+    return;
+  }
+
+  const body = cancelConfirmPrompt({
+    planLabel: planLabelFor(primary.plan),
+    endsOn: formatDate(primary.currentPeriodEnd),
+  });
+  const kb = new InlineKeyboard()
+    .text(
+      "Yes, cancel",
+      `${CB.cancelConfirmPrefix}${primary.telegramPaymentChargeId}`,
+    )
+    .row()
+    .text("Keep subscription", CB.menu);
+
+  await ctx.reply(body, { parse_mode: "HTML", reply_markup: kb });
+}
+
+/**
+ * "Yes, cancel" confirmation. Calls Telegram to disable auto-renew, flips
+ * the DB row, fires `subscription/canceled`, and surfaces the reason picker.
+ */
+async function handleCancelConfirm(
+  ctx: Context,
+  telegramPaymentChargeId: string,
+): Promise<void> {
+  await ctx.answerCallbackQuery().catch(() => {});
+  const userId = ctx.from?.id;
+  if (userId === undefined) return;
+  const ownerTelegramUserId = String(userId);
+
+  // 1. Telegram-side: switch auto-renew off. Fail-open — DB write below is
+  //    the canonical state.
+  await cancelStarSubscription({
+    ownerTelegramUserId,
+    telegramPaymentChargeId,
+  }).catch((err) => {
+    logger.warn(
+      { err, ownerTelegramUserId, telegramPaymentChargeId },
+      "cancelStarSubscription threw — continuing with DB update",
+    );
+    return false;
+  });
+
+  // 2. DB: mark this row canceled. Scoped by both owner and charge id so a
+  //    stale callback can't touch another owner's row.
+  try {
+    await db
+      .update(subscriptions)
+      .set({ status: "canceled", canceledAt: new Date() })
+      .where(
+        and(
+          eq(
+            subscriptions.telegramPaymentChargeId,
+            telegramPaymentChargeId,
+          ),
+          eq(subscriptions.ownerTelegramUserId, ownerTelegramUserId),
+        ),
+      );
+  } catch (err) {
+    logger.warn(
+      { err, ownerTelegramUserId, telegramPaymentChargeId },
+      "cancel-confirm DB update failed",
+    );
+  }
+
+  // 3. Fan out to downstream (notify/owner + recompute plan).
+  try {
+    await inngest.send({
+      name: "subscription/canceled",
+      data: {
+        ownerTelegramUserId,
+        telegramPaymentChargeId,
+      },
+    });
+  } catch (err) {
+    logger.warn(
+      { err, ownerTelegramUserId, telegramPaymentChargeId },
+      "subscription/canceled inngest send failed",
+    );
+  }
+
+  // 4. Reason picker — optional. "Skip" routes back to the billing menu.
+  const kb = new InlineKeyboard();
+  for (const reason of CANCEL_REASONS) {
+    kb.text(
+      reason.label,
+      `${CB.cancelReasonPrefix}${reason.key}_${telegramPaymentChargeId}`,
+    ).row();
+  }
+  kb.text("Skip", CB.menu);
+  await ctx.reply(CANCEL_REASON_PROMPT, { reply_markup: kb });
+}
+
+/**
+ * Owner picks a cancellation reason. Persists it on the subscription row
+ * and re-renders the billing screen.
+ */
+async function handleCancelReason(
+  ctx: Context,
+  reasonKey: string,
+  telegramPaymentChargeId: string,
+): Promise<void> {
+  await ctx.answerCallbackQuery().catch(() => {});
+  const userId = ctx.from?.id;
+  if (userId === undefined) return;
+  const ownerTelegramUserId = String(userId);
+
+  try {
+    await db
+      .update(subscriptions)
+      .set({ cancelReason: reasonKey })
+      .where(
+        and(
+          eq(
+            subscriptions.telegramPaymentChargeId,
+            telegramPaymentChargeId,
+          ),
+          eq(subscriptions.ownerTelegramUserId, ownerTelegramUserId),
+        ),
+      );
+  } catch (err) {
+    logger.warn(
+      { err, ownerTelegramUserId, telegramPaymentChargeId, reasonKey },
+      "cancel-reason DB update failed",
+    );
+  }
+
+  await ctx.deleteMessage().catch(() => {});
+  await renderBillingScreen(ctx, ownerTelegramUserId);
+}
+
+// ---------------------------------------------------------------------------
+// Resume flow
+// ---------------------------------------------------------------------------
+
+/**
+ * "Resume subscription" button tap. Finds the most recent canceled-but-not-
+ * yet-lapsed subscription and re-enables Telegram auto-renew + DB status.
+ */
+async function handleResumeTap(ctx: Context): Promise<void> {
+  await ctx.answerCallbackQuery().catch(() => {});
+  const userId = ctx.from?.id;
+  if (userId === undefined) return;
+  const ownerTelegramUserId = String(userId);
+
+  const target = await loadResumableSubscription(ownerTelegramUserId);
+  if (!target) {
+    await ctx.deleteMessage().catch(() => {});
+    await renderBillingScreen(ctx, ownerTelegramUserId);
+    return;
+  }
+
+  await resumeStarSubscription({
+    ownerTelegramUserId,
+    telegramPaymentChargeId: target.telegramPaymentChargeId,
+  }).catch((err) => {
+    logger.warn(
+      {
+        err,
+        ownerTelegramUserId,
+        telegramPaymentChargeId: target.telegramPaymentChargeId,
+      },
+      "resumeStarSubscription threw — continuing with DB update",
+    );
+    return false;
+  });
+
+  try {
+    await db
+      .update(subscriptions)
+      .set({ status: "active", canceledAt: null })
+      .where(
+        and(
+          eq(
+            subscriptions.telegramPaymentChargeId,
+            target.telegramPaymentChargeId,
+          ),
+          eq(subscriptions.ownerTelegramUserId, ownerTelegramUserId),
+        ),
+      );
+  } catch (err) {
+    logger.warn(
+      {
+        err,
+        ownerTelegramUserId,
+        telegramPaymentChargeId: target.telegramPaymentChargeId,
+      },
+      "resume DB update failed",
+    );
+  }
+
+  try {
+    await inngest.send({
+      name: "notify/owner",
+      data: {
+        kind: "subscription_resumed",
+        ownerTelegramUserId,
+        extras: { plan: target.plan },
+      },
+    });
+  } catch (err) {
+    logger.warn(
+      { err, ownerTelegramUserId },
+      "notify/owner (subscription_resumed) send failed",
+    );
+  }
+
+  await ctx.deleteMessage().catch(() => {});
+  await renderBillingScreen(ctx, ownerTelegramUserId);
+}
+
+// ---------------------------------------------------------------------------
+// Upgrade Pro → Business
+// ---------------------------------------------------------------------------
+
+/**
+ * "Upgrade to Business" tap. Pro owner only. Surfaces the service-overlap
+ * confirmation; the actual cancel-Pro + Business-invoice flow runs on
+ * `billing_upgrade_confirm`.
+ */
+async function handleUpgradeTap(ctx: Context): Promise<void> {
+  await ctx.answerCallbackQuery().catch(() => {});
+  const userId = ctx.from?.id;
+  if (userId === undefined) return;
+  const ownerId = String(userId);
+
+  const proSub = await loadActiveProSubscription(ownerId);
+  if (!proSub) {
+    // Not on Pro — re-render menu so the owner sees the current state.
+    await ctx.deleteMessage().catch(() => {});
+    await renderBillingScreen(ctx, ownerId);
+    return;
+  }
+
+  const body = upgradeConfirmPrompt({
+    stars: PLANS.business.starsPerPeriod,
+    endsOn: formatDate(proSub.currentPeriodEnd),
+  });
+  const kb = new InlineKeyboard()
+    .text("Confirm upgrade", CB.upgradeConfirm)
+    .row()
+    .text("Cancel", CB.menu);
+
+  await ctx.reply(body, { parse_mode: "HTML", reply_markup: kb });
+}
+
+/**
+ * "Confirm upgrade" — service-overlap strategy from SUBSCRIPTION.md:
+ *   1. Cancel Pro auto-renew (Pro keeps running until its currentPeriodEnd).
+ *   2. Flip Pro's row to canceled in DB.
+ *   3. Mint a Business invoice and send it as a tap-to-pay button. The
+ *      regular `successful_payment` handler picks up the Business charge.
+ */
+async function handleUpgradeConfirm(ctx: Context): Promise<void> {
+  await ctx.answerCallbackQuery().catch(() => {});
+  const userId = ctx.from?.id;
+  if (userId === undefined) return;
+  const ownerTelegramUserId = String(userId);
+
+  const proSub = await loadActiveProSubscription(ownerTelegramUserId);
+  if (!proSub) {
+    // Owner isn't on Pro anymore (maybe they upgraded in another session) —
+    // bail back to the menu.
+    await ctx.deleteMessage().catch(() => {});
+    await renderBillingScreen(ctx, ownerTelegramUserId);
+    return;
+  }
+
+  // 1. Telegram: disable Pro auto-renew. Pro service continues until
+  //    currentPeriodEnd. Fail-open so a transient Telegram blip doesn't
+  //    block the upgrade.
+  await cancelStarSubscription({
+    ownerTelegramUserId,
+    telegramPaymentChargeId: proSub.telegramPaymentChargeId,
+  }).catch((err) => {
+    logger.warn(
+      {
+        err,
+        ownerTelegramUserId,
+        telegramPaymentChargeId: proSub.telegramPaymentChargeId,
+      },
+      "upgrade cancelStarSubscription(Pro) threw — continuing",
+    );
+    return false;
+  });
+
+  // 2. DB: flip Pro's status to canceled. The new Business row lands when
+  //    `successful_payment` fires after the owner pays the invoice.
+  try {
+    await db
+      .update(subscriptions)
+      .set({ status: "canceled", canceledAt: new Date() })
+      .where(
+        and(
+          eq(
+            subscriptions.telegramPaymentChargeId,
+            proSub.telegramPaymentChargeId,
+          ),
+          eq(subscriptions.ownerTelegramUserId, ownerTelegramUserId),
+        ),
+      );
+  } catch (err) {
+    logger.warn(
+      { err, ownerTelegramUserId },
+      "upgrade Pro→Business DB cancel update failed",
+    );
+  }
+
+  // 3. Mint the Business invoice. Reuses the existing helper so the
+  //    cache-key / nonce / payload format are identical to a fresh subscribe.
+  let link: string;
+  try {
+    link = await createOrReuseInvoiceLink(ctx, ownerTelegramUserId, "business");
+  } catch (err) {
+    logger.warn(
+      { err, ownerTelegramUserId },
+      "upgrade createOrReuseInvoiceLink(business) failed",
+    );
+    await ctx
+      .reply("Couldn't create invoice — try again from /billing.")
+      .catch(() => {});
+    return;
+  }
+
+  const kb = new InlineKeyboard().url("⭐ Pay 2000 Stars", link);
+  await ctx.reply(
+    "⭐ Business — tap below to pay with Stars. Your Pro plan keeps running until its end date at no extra charge.",
+    { reply_markup: kb },
+  );
+}
+
+// ---------------------------------------------------------------------------
 // pre_checkout_query
 // ---------------------------------------------------------------------------
 
@@ -730,6 +1128,156 @@ async function handleSuccessfulPayment(ctx: Context): Promise<void> {
 // ---------------------------------------------------------------------------
 
 /**
+ * Parse a `billing_cancel_confirm_{chargeId}` callback. Returns the charge
+ * id, or null on prefix mismatch / empty id. Pure helper — tested directly.
+ */
+function parseCancelConfirmCallback(
+  data: string | undefined,
+): string | null {
+  if (typeof data !== "string") return null;
+  const m = CANCEL_CONFIRM_RE.exec(data);
+  if (!m) return null;
+  const chargeId = m[1];
+  if (!chargeId) return null;
+  return chargeId;
+}
+
+/**
+ * Parse a `billing_cancel_reason_{key}_{chargeId}` callback. The reason key
+ * comes from a static allow-list (`CANCEL_REASONS`), so we split off the
+ * longest known-key prefix and treat the rest as the charge id.
+ *
+ * Returns null on prefix mismatch, unknown reason key, or empty charge id.
+ */
+function parseCancelReasonCallback(
+  data: string | undefined,
+): { key: string; chargeId: string } | null {
+  if (typeof data !== "string") return null;
+  if (!data.startsWith(CB.cancelReasonPrefix)) return null;
+  const remainder = data.slice(CB.cancelReasonPrefix.length);
+  if (remainder.length === 0) return null;
+
+  // Try each known reason key (longest first to disambiguate overlapping
+  // prefixes — currently none, but defensive).
+  const keys = [...CANCEL_REASON_KEYS].sort((a, b) => b.length - a.length);
+  for (const key of keys) {
+    const prefix = `${key}_`;
+    if (remainder.startsWith(prefix)) {
+      const chargeId = remainder.slice(prefix.length);
+      if (chargeId.length === 0) return null;
+      return { key, chargeId };
+    }
+  }
+  return null;
+}
+
+/**
+ * Load the owner's "primary" subscription for cancel-button purposes:
+ * highest-tier among active subscriptions, falling back to canceled-but-
+ * still-in-period if none are active. Returns null when nothing fits.
+ */
+async function loadPrimarySubscription(
+  ownerId: string,
+): Promise<OwnerSubRow | null> {
+  try {
+    const rows = await db.query.subscriptions.findMany({
+      where: eq(subscriptions.ownerTelegramUserId, ownerId),
+      columns: {
+        plan: true,
+        status: true,
+        currentPeriodEnd: true,
+        telegramPaymentChargeId: true,
+      },
+      orderBy: [desc(subscriptions.createdAt)],
+    });
+    if (rows.length === 0) return null;
+    const now = Date.now();
+    const tierRank: Record<PlanKey, number> = { trial: 0, pro: 1, business: 2 };
+
+    const active = rows.filter((r) => r.status === "active");
+    if (active.length > 0) {
+      return [...active].sort(
+        (a, b) => tierRank[b.plan] - tierRank[a.plan],
+      )[0]!;
+    }
+
+    const canceledLive = rows.filter(
+      (r) => r.status === "canceled" && r.currentPeriodEnd.getTime() > now,
+    );
+    if (canceledLive.length > 0) {
+      return [...canceledLive].sort(
+        (a, b) => tierRank[b.plan] - tierRank[a.plan],
+      )[0]!;
+    }
+
+    return null;
+  } catch (err) {
+    logger.warn({ err, ownerId }, "loadPrimarySubscription failed");
+    return null;
+  }
+}
+
+/**
+ * Find the most recent canceled-but-still-in-period subscription for an
+ * owner. That's what the Resume button operates on.
+ */
+async function loadResumableSubscription(
+  ownerId: string,
+): Promise<OwnerSubRow | null> {
+  try {
+    const rows = await db.query.subscriptions.findMany({
+      where: and(
+        eq(subscriptions.ownerTelegramUserId, ownerId),
+        eq(subscriptions.status, "canceled"),
+      ),
+      columns: {
+        plan: true,
+        status: true,
+        currentPeriodEnd: true,
+        telegramPaymentChargeId: true,
+      },
+      orderBy: [desc(subscriptions.createdAt)],
+    });
+    const now = Date.now();
+    for (const r of rows) {
+      if (r.currentPeriodEnd.getTime() > now) return r;
+    }
+    return null;
+  } catch (err) {
+    logger.warn({ err, ownerId }, "loadResumableSubscription failed");
+    return null;
+  }
+}
+
+/**
+ * Look up the owner's currently-active Pro subscription. Used by the upgrade
+ * flow to identify which charge to cancel auto-renew on.
+ */
+async function loadActiveProSubscription(
+  ownerId: string,
+): Promise<OwnerSubRow | null> {
+  try {
+    const row = await db.query.subscriptions.findFirst({
+      where: and(
+        eq(subscriptions.ownerTelegramUserId, ownerId),
+        eq(subscriptions.plan, "pro"),
+        eq(subscriptions.status, "active"),
+      ),
+      columns: {
+        plan: true,
+        status: true,
+        currentPeriodEnd: true,
+        telegramPaymentChargeId: true,
+      },
+    });
+    return row ?? null;
+  } catch (err) {
+    logger.warn({ err, ownerId }, "loadActiveProSubscription failed");
+    return null;
+  }
+}
+
+/**
  * Parse the invoice payload string `sub:{ownerId}:{plan}:{nonce}`.
  *
  * Returns null on:
@@ -765,10 +1313,13 @@ function parsePayload(
 
 export const _internals = {
   parsePayload,
+  parseCancelConfirmCallback,
+  parseCancelReasonCallback,
   composeBillingScreen,
   buildActionsKeyboard,
   planLabelFor,
   CB,
+  CANCEL_CONFIRM_RE,
   SUBSCRIPTION_PERIOD_SECONDS,
   STARS_CURRENCY,
 };

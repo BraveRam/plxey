@@ -62,7 +62,7 @@ export async function sendOwnerDm(
 }
 
 /**
- * Cancel auto-renew on a Stars subscription via Bot API.
+ * Toggle auto-renew on a Stars subscription via Bot API.
  *
  * Per Bot API: POST `/bot{TOKEN}/editUserStarSubscription` with
  * `{ user_id, telegram_payment_charge_id, is_canceled }`.
@@ -70,13 +70,18 @@ export async function sendOwnerDm(
  * Fail-open: returns `false` on any failure. Callers should log + continue
  * so a single bad charge doesn't block the rest of an admin ban flow.
  */
-export async function cancelStarSubscription(args: {
-  ownerTelegramUserId: string;
-  telegramPaymentChargeId: string;
-}): Promise<boolean> {
+async function setStarSubscriptionCanceled(
+  args: {
+    ownerTelegramUserId: string;
+    telegramPaymentChargeId: string;
+  },
+  isCanceled: boolean,
+): Promise<boolean> {
   const token = process.env.BOT_TOKEN;
   if (!token) {
-    logger.error("BOT_TOKEN missing — cannot cancel star subscription");
+    logger.error(
+      "BOT_TOKEN missing — cannot toggle star subscription auto-renew",
+    );
     return false;
   }
   try {
@@ -88,7 +93,7 @@ export async function cancelStarSubscription(args: {
         body: JSON.stringify({
           user_id: Number(args.ownerTelegramUserId),
           telegram_payment_charge_id: args.telegramPaymentChargeId,
-          is_canceled: true,
+          is_canceled: isCanceled,
         }),
       },
     );
@@ -98,6 +103,7 @@ export async function cancelStarSubscription(args: {
           status: res.status,
           ownerTelegramUserId: args.ownerTelegramUserId,
           telegramPaymentChargeId: args.telegramPaymentChargeId,
+          isCanceled,
         },
         "editUserStarSubscription failed",
       );
@@ -110,9 +116,35 @@ export async function cancelStarSubscription(args: {
         err,
         ownerTelegramUserId: args.ownerTelegramUserId,
         telegramPaymentChargeId: args.telegramPaymentChargeId,
+        isCanceled,
       },
       "editUserStarSubscription threw",
     );
     return false;
   }
+}
+
+/**
+ * Cancel auto-renew on a Stars subscription.
+ *
+ * Service continues until `currentPeriodEnd`. Used by the Cancel button,
+ * upgrade flow (Pro → Business), admin ban + refund flows.
+ */
+export async function cancelStarSubscription(args: {
+  ownerTelegramUserId: string;
+  telegramPaymentChargeId: string;
+}): Promise<boolean> {
+  return setStarSubscriptionCanceled(args, true);
+}
+
+/**
+ * Resume auto-renew on a previously-canceled Stars subscription. Mirrors
+ * {@link cancelStarSubscription} with `is_canceled=false`. Used by the
+ * Resume button when an owner undoes a cancel before `currentPeriodEnd`.
+ */
+export async function resumeStarSubscription(args: {
+  ownerTelegramUserId: string;
+  telegramPaymentChargeId: string;
+}): Promise<boolean> {
+  return setStarSubscriptionCanceled(args, false);
 }
