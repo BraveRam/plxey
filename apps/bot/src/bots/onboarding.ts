@@ -33,6 +33,7 @@ import {
   onboardingBotConnected,
   onboardingBotStatusLine,
   onboardingDeleteFailed,
+  onboardingWelcome,
 } from "../lib/text";
 
 type BaseCtx = Context & SessionFlavor<Record<string, never>>;
@@ -394,7 +395,10 @@ export async function createOnboardingBot(): Promise<Bot> {
   bot.command("start", async (ctx) => {
     const userId = String(ctx.from?.id ?? "");
     const kb = userId ? await buildMainMenuKb(userId) : menuKb;
-    await ctx.reply(MAIN_MENU_TITLE, { reply_markup: kb });
+    await ctx.reply(onboardingWelcome(ctx.from?.first_name ?? null), {
+      reply_markup: kb,
+      parse_mode: "HTML",
+    });
     logger.debug({ userId }, "onboarding: /start");
   });
 

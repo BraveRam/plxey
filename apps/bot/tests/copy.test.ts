@@ -5,6 +5,7 @@ import {
   TOAST_STALE_CALLBACK,
   dailyCapButtonLabel,
   dailyCapUpdated,
+  onboardingWelcome,
   truncateMid,
 } from "../src/lib/text";
 
@@ -53,6 +54,26 @@ describe("stale-callback toast", () => {
   test("is a friendly sentence, not jargon", () => {
     expect(TOAST_STALE_CALLBACK).toBe(
       "That button expired. Reopened the menu.",
+    );
+  });
+});
+
+describe("onboardingWelcome", () => {
+  test("addresses the owner by first name when available", () => {
+    const out = onboardingWelcome("Alex");
+    expect(out).toContain("Welcome, Alex");
+    expect(out.startsWith("<b>")).toBe(true);
+  });
+
+  test("falls back to a neutral greeting when first name is missing", () => {
+    expect(onboardingWelcome(null)).toContain("👋 Welcome</b>");
+    expect(onboardingWelcome("")).toContain("👋 Welcome</b>");
+    expect(onboardingWelcome("   ")).toContain("👋 Welcome</b>");
+  });
+
+  test("includes the call-to-action prompt", () => {
+    expect(onboardingWelcome("Alex")).toContain(
+      "Choose an option below to get started.",
     );
   });
 });

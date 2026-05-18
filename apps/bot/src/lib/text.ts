@@ -40,6 +40,29 @@ export const TOAST_AUTOREAD_OFF =
 // =============================================================================
 
 export const MAIN_MENU_TITLE = "Main menu";
+
+/**
+ * Formal welcome shown on `/start` of the onboarding bot. Renders as
+ * HTML; the caller sends with `parse_mode: "HTML"`.
+ *
+ * Same text for first-time and returning owners — addressing the owner
+ * by first name when Telegram exposes it keeps it personal without
+ * needing to look up whether they've onboarded before.
+ */
+export function onboardingWelcome(firstName: string | null): string {
+  const greeting = firstName?.trim()
+    ? `👋 Welcome, ${firstName.trim()}`
+    : "👋 Welcome";
+  return (
+    `<b>${greeting}</b>\n\n` +
+    "This is your control panel for AI-powered customer support on " +
+    "Telegram Business. Connect a bot, upload your documentation, and " +
+    "it will answer customers from your knowledge base 24/7 — while " +
+    "you stay in control of every reply.\n\n" +
+    "Choose an option below to get started."
+  );
+}
+
 export const BOT_NOT_FOUND = "Bot not found. It may have been deleted.";
 export const SEND_TEXT_PLEASE = "Send a text message, or press Cancel.";
 
