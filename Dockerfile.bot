@@ -1,0 +1,41 @@
+# Bot service — apps/bot.
+#
+# Monorepo Dockerfile. We need the full workspace context because bot
+# depends on the workspace packages `@tg-business/db`,
+# `@tg-business/crypto`, and `@tg-business/storage`, plus the root
+# `bun.lock` for reproducible installs.
+
+FROM oven/bun:1.3 AS base
+WORKDIR /app
+
+# Lockfile + every workspace package.json first, so bun install can
+# resolve the dep graph without copying source. Layer caches nicely.
+COPY package.json bun.lock ./
+COPY packages/db/package.json ./packages/db/
+COPY packages/crypto/package.json ./packages/crypto/
+COPY packages/storage/package.json ./packages/storage/
+COPY apps/bot/package.json ./apps/bot/
+COPY apps/rag/package.json ./apps/rag/
+
+# Install all workspaces (production-only — drops devDependencies like
+# drizzle-kit, types, pino-pretty). Bun creates the workspace symlink
+# graph automatically.
+RUN bun install --frozen-lockfile --production
+
+# Copy source for bot + its workspace deps. apps/rag is intentionally
+# NOT copied — bot never imports from it, so leaving it out shrinks
+# the image and keeps RAG-only changes from invalidating this layer.
+COPY packages/db ./packages/db
+COPY packages/crypto ./packages/crypto
+COPY packages/storage ./packages/storage
+COPY apps/bot ./apps/bot
+COPY drizzle ./drizzle
+COPY tsconfig.json ./
+
+# Koyeb expects services to listen on $PORT (typically 8000). Our bot
+# server reads BOT_PORT first, so we set it to match.
+ENV BOT_PORT=8000
+ENV NODE_ENV=production
+EXPOSE 8000
+
+CMD ["bun", "run", "apps/bot/src/index.ts"]
