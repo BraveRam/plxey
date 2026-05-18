@@ -42,6 +42,7 @@ import {
 } from "../inngest/handlers/_telegram";
 import { logger } from "../lib/logger";
 import { PLANS, planLimits, type PlanKey } from "../lib/plans";
+import { recomputeEffectivePlan } from "../lib/owners";
 import { redis } from "../lib/redis";
 import {
   CANCEL_REASON_PROMPT,
@@ -824,6 +825,20 @@ async function handleResumeTap(ctx: Context): Promise<void> {
         telegramPaymentChargeId: target.telegramPaymentChargeId,
       },
       "resume DB update failed",
+    );
+  }
+
+  // Recompute owners.current_plan / subscription_status from the fresh
+  // subs view so the /billing screen below reflects the resumed state.
+  // Cancel flips owners.subscription_status='canceled' via the Inngest
+  // handler — there's no corresponding inngest event for resume, so we
+  // call the recompute directly here.
+  try {
+    await recomputeEffectivePlan(ownerTelegramUserId);
+  } catch (err) {
+    logger.warn(
+      { err, ownerTelegramUserId },
+      "recomputeEffectivePlan after resume failed",
     );
   }
 
