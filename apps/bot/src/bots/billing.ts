@@ -408,9 +408,12 @@ function composeBillingScreen(state: BillingState): string {
   // Usage block — driven by the effective plan's caps. If lapsed/no plan,
   // fall back to trial caps as a sane baseline for the layout.
   const limits = planLimits(planForLabel);
-  // Doc cap is enforced per-bot, so the aggregate ceiling shown here is
-  // maxDocsPerBot × botCount. If the owner has 0 bots, the cap is 0 too.
-  const aggregateDocCap = limits.maxDocsPerBot * state.botCount;
+  // Doc cap is enforced per-bot. For display we show the aggregate
+  // ceiling = maxDocsPerBot × botCount. With zero bots the math says 0
+  // (true but looks confusing — "0/0" in the UI), so floor the
+  // multiplier at 1 to show the per-bot ceiling as a baseline hint.
+  const aggregateDocCap =
+    limits.maxDocsPerBot * Math.max(state.botCount, 1);
   const usage = billingUsageBlock({
     bots: state.botCount,
     maxBots: limits.maxBots,
