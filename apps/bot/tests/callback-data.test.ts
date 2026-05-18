@@ -16,8 +16,8 @@ describe("cbd (callback_data guard)", () => {
   });
 
   test("counts BYTES, not characters (multi-byte UTF-8 counts more)", () => {
-    // A single 4-byte emoji repeated 16 times = 64 bytes exactly.
-    expect(cbd("🚀".repeat(16))).toHaveLength(16);
+    // 🚀 is 4 UTF-8 bytes — 16 of them sit right at the cap. Should pass.
+    expect(() => cbd("🚀".repeat(16))).not.toThrow();
     // 17 emojis = 68 bytes — should throw.
     expect(() => cbd("🚀".repeat(17))).toThrow();
   });
