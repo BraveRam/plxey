@@ -89,7 +89,9 @@ export const ONBOARDING_HELP =
   "<b>Commands</b>\n" +
   "• <code>/start</code> — main menu.\n" +
   "• <code>/billing</code> — open the billing screen.\n" +
-  "• <code>/help</code> — this message.";
+  "• <code>/help</code> — this message.\n" +
+  "• <code>/privacy</code> — privacy policy.\n" +
+  "• <code>/terms</code> — terms of service.";
 
 /**
  * /help for a tenant bot, shown to the owner only. Renders as HTML.
@@ -126,6 +128,94 @@ export function tenantHelp(): string {
     "• <code>/help</code> — this message."
   );
 }
+
+/**
+ * Privacy policy shown by `/privacy` on the onboarding bot. Plain
+ * owner-friendly language — no internal infra names. Reviewable copy
+ * lives here so we can iterate without redeploying anything else.
+ */
+export const PRIVACY_POLICY =
+  "<b>Privacy policy</b>\n\n" +
+  "Short version: we only use your data to run the bot service you " +
+  "signed up for. We don't sell it, we don't share it for advertising, " +
+  "and you can delete it any time.\n\n" +
+  "<b>What we know about you</b>\n" +
+  "• Your Telegram profile: name, username, language, and whether " +
+  "you're a Telegram Premium user.\n" +
+  "• The bots you connect, including the bot token (stored encrypted).\n" +
+  "• Messages your customers send to your bots, and the replies the " +
+  "AI generates.\n" +
+  "• Documents you upload as knowledge for your bots.\n" +
+  "• Your subscription history and payments (handled by Telegram Stars).\n\n" +
+  "<b>What we use it for</b>\n" +
+  "• Powering the AI replies your bots send to your customers.\n" +
+  "• Showing you usage stats and billing information.\n" +
+  "• Improving the service (we look at anonymized product " +
+  "analytics — which buttons get tapped, where people drop off).\n\n" +
+  "<b>Who we share it with</b>\n" +
+  "We never sell or rent your data. We work with a small set of " +
+  "trusted infrastructure providers (cloud hosting, database, file " +
+  "storage, AI model providers, payment processing through Telegram). " +
+  "They only see what they need to do their job, and they're bound by " +
+  "their own privacy commitments.\n\n" +
+  "<b>How long we keep it</b>\n" +
+  "• While your account exists: as long as you keep your bots " +
+  "connected.\n" +
+  "• After you delete a bot: customer messages tied to it are removed.\n" +
+  "• Payment records: kept for accounting purposes.\n\n" +
+  "<b>Your choices</b>\n" +
+  "• You can delete any bot from the onboarding menu at any time.\n" +
+  "• You can ask us to delete your entire account by messaging the " +
+  "contact below.\n" +
+  "• You can cancel your subscription from /billing.\n\n" +
+  "<b>Questions or requests</b>\n" +
+  "Message us via Telegram support — see /help. We respond within a " +
+  "few business days.";
+
+/**
+ * Terms of service shown by `/terms` on the onboarding bot. Plain
+ * language. Not legal advice; an owner should consult a lawyer for
+ * jurisdiction-specific compliance, but this sets a baseline that
+ * matches what the product actually does.
+ */
+export const TERMS_OF_SERVICE =
+  "<b>Terms of service</b>\n\n" +
+  "By using this service you agree to the rules below. Please read " +
+  "them — they're short.\n\n" +
+  "<b>What you get</b>\n" +
+  "AI-powered customer support that runs on your Telegram Business " +
+  "account. You connect a bot, upload documents it can use as " +
+  "knowledge, and it replies to your customers on your behalf.\n\n" +
+  "<b>Subscription and payments</b>\n" +
+  "• You start on a free trial. After that you pick a paid plan if " +
+  "you want to keep going.\n" +
+  "• Payments are made with Telegram Stars and renew every 30 days " +
+  "until you cancel.\n" +
+  "• You can cancel any time from /billing. Your plan continues " +
+  "through the end of the period you already paid for.\n" +
+  "• Refunds are at our discretion and subject to Telegram's rules " +
+  "for Stars.\n\n" +
+  "<b>What you can and can't do</b>\n" +
+  "• You're responsible for what your bots say and do.\n" +
+  "• No illegal content, spam, harassment, or anything that breaks " +
+  "Telegram's own terms.\n" +
+  "• If you break these rules we can suspend or close your account.\n\n" +
+  "<b>About the AI replies</b>\n" +
+  "The AI generates answers based on the documents and instructions " +
+  "you give it. It can be wrong. Treat its replies as a draft your " +
+  "customers will see — you're the one who decides what your bot " +
+  "should know and how it should behave.\n\n" +
+  "<b>Service is \"as is\"</b>\n" +
+  "We do our best to keep things running, but we don't promise the " +
+  "service will be available without interruption or free of bugs. " +
+  "To the extent the law allows, our liability is limited to the " +
+  "fees you paid in the past 30 days.\n\n" +
+  "<b>Changes to these terms</b>\n" +
+  "If we update these terms in a meaningful way we'll let you know " +
+  "via the onboarding bot. Continuing to use the service after a " +
+  "change means you accept the new terms.\n\n" +
+  "<b>Questions</b>\n" +
+  "Message us via Telegram support — see /help.";
 
 export const BOT_NOT_FOUND = "Bot not found. It may have been deleted.";
 export const SEND_TEXT_PLEASE = "Send a text message, or press Cancel.";

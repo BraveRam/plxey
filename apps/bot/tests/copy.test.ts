@@ -3,6 +3,8 @@ import {
   ANALYTICS_EMPTY_HINT,
   ONBOARDING_CREATE_PROMPT,
   ONBOARDING_HELP,
+  PRIVACY_POLICY,
+  TERMS_OF_SERVICE,
   TOAST_AUTOREAD_OFF,
   TOAST_AUTOREAD_ON,
   TOAST_STALE_CALLBACK,
@@ -200,10 +202,73 @@ describe("ONBOARDING_HELP", () => {
     expect(ONBOARDING_HELP).toContain("Reply to messages");
   });
 
-  test("lists the three shipped slash commands", () => {
+  test("lists the five shipped slash commands", () => {
     expect(ONBOARDING_HELP).toContain("<code>/start</code>");
     expect(ONBOARDING_HELP).toContain("<code>/billing</code>");
     expect(ONBOARDING_HELP).toContain("<code>/help</code>");
+    expect(ONBOARDING_HELP).toContain("<code>/privacy</code>");
+    expect(ONBOARDING_HELP).toContain("<code>/terms</code>");
+  });
+});
+
+describe("PRIVACY_POLICY", () => {
+  test("opens with a bold header", () => {
+    expect(PRIVACY_POLICY.startsWith("<b>Privacy policy</b>")).toBe(true);
+  });
+
+  test("covers every section we promise owners", () => {
+    expect(PRIVACY_POLICY).toContain("What we know about you");
+    expect(PRIVACY_POLICY).toContain("What we use it for");
+    expect(PRIVACY_POLICY).toContain("Who we share it with");
+    expect(PRIVACY_POLICY).toContain("How long we keep it");
+    expect(PRIVACY_POLICY).toContain("Your choices");
+    expect(PRIVACY_POLICY).toContain("Questions or requests");
+  });
+
+  test("uses owner-friendly language — no infra jargon", () => {
+    // Quick regression guard against the tech-laden draft. None of
+    // these should leak into the customer-facing copy.
+    const lower = PRIVACY_POLICY.toLowerCase();
+    expect(lower).not.toContain("aes-gcm");
+    expect(lower).not.toContain("postgres");
+    expect(lower).not.toContain("neon");
+    expect(lower).not.toContain("upstash");
+    expect(lower).not.toContain("backblaze");
+    expect(lower).not.toContain("posthog");
+    expect(lower).not.toContain("inngest");
+    expect(lower).not.toContain("koyeb");
+    expect(lower).not.toContain("vercel");
+    // (skip "rag" as a substring guard — false positive against "stoRAGe")
+  });
+
+  test("mentions Telegram Stars for payments", () => {
+    expect(PRIVACY_POLICY).toContain("Telegram Stars");
+  });
+});
+
+describe("TERMS_OF_SERVICE", () => {
+  test("opens with a bold header", () => {
+    expect(TERMS_OF_SERVICE.startsWith("<b>Terms of service</b>")).toBe(true);
+  });
+
+  test("covers the must-have sections", () => {
+    expect(TERMS_OF_SERVICE).toContain("Subscription and payments");
+    expect(TERMS_OF_SERVICE).toContain("What you can and can't do");
+    expect(TERMS_OF_SERVICE).toContain("About the AI replies");
+    expect(TERMS_OF_SERVICE).toContain("Service is");
+    expect(TERMS_OF_SERVICE).toContain("Changes to these terms");
+  });
+
+  test("mentions /billing as the cancellation path", () => {
+    expect(TERMS_OF_SERVICE).toContain("/billing");
+  });
+
+  test("uses owner-friendly language", () => {
+    const lower = TERMS_OF_SERVICE.toLowerCase();
+    expect(lower).not.toContain("aes-gcm");
+    expect(lower).not.toContain("postgres");
+    expect(lower).not.toContain("vercel");
+    expect(lower).not.toContain("inngest");
   });
 });
 

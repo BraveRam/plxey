@@ -26,6 +26,8 @@ import {
   ONBOARDING_BOT_LIST_HEADER,
   ONBOARDING_CREATE_PROMPT,
   ONBOARDING_HELP,
+  PRIVACY_POLICY,
+  TERMS_OF_SERVICE,
   ONBOARDING_INVALID_TOKEN,
   ONBOARDING_TOKEN_REQUIRED,
   SUBSCRIBE_TO_CREATE_BOT,
@@ -475,6 +477,40 @@ export async function createOnboardingBot(): Promise<Bot> {
     logger.debug({ userId }, "onboarding: /help");
     if (userId) track(ownerDistinctId(userId), "onboarding.help.opened");
   });
+
+  bot.command("privacy", async (ctx) => {
+    await ctx.reply(PRIVACY_POLICY, {
+      parse_mode: "HTML",
+      link_preview_options: { is_disabled: true },
+    });
+    const userId = String(ctx.from?.id ?? "");
+    if (userId) track(ownerDistinctId(userId), "onboarding.privacy.opened");
+  });
+
+  bot.command("terms", async (ctx) => {
+    await ctx.reply(TERMS_OF_SERVICE, {
+      parse_mode: "HTML",
+      link_preview_options: { is_disabled: true },
+    });
+    const userId = String(ctx.from?.id ?? "");
+    if (userId) track(ownerDistinctId(userId), "onboarding.terms.opened");
+  });
+
+  // Register the slash-menu autocomplete globally. Owners typing `/`
+  // see the five commands with descriptions. Fire-and-forget — a
+  // transient Telegram error here doesn't matter, the menu will
+  // re-register on the next deploy.
+  bot.api
+    .setMyCommands([
+      { command: "start", description: "Main menu" },
+      { command: "help", description: "Show help" },
+      { command: "billing", description: "Plan and billing" },
+      { command: "privacy", description: "Privacy policy" },
+      { command: "terms", description: "Terms of service" },
+    ])
+    .catch((err) => {
+      logger.warn({ err }, "onboarding setMyCommands failed");
+    });
 
   bot.callbackQuery("create_bot", async (ctx) => {
     // Plan-cap quota gate. Runs at button-tap so the owner sees the

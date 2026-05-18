@@ -134,7 +134,8 @@ Middleware applied in mount order in `apps/bot/src/bots/onboarding.ts`:
 4. **conversations** — `@grammyjs/conversations`; `storage: { type: "key", adapter: new UpstashSessionStorage("tg:conv:onboarding:") }`.
 5. **createConversation("createBot")** — `createBotConversation`.
 6. **createConversation("deleteBot")** — `deleteBotConversation` (receives `botId` as entry arg).
-7. **Command/callback handlers** — `/start`, `create_bot`, `manage`, `bot_*`, `pause_*`, `resume_*`, `delete_*`, `menu`, catch-all `callback_query:data`.
+7. **Command/callback handlers** — `/start`, `/help`, `/privacy`, `/terms`, `create_bot`, `manage`, `bot_*`, `pause_*`, `resume_*`, `delete_*`, `menu`, catch-all `callback_query:data`. Plus `/billing` mounted by `attachBillingHandlers`. `/privacy` and `/terms` reply with the `PRIVACY_POLICY` and `TERMS_OF_SERVICE` constants from `lib/text.ts`; they fire `onboarding.privacy.opened` / `onboarding.terms.opened` events to PostHog.
+8. **Slash-menu autocomplete** — registered once at boot via `bot.api.setMyCommands([...])` (global scope, fire-and-forget) so the five commands (`/start`, `/help`, `/billing`, `/privacy`, `/terms`) appear in Telegram's `/` picker.
 
 ### Tenant bot (per-business)
 
