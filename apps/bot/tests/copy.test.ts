@@ -1,9 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import {
+  BOT_PHOTO_INVALID,
+  BOT_PHOTO_UPDATED,
   ONBOARDING_HELP,
   TOAST_AUTOREAD_OFF,
   TOAST_AUTOREAD_ON,
   TOAST_STALE_CALLBACK,
+  botPhotoEditorBody,
   dailyCapButtonLabel,
   dailyCapUpdated,
   managementMenu,
@@ -204,6 +207,7 @@ describe("tenantHelp", () => {
     expect(out).toContain("✉️ Edit busy reply");
     expect(out).toContain("👁 Auto-read");
     expect(out).toContain("🔒 Permissions");
+    expect(out).toContain("🖼 Profile photo");
   });
 
   test("describes the human-reply escalation flow", () => {
@@ -212,6 +216,31 @@ describe("tenantHelp", () => {
 
   test("escapes HTML in the username", () => {
     expect(tenantHelp({ username: "<bad>" })).toContain("@&lt;bad&gt;");
+  });
+});
+
+describe("botPhotoEditorBody", () => {
+  test("addresses the bot by @username and tells owner how to send", () => {
+    const out = botPhotoEditorBody({ username: "supportbot" });
+    expect(out).toContain("@supportbot");
+    expect(out).toContain("Send a photo");
+    expect(out).toContain("not a file");
+  });
+
+  test("escapes HTML in the username", () => {
+    expect(botPhotoEditorBody({ username: "<bad>" })).toContain("@&lt;bad&gt;");
+  });
+});
+
+describe("BOT_PHOTO success/invalid copy", () => {
+  test("success message uses the ✅ confirmation prefix", () => {
+    expect(BOT_PHOTO_UPDATED.startsWith("✅")).toBe(true);
+    expect(BOT_PHOTO_UPDATED).toContain("Telegram may take");
+  });
+
+  test("invalid copy tells the owner to send as photo, not file", () => {
+    expect(BOT_PHOTO_INVALID).toContain("not as a file");
+    expect(BOT_PHOTO_INVALID).toContain("paperclip");
   });
 });
 

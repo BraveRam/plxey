@@ -2,6 +2,7 @@ import {
   Bot,
   type Context,
   InlineKeyboard,
+  InputFile,
   session,
   type SessionFlavor,
 } from "grammy";
@@ -116,6 +117,10 @@ import {
   DAILY_CAP_MESSAGE_RESET,
   DAILY_CAP_MESSAGE_TOO_LONG,
   truncateMid,
+  BOT_PHOTO_FAILED,
+  BOT_PHOTO_INVALID,
+  BOT_PHOTO_UPDATED,
+  botPhotoEditorBody,
   tenantHelp,
   dailyCapButtonLabel,
   dailyCapEditorBody,
@@ -216,6 +221,8 @@ async function showManagementMenu(ctx: Context, botId: string) {
     .row()
     .text(autoReadLabel, "biz_toggle_autoread")
     .text("🔒 Permissions", "biz_permissions")
+    .row()
+    .text("🖼 Profile photo", "biz_edit_photo")
     .row();
 
   const text = managementMenu({
@@ -415,6 +422,118 @@ function makeEditWelcomeConversation(
         screenMsgId = null;
       }
       await ctx.reply(WELCOME_UPDATED);
+      await showManagementMenu(ctx, botId);
+      return;
+    }
+  };
+}
+
+function makeEditBotPhotoConversation(botId: string, botToken: string) {
+  return async function editBotPhotoConversation(
+    conversation: Conversation<BaseCtx, BaseCtx>,
+    ctx: BaseCtx,
+  ) {
+    const botRecord = await db.query.tenantBots.findFirst({
+      where: eq(tenantBots.id, botId),
+    });
+    if (!botRecord) {
+      await ctx.reply(BOT_NOT_FOUND);
+      return;
+    }
+
+    const chatId = ctx.chat!.id;
+    let screenMsgId: number | null =
+      ctx.callbackQuery?.message?.message_id ?? null;
+
+    if (screenMsgId !== null) {
+      await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
+    }
+    let sent = await ctx.reply(
+      botPhotoEditorBody({ username: botRecord.botUsername ?? "" }),
+      { reply_markup: cancelKb, parse_mode: "HTML" },
+    );
+    screenMsgId = sent.message_id;
+
+    while (true) {
+      const response = await conversation.wait();
+
+      if (response.callbackQuery?.data === "biz_cancel") {
+        await response.answerCallbackQuery();
+        if (screenMsgId !== null) {
+          await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
+          screenMsgId = null;
+        }
+        await showManagementMenu(response, botId);
+        return;
+      }
+
+      if (response.callbackQuery) {
+        await response.answerCallbackQuery({ text: TOAST_STALE_CALLBACK });
+        await response.deleteMessage().catch(() => {});
+        if (screenMsgId !== null) {
+          await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
+          screenMsgId = null;
+        }
+        await showManagementMenu(response, botId);
+        return;
+      }
+
+      // Largest size of the photo array is at the end (Telegram lists
+      // sizes ascending). If the owner attached an image as a file
+      // (document with image/* mime), `message.photo` is empty — gently
+      // re-prompt rather than trying to set an arbitrary file as a
+      // profile photo.
+      const photoSizes = response.message?.photo;
+      const largest = photoSizes && photoSizes.length > 0
+        ? photoSizes[photoSizes.length - 1]
+        : null;
+      if (!largest) {
+        if (screenMsgId !== null) {
+          await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
+        }
+        sent = await ctx.reply(BOT_PHOTO_INVALID, {
+          reply_markup: cancelKb,
+          parse_mode: "HTML",
+        });
+        screenMsgId = sent.message_id;
+        continue;
+      }
+
+      // setMyProfilePhoto requires a fresh upload — Telegram explicitly
+      // forbids re-using a file_id here. Download the photo via getFile
+      // / Bot API file endpoint, then re-upload via InputFile. Wrap the
+      // whole thing in `conversation.external` so a later replay (owner
+      // navigating back, etc.) doesn't re-hit the API.
+      const ok = await conversation.external(async () => {
+        try {
+          const file = await ctx.api.getFile(largest.file_id);
+          if (!file.file_path) return false;
+          const fileUrl = `https://api.telegram.org/file/bot${botToken}/${file.file_path}`;
+          const res = await fetch(fileUrl);
+          if (!res.ok) {
+            logger.warn(
+              { botId, status: res.status },
+              "profile-photo download failed",
+            );
+            return false;
+          }
+          const buf = Buffer.from(await res.arrayBuffer());
+          await ctx.api.setMyProfilePhoto({
+            type: "static",
+            photo: new InputFile(buf, "profile.jpg"),
+          });
+          return true;
+        } catch (err) {
+          logger.warn({ err, botId }, "setMyProfilePhoto failed");
+          return false;
+        }
+      });
+
+      if (screenMsgId !== null) {
+        await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
+        screenMsgId = null;
+      }
+      await ctx.reply(ok ? BOT_PHOTO_UPDATED : BOT_PHOTO_FAILED);
       await showManagementMenu(ctx, botId);
       return;
     }
@@ -1228,6 +1347,12 @@ export class BotRegistry {
     );
     bot.use(
       createConversation(
+        makeEditBotPhotoConversation(botId, rawToken),
+        "editBotPhoto",
+      ),
+    );
+    bot.use(
+      createConversation(
         makeDocumentManagementConversation(
           botId,
           tenantId,
@@ -1371,6 +1496,11 @@ export class BotRegistry {
     bot.callbackQuery("biz_edit_welcome", async (ctx) => {
       await ctx.answerCallbackQuery();
       await (ctx as unknown as BizCtx).conversation.enter("editWelcome");
+    });
+
+    bot.callbackQuery("biz_edit_photo", async (ctx) => {
+      await ctx.answerCallbackQuery();
+      await (ctx as unknown as BizCtx).conversation.enter("editBotPhoto");
     });
 
     bot.callbackQuery("biz_documents", async (ctx) => {

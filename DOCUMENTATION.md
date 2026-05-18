@@ -194,6 +194,22 @@ Entered when the owner taps "Edit Prompt". Created per-bot by `makeEditPromptCon
    - Non-text → re-prompt.
    - Text → inside `conversation.external`: `updateBot(botId, { systemPrompt: newPrompt })`. Shows "Prompt updated!" then management menu.
 
+### editBotPhoto
+
+Entered when the owner taps "🖼 Profile photo". Created per-bot by `makeEditBotPhotoConversation(botId, botToken)`.
+
+1. Sends "Send a photo for @{username}…" with Cancel.
+2. Loop:
+   - Cancel → management menu, exits.
+   - Stale callback → management menu, exits.
+   - Non-photo message → re-prompt with `BOT_PHOTO_INVALID` (asks for a photo, not a file).
+   - Photo → inside `conversation.external`:
+     - `getFile(largest.file_id)` to resolve `file_path`.
+     - Fetch from `https://api.telegram.org/file/bot{token}/{file_path}` (Telegram refuses to re-use a file_id for `setMyProfilePhoto` — must be a fresh multipart upload).
+     - Wrap the bytes in `new InputFile(buf, "profile.jpg")`.
+     - `setMyProfilePhoto({ type: "static", photo: InputFile })`.
+   - Confirms `BOT_PHOTO_UPDATED` on success, `BOT_PHOTO_FAILED` on any thrown error. Returns to management menu.
+
 ### editWelcome
 
 Entered when the owner taps "Welcome Message". Created per-bot by `makeEditWelcomeConversation(botId, onSaved)`. `onSaved` updates `BotEntry.welcomeMessage` in memory without a registry reload.
