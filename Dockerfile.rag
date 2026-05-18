@@ -1,0 +1,40 @@
+# RAG worker — apps/rag.
+#
+# Monorepo Dockerfile. We need the full workspace context because rag
+# depends on the workspace packages `@tg-business/db` and
+# `@tg-business/storage`, plus the root `bun.lock` for reproducible
+# installs.
+
+FROM oven/bun:1.3 AS base
+WORKDIR /app
+
+# Lockfile + every workspace package.json first, so bun install can
+# resolve the dep graph without copying source. Layer caches nicely.
+COPY package.json bun.lock ./
+COPY packages/db/package.json ./packages/db/
+COPY packages/crypto/package.json ./packages/crypto/
+COPY packages/storage/package.json ./packages/storage/
+COPY apps/bot/package.json ./apps/bot/
+COPY apps/rag/package.json ./apps/rag/
+
+# Install all workspaces (production-only — drops devDependencies like
+# drizzle-kit, types, pino-pretty). Bun will create the symlink graph
+# for the workspace packages automatically.
+RUN bun install --frozen-lockfile --production
+
+# Copy source for rag + its workspace deps. apps/bot is intentionally
+# NOT copied — rag never imports from it, so leaving it out shrinks
+# the image and avoids unnecessary rebuilds when bot-only code changes.
+COPY packages/db ./packages/db
+COPY packages/crypto ./packages/crypto
+COPY packages/storage ./packages/storage
+COPY apps/rag ./apps/rag
+COPY tsconfig.json ./
+
+# Koyeb expects services to listen on $PORT (typically 8000). Our rag
+# server reads RAG_PORT first, so we set it to match.
+ENV RAG_PORT=8000
+ENV NODE_ENV=production
+EXPOSE 8000
+
+CMD ["bun", "run", "apps/rag/src/server.ts"]

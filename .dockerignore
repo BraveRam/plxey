@@ -1,0 +1,34 @@
+# Never ship secrets or local-only files into the image.
+.env
+.env.*
+!.env.example
+
+# Build / dev artifacts
+node_modules
+.bun
+dist
+build
+*.log
+
+# Editor / OS
+.vscode
+.idea
+.DS_Store
+
+# Source-control + tooling we don't need inside the image
+.git
+.gitignore
+.github
+
+# Local docs / dev-only files (image stays lean)
+DOCUMENTATION.md
+SUBSCRIPTION.md
+AGENTS.md
+CLAUDE.md
+README.md
+tg-api.html
+.agents
+skills-lock.json
+
+# Tests aren't run inside the image
+**/tests
