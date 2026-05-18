@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  ONBOARDING_CREATE_PROMPT,
   ONBOARDING_HELP,
   TOAST_AUTOREAD_OFF,
   TOAST_AUTOREAD_ON,
@@ -165,6 +166,29 @@ describe("managementMenu", () => {
     });
     expect(out).toContain("@&lt;bad&gt;");
     expect(out).toContain("A&lt;lex&gt;");
+  });
+});
+
+describe("ONBOARDING_CREATE_PROMPT", () => {
+  test("walks the owner through the three concrete BotFather steps", () => {
+    expect(ONBOARDING_CREATE_PROMPT).toContain("/newbot");
+    expect(ONBOARDING_CREATE_PROMPT).toContain("/mybots");
+    expect(ONBOARDING_CREATE_PROMPT).toContain("Business Mode");
+    expect(ONBOARDING_CREATE_PROMPT).toContain("Paste the token");
+  });
+
+  test("warns the owner about token secrecy and how to revoke", () => {
+    expect(ONBOARDING_CREATE_PROMPT).toContain("Keep the token private");
+    expect(ONBOARDING_CREATE_PROMPT).toContain("/revoke");
+  });
+
+  test("hints at the post-connect step (Business account linking)", () => {
+    expect(ONBOARDING_CREATE_PROMPT).toContain("Telegram Business account");
+  });
+
+  test("renders as HTML (caller must send with parse_mode: HTML)", () => {
+    expect(ONBOARDING_CREATE_PROMPT).toContain("<b>");
+    expect(ONBOARDING_CREATE_PROMPT).toContain("<code>");
   });
 });
 

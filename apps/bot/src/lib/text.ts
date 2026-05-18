@@ -150,10 +150,25 @@ export const ONBOARDING_BOT_LIST_AFTER_DELETE_HEADER =
   "✅ Bot deleted.\n\nYour bots";
 
 export const ONBOARDING_CREATE_PROMPT =
-  "Send me your bot token.\n\n" +
-  "1. Create a bot via @BotFather\n" +
-  "2. Enable Business Mode in BotFather settings\n" +
-  "3. Paste the token here";
+  "<b>Connect a bot</b>\n\n" +
+  "Follow these steps in Telegram. You can keep this chat open in a " +
+  "second window or come back when you're done.\n\n" +
+  "<b>1. Create a bot in @BotFather</b>\n" +
+  "Open @BotFather, send <code>/newbot</code>, then pick a display name " +
+  "and a username (must end in <code>bot</code>). BotFather replies with " +
+  "your bot token — it looks like <code>123456789:AAExxxxxxxxxxxxxxxxxx</code>.\n\n" +
+  "<b>2. Enable Business Mode for the bot</b>\n" +
+  "Still in @BotFather, send <code>/mybots</code> → pick your new bot → " +
+  "<i>Bot Settings</i> → <i>Business Mode</i> → tap <i>Turn on</i>.\n\n" +
+  "<b>3. Paste the token here</b>\n" +
+  "Copy the full token from @BotFather and send it as a message in this " +
+  "chat. I'll verify it with Telegram and connect it.\n\n" +
+  "After connecting, I'll walk you through the last step: linking the " +
+  "bot to your Telegram Business account so it can read and reply for " +
+  "you.\n\n" +
+  "🔒 <b>Keep the token private.</b> Anyone with it can fully control " +
+  "your bot. Don't share it outside this chat. If it leaks, revoke it " +
+  "with <code>/revoke</code> in @BotFather.";
 
 export const ONBOARDING_TOKEN_REQUIRED =
   "Send a valid bot token, or press Cancel.";

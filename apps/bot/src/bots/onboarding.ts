@@ -211,6 +211,8 @@ async function createBotConversation(conversation: Conversation<BaseCtx, BaseCtx
   }
   let sent = await ctx.reply(ONBOARDING_CREATE_PROMPT, {
     reply_markup: cancelKb,
+    parse_mode: "HTML",
+    link_preview_options: { is_disabled: true },
   });
   screenMsgId = sent.message_id;
 
