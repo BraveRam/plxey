@@ -92,6 +92,8 @@ const CB = {
   upgradeBusiness: "billing_upgrade_business",
   upgradeConfirm: "billing_upgrade_confirm",
   cancel: "billing_cancel",
+  /** Dismiss the cancel-confirm prompt without re-rendering /billing. */
+  keepSubscription: "billing_keep",
   resume: "billing_resume",
   /** Prefix for `billing_cancel_confirm_{subUuid}`. We embed the
    *  subscription row's UUID (36 chars) instead of the Telegram payment
@@ -186,6 +188,13 @@ export function attachBillingHandlers(bot: Bot<Context>): void {
 
   bot.callbackQuery(CB.cancel, async (ctx) => {
     await handleCancelTap(ctx);
+  });
+
+  // "Keep subscription" — owner backed out of the cancel prompt. Just
+  // dismiss the prompt; do not re-render /billing.
+  bot.callbackQuery(CB.keepSubscription, async (ctx) => {
+    await ctx.answerCallbackQuery().catch(() => {});
+    await ctx.deleteMessage().catch(() => {});
   });
 
   bot.callbackQuery(CANCEL_CONFIRM_RE, async (ctx) => {
@@ -621,7 +630,7 @@ async function handleCancelTap(ctx: Context): Promise<void> {
   const kb = new InlineKeyboard()
     .text("Yes, cancel", `${CB.cancelConfirmPrefix}${primary.id}`)
     .row()
-    .text("Keep subscription", CB.menu);
+    .text("Keep subscription", CB.keepSubscription);
 
   await ctx.reply(body, { parse_mode: "HTML", reply_markup: kb });
 }
