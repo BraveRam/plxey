@@ -27,14 +27,21 @@ export const subscriptionRefunded = inngest.createFunction(
     const data = event.data as Events["subscription/refunded"];
     const { ownerTelegramUserId, telegramPaymentChargeId } = data;
 
-    // 1. Mark subscription canceled. We pick up the (id, starsPerPeriod) so
-    //    we can emit a correctly-shaped audit row in step 2.
-    const subRow = await step.run("mark-canceled", async () => {
+    // 1. Mark the row lapsed AND collapse currentPeriodEnd to now(). Refund
+    //    means immediate revoke — we do NOT want the canceled-with-tail
+    //    semantics (which would leave the sub "live" per effectivePlan's
+    //    `status='canceled' AND currentPeriodEnd > now` filter and keep the
+    //    owner on the paid plan until the original currentPeriodEnd, even
+    //    though they got their stars back). status='lapsed' makes the row
+    //    invisible to the live filter and effectivePlan will return null,
+    //    so subscription/lapsed below can do its job.
+    const subRow = await step.run("mark-lapsed", async () => {
       const rows = await db
         .update(subscriptions)
         .set({
-          status: "canceled",
+          status: "lapsed",
           canceledAt: new Date(),
+          currentPeriodEnd: new Date(),
         })
         .where(
           eq(
