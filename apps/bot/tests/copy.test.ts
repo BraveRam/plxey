@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  ONBOARDING_HELP,
   TOAST_AUTOREAD_OFF,
   TOAST_AUTOREAD_ON,
   TOAST_STALE_CALLBACK,
@@ -7,6 +8,7 @@ import {
   dailyCapUpdated,
   managementMenu,
   onboardingWelcome,
+  tenantHelp,
   truncateMid,
 } from "../src/lib/text";
 
@@ -163,6 +165,53 @@ describe("managementMenu", () => {
     });
     expect(out).toContain("@&lt;bad&gt;");
     expect(out).toContain("A&lt;lex&gt;");
+  });
+});
+
+describe("ONBOARDING_HELP", () => {
+  test("covers the three main-menu buttons", () => {
+    expect(ONBOARDING_HELP).toContain("🤖 New bot");
+    expect(ONBOARDING_HELP).toContain("⚙️ Your bots");
+    expect(ONBOARDING_HELP).toContain("💳 Billing");
+  });
+
+  test("references BotFather and Business Mode setup", () => {
+    expect(ONBOARDING_HELP).toContain("@BotFather");
+    expect(ONBOARDING_HELP).toContain("Business Mode");
+    expect(ONBOARDING_HELP).toContain("Reply to messages");
+  });
+
+  test("lists the three shipped slash commands", () => {
+    expect(ONBOARDING_HELP).toContain("<code>/start</code>");
+    expect(ONBOARDING_HELP).toContain("<code>/billing</code>");
+    expect(ONBOARDING_HELP).toContain("<code>/help</code>");
+  });
+});
+
+describe("tenantHelp", () => {
+  test("addresses the bot by @username", () => {
+    expect(tenantHelp({ username: "supportbot" })).toContain(
+      "<b>Managing @supportbot</b>",
+    );
+  });
+
+  test("explains every management-menu button", () => {
+    const out = tenantHelp({ username: "supportbot" });
+    expect(out).toContain("✏️ Prompt");
+    expect(out).toContain("💬 Welcome");
+    expect(out).toContain("📚 Knowledge");
+    expect(out).toContain("🎯 Daily limit");
+    expect(out).toContain("✉️ Edit busy reply");
+    expect(out).toContain("👁 Auto-read");
+    expect(out).toContain("🔒 Permissions");
+  });
+
+  test("describes the human-reply escalation flow", () => {
+    expect(tenantHelp({ username: "supportbot" })).toContain("✏️ Reply");
+  });
+
+  test("escapes HTML in the username", () => {
+    expect(tenantHelp({ username: "<bad>" })).toContain("@&lt;bad&gt;");
   });
 });
 

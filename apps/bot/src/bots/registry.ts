@@ -116,6 +116,7 @@ import {
   DAILY_CAP_MESSAGE_RESET,
   DAILY_CAP_MESSAGE_TOO_LONG,
   truncateMid,
+  tenantHelp,
   dailyCapButtonLabel,
   dailyCapEditorBody,
   dailyCapInvalid,
@@ -1348,6 +1349,18 @@ export class BotRegistry {
         connectedBusinessUserId: botEntry?.connectedBusinessUserId ?? null,
       });
       await ctx.reply(text, keyboard ? { reply_markup: keyboard } : {});
+    });
+
+    bot.command("help", async (ctx) => {
+      const ownerId = String(ctx.from?.id ?? "");
+      // Only respond to the bot owner. Customers hitting /help would just
+      // be confused by management-menu copy, so silently ignore them.
+      if (!this.findByOwner(ownerId)) return;
+      const botEntry = this.bots.get(botId);
+      await ctx.reply(
+        tenantHelp({ username: botEntry?.botUsername ?? "" }),
+        { parse_mode: "HTML" },
+      );
     });
 
     bot.callbackQuery("biz_edit_prompt", async (ctx) => {

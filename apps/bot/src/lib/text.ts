@@ -63,6 +63,67 @@ export function onboardingWelcome(firstName: string | null): string {
   );
 }
 
+/**
+ * /help for the onboarding bot. Renders as HTML; the caller sends with
+ * `parse_mode: "HTML"`. Describes the surfaces the owner can use here
+ * (creating bots, managing them, billing) — does NOT cover the tenant
+ * bot's per-bot management menu, which has its own /help.
+ */
+export const ONBOARDING_HELP =
+  "<b>How this works</b>\n\n" +
+  "This is your control panel. Each bot you connect runs AI-powered " +
+  "support on your Telegram Business account, answers from your uploaded " +
+  "documentation, and escalates to you when it can't.\n\n" +
+  "<b>Setting up a bot</b>\n" +
+  "1. Create a bot via @BotFather and enable <i>Business Mode</i> in its " +
+  "settings.\n" +
+  "2. Tap <b>🤖 New bot</b> and paste the token.\n" +
+  "3. Open Telegram → <i>Settings → Business → Chatbots</i>, add your bot, " +
+  "and grant at least <i>Reply to messages</i> (Read messages recommended).\n" +
+  "4. Once connected, open the bot directly and tap <b>/start</b> to manage " +
+  "its prompt, welcome message, knowledge base, and limits.\n\n" +
+  "<b>Buttons here</b>\n" +
+  "• <b>🤖 New bot</b> — connect another bot to this account.\n" +
+  "• <b>⚙️ Your bots</b> — list, pause, resume, or delete connected bots.\n" +
+  "• <b>💳 Billing</b> — view your plan, usage, and Stars subscription.\n\n" +
+  "<b>Commands</b>\n" +
+  "• <code>/start</code> — main menu.\n" +
+  "• <code>/billing</code> — open the billing screen.\n" +
+  "• <code>/help</code> — this message.";
+
+/**
+ * /help for a tenant bot, shown to the owner only. Renders as HTML.
+ * `username` is the bot's @username so the message reads naturally.
+ */
+export function tenantHelp(args: { username: string }): string {
+  return (
+    `<b>Managing @${escapeHtml(args.username)}</b>\n\n` +
+    "Use <b>/start</b> here at any time to open the management menu.\n\n" +
+    "<b>What each option does</b>\n" +
+    "• <b>✏️ Prompt</b> — the system prompt that tells the AI how to behave. " +
+    "Use <code>{business_name}</code> as a placeholder for your tenant name.\n" +
+    "• <b>💬 Welcome</b> — a custom greeting shown when a customer opens " +
+    "this bot for the first time.\n" +
+    "• <b>📚 Knowledge</b> — documents (PDF, TXT, Markdown, DOCX, HTML) " +
+    "the bot can search to ground its answers.\n" +
+    "• <b>🎯 Daily limit</b> — per-customer daily ceiling on AI replies. " +
+    "Past the limit, the customer gets your busy reply instead of an AI " +
+    "answer. Tap <b>✉️ Edit busy reply</b> inside this screen to customize " +
+    "that message.\n" +
+    "• <b>👁 Auto-read</b> — toggle whether the bot marks incoming customer " +
+    "messages as read automatically.\n" +
+    "• <b>🔒 Permissions</b> — check what your Business connection has " +
+    "granted the bot.\n\n" +
+    "<b>Replying to a customer yourself</b>\n" +
+    "When the AI escalates, you'll get a message with a <b>✏️ Reply</b> " +
+    "button. Tap it, send your message in any format (text, photo, voice, " +
+    "etc.), and the customer receives an exact copy.\n\n" +
+    "<b>Commands</b>\n" +
+    "• <code>/start</code> — open the management menu.\n" +
+    "• <code>/help</code> — this message."
+  );
+}
+
 export const BOT_NOT_FOUND = "Bot not found. It may have been deleted.";
 export const SEND_TEXT_PLEASE = "Send a text message, or press Cancel.";
 

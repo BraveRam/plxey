@@ -23,6 +23,7 @@ import {
   ONBOARDING_BOT_LIST_EMPTY,
   ONBOARDING_BOT_LIST_HEADER,
   ONBOARDING_CREATE_PROMPT,
+  ONBOARDING_HELP,
   ONBOARDING_INVALID_TOKEN,
   ONBOARDING_TOKEN_REQUIRED,
   SUBSCRIBE_TO_CREATE_BOT,
@@ -400,6 +401,16 @@ export async function createOnboardingBot(): Promise<Bot> {
       parse_mode: "HTML",
     });
     logger.debug({ userId }, "onboarding: /start");
+  });
+
+  bot.command("help", async (ctx) => {
+    const userId = String(ctx.from?.id ?? "");
+    const kb = userId ? await buildMainMenuKb(userId) : menuKb;
+    await ctx.reply(ONBOARDING_HELP, {
+      reply_markup: kb,
+      parse_mode: "HTML",
+    });
+    logger.debug({ userId }, "onboarding: /help");
   });
 
   bot.callbackQuery("create_bot", async (ctx) => {
