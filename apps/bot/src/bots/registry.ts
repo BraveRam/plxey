@@ -11,7 +11,7 @@ import {
   conversations as grammyConvs,
   createConversation,
 } from "@grammyjs/conversations";
-import { eq, and, asc, desc } from "drizzle-orm";
+import { eq, and, asc, desc, sql } from "drizzle-orm";
 import { db } from "@tg-business/db";
 import {
   tenants,
@@ -19,6 +19,7 @@ import {
   businessConnections,
   conversations as convTable,
   messages,
+  documents,
 } from "@tg-business/db";
 import { decrypt } from "@tg-business/crypto";
 import { uploadFile, b2BucketId } from "@tg-business/storage";
@@ -180,6 +181,28 @@ async function showManagementMenu(ctx: Context, botId: string) {
     return;
   }
 
+  // Fetch the at-a-glance fields the header surfaces. Two cheap reads —
+  // an indexed COUNT(*) and a single-row lookup. Both fail-open: a DB
+  // hiccup degrades the header rather than blocking the menu.
+  const [docRows, connRow] = await Promise.all([
+    db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(documents)
+      .where(eq(documents.tenantBotId, botId))
+      .catch(() => [{ count: 0 }] as { count: number }[]),
+    db.query.businessConnections
+      .findFirst({
+        where: and(
+          eq(businessConnections.tenantBotId, botId),
+          eq(businessConnections.isEnabled, true),
+        ),
+        columns: { id: true },
+      })
+      .catch(() => null),
+  ]);
+  const documentCount = docRows[0]?.count ?? 0;
+  const connectionLinked = connRow !== null && connRow !== undefined;
+
   const statusIcon = botRecord.status === "active" ? "✅ Active" : "⏸ Paused";
   const autoReadLabel = `👁 Auto-read: ${botRecord.autoReadBusinessMessages ? "On" : "Off"}`;
   const capLabel = dailyCapButtonLabel(botRecord.dailyUserAiReplyLimit);
@@ -197,7 +220,8 @@ async function showManagementMenu(ctx: Context, botId: string) {
   const text = managementMenu({
     username: botRecord.botUsername ?? "",
     statusIcon,
-    systemPrompt: botRecord.systemPrompt,
+    connectionLinked,
+    documentCount,
     firstName: ctx.from?.first_name ?? null,
   });
 

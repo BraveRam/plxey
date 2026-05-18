@@ -150,26 +150,33 @@ export function deleteBotMismatch(phrase: string): string {
  * Tenant-bot management menu header. Renders as HTML; the caller sends
  * with `parse_mode: "HTML"`.
  *
- * `firstName` personalizes the greeting when Telegram exposes it.
- * `systemPrompt` is truncated to a 200-char preview with an ellipsis.
+ * `firstName` personalizes the greeting when Telegram exposes it. The
+ * caller resolves at-a-glance state (connection, knowledge-base size)
+ * cheaply and passes it in; we don't echo the system prompt here —
+ * owners already wrote it and don't need to re-read it every visit.
  */
 export function managementMenu(args: {
   username: string;
   statusIcon: string;
-  systemPrompt: string;
+  connectionLinked: boolean;
+  documentCount: number;
   firstName?: string | null;
 }): string {
-  const { username, statusIcon, systemPrompt, firstName } = args;
-  const preview = systemPrompt.slice(0, 200);
-  const ellipsis = systemPrompt.length > 200 ? "…" : "";
+  const { username, statusIcon, connectionLinked, documentCount, firstName } =
+    args;
   const greeting = firstName?.trim()
     ? `👋 <b>Hi ${escapeHtml(firstName.trim())}</b>\n\n`
     : "";
+  const connectionLine = connectionLinked
+    ? "Connection: ✅ Linked"
+    : "Connection: ⏳ Not linked yet";
+  const docWord = documentCount === 1 ? "document" : "documents";
   return (
     `${greeting}` +
     `Managing <b>@${escapeHtml(username)}</b>\n\n` +
-    `Status: ${statusIcon}\n\n` +
-    `<b>Prompt preview</b>\n${escapeHtml(preview)}${ellipsis}`
+    `Status: ${statusIcon}\n` +
+    `${connectionLine}\n` +
+    `Knowledge: ${documentCount} ${docWord}`
   );
 }
 

@@ -84,48 +84,85 @@ describe("managementMenu", () => {
     const out = managementMenu({
       username: "mybot",
       statusIcon: "✅ Active",
-      systemPrompt: "be helpful",
+      connectionLinked: true,
+      documentCount: 5,
       firstName: "Alex",
     });
     expect(out).toContain("<b>Hi Alex</b>");
     expect(out).toContain("Managing <b>@mybot</b>");
     expect(out).toContain("Status: ✅ Active");
-    expect(out).toContain("<b>Prompt preview</b>");
+    expect(out).toContain("Connection: ✅ Linked");
+    expect(out).toContain("Knowledge: 5 documents");
   });
 
   test("omits the greeting line when first name is missing", () => {
     const out = managementMenu({
       username: "mybot",
       statusIcon: "⏸ Paused",
-      systemPrompt: "be helpful",
+      connectionLinked: false,
+      documentCount: 0,
       firstName: null,
     });
     expect(out).not.toContain("Hi ");
     expect(out.startsWith("Managing <b>@mybot</b>")).toBe(true);
   });
 
+  test("shows the pending-connection state when not yet linked", () => {
+    const out = managementMenu({
+      username: "mybot",
+      statusIcon: "✅ Active",
+      connectionLinked: false,
+      documentCount: 0,
+      firstName: null,
+    });
+    expect(out).toContain("Connection: ⏳ Not linked yet");
+  });
+
+  test("pluralizes the document word correctly", () => {
+    const one = managementMenu({
+      username: "mybot",
+      statusIcon: "✅ Active",
+      connectionLinked: true,
+      documentCount: 1,
+      firstName: null,
+    });
+    expect(one).toContain("Knowledge: 1 document");
+    expect(one).not.toContain("documents");
+
+    const zero = managementMenu({
+      username: "mybot",
+      statusIcon: "✅ Active",
+      connectionLinked: true,
+      documentCount: 0,
+      firstName: null,
+    });
+    expect(zero).toContain("Knowledge: 0 documents");
+  });
+
+  test("does not echo the system prompt", () => {
+    // Owners already wrote their prompt; the menu shouldn't re-print it
+    // every time they open settings. Regression guard against re-adding
+    // a prompt preview field.
+    const out = managementMenu({
+      username: "mybot",
+      statusIcon: "✅ Active",
+      connectionLinked: true,
+      documentCount: 5,
+      firstName: "Alex",
+    });
+    expect(out).not.toContain("Prompt preview");
+  });
+
   test("escapes HTML in dynamic fields to prevent parse errors", () => {
     const out = managementMenu({
       username: "<bad>",
       statusIcon: "✅ Active",
-      systemPrompt: "uses <code> tags & such",
+      connectionLinked: true,
+      documentCount: 1,
       firstName: "A<lex>",
     });
     expect(out).toContain("@&lt;bad&gt;");
     expect(out).toContain("A&lt;lex&gt;");
-    expect(out).toContain("&lt;code&gt;");
-    expect(out).toContain("&amp;");
-  });
-
-  test("truncates long prompts with an ellipsis", () => {
-    const long = "x".repeat(300);
-    const out = managementMenu({
-      username: "mybot",
-      statusIcon: "✅ Active",
-      systemPrompt: long,
-      firstName: null,
-    });
-    expect(out).toContain(`${"x".repeat(200)}…`);
   });
 });
 
