@@ -449,6 +449,11 @@ function buildActionsKeyboard(state: BillingState): InlineKeyboard {
       kb.url("Manage Stars in Telegram", STARS_MANAGE_URL).row();
       break;
   }
+  // Every billing screen ends with a way back to the onboarding main
+  // menu. The "menu" callback is registered by the onboarding bot
+  // (`onboarding.ts` callbackQuery("menu", …)); /billing is mounted on
+  // the same bot, so this routes correctly.
+  kb.text("⬅ Main menu", "menu").row();
   return kb;
 }
 
