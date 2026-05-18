@@ -88,14 +88,12 @@ describe("managementMenu", () => {
       username: "mybot",
       statusIcon: "✅ Active",
       connectionLinked: true,
-      documentCount: 5,
       firstName: "Alex",
     });
     expect(out).toContain("<b>Hi Alex</b>");
     expect(out).toContain("Managing <b>@mybot</b>");
     expect(out).toContain("Status: ✅ Active");
     expect(out).toContain("Connection: ✅ Linked");
-    expect(out).toContain("Knowledge: 5 documents");
   });
 
   test("omits the greeting line when first name is missing", () => {
@@ -103,7 +101,6 @@ describe("managementMenu", () => {
       username: "mybot",
       statusIcon: "⏸ Paused",
       connectionLinked: false,
-      documentCount: 0,
       firstName: null,
     });
     expect(out).not.toContain("Hi ");
@@ -115,31 +112,9 @@ describe("managementMenu", () => {
       username: "mybot",
       statusIcon: "✅ Active",
       connectionLinked: false,
-      documentCount: 0,
       firstName: null,
     });
     expect(out).toContain("Connection: ⏳ Not linked yet");
-  });
-
-  test("pluralizes the document word correctly", () => {
-    const one = managementMenu({
-      username: "mybot",
-      statusIcon: "✅ Active",
-      connectionLinked: true,
-      documentCount: 1,
-      firstName: null,
-    });
-    expect(one).toContain("Knowledge: 1 document");
-    expect(one).not.toContain("documents");
-
-    const zero = managementMenu({
-      username: "mybot",
-      statusIcon: "✅ Active",
-      connectionLinked: true,
-      documentCount: 0,
-      firstName: null,
-    });
-    expect(zero).toContain("Knowledge: 0 documents");
   });
 
   test("does not echo the system prompt", () => {
@@ -150,10 +125,23 @@ describe("managementMenu", () => {
       username: "mybot",
       statusIcon: "✅ Active",
       connectionLinked: true,
-      documentCount: 5,
       firstName: "Alex",
     });
     expect(out).not.toContain("Prompt preview");
+  });
+
+  test("does not run a document COUNT(*) on the hot /start path", () => {
+    // Regression guard: the header was previously echoing a doc count
+    // line, which required an extra DB COUNT(*) on every owner /start.
+    // We dropped it — knowledge size is one tap away via 📚 Knowledge.
+    const out = managementMenu({
+      username: "mybot",
+      statusIcon: "✅ Active",
+      connectionLinked: true,
+      firstName: "Alex",
+    });
+    expect(out).not.toContain("Knowledge:");
+    expect(out).not.toContain("documents");
   });
 
   test("escapes HTML in dynamic fields to prevent parse errors", () => {
@@ -161,7 +149,6 @@ describe("managementMenu", () => {
       username: "<bad>",
       statusIcon: "✅ Active",
       connectionLinked: true,
-      documentCount: 1,
       firstName: "A<lex>",
     });
     expect(out).toContain("@&lt;bad&gt;");

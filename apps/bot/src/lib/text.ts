@@ -226,33 +226,31 @@ export function deleteBotMismatch(phrase: string): string {
  * Tenant-bot management menu header. Renders as HTML; the caller sends
  * with `parse_mode: "HTML"`.
  *
- * `firstName` personalizes the greeting when Telegram exposes it. The
- * caller resolves at-a-glance state (connection, knowledge-base size)
- * cheaply and passes it in; we don't echo the system prompt here —
- * owners already wrote it and don't need to re-read it every visit.
+ * `firstName` personalizes the greeting when Telegram exposes it.
+ * Connection state is resolved from the in-memory BotEntry; we don't
+ * echo the system prompt here — owners already wrote it and don't
+ * need to re-read it every visit. We deliberately don't run an extra
+ * COUNT(*) for the knowledge-base size on the hot /start path —
+ * owners can open the 📚 Knowledge button to see the doc list.
  */
 export function managementMenu(args: {
   username: string;
   statusIcon: string;
   connectionLinked: boolean;
-  documentCount: number;
   firstName?: string | null;
 }): string {
-  const { username, statusIcon, connectionLinked, documentCount, firstName } =
-    args;
+  const { username, statusIcon, connectionLinked, firstName } = args;
   const greeting = firstName?.trim()
     ? `👋 <b>Hi ${escapeHtml(firstName.trim())}</b>\n\n`
     : "";
   const connectionLine = connectionLinked
     ? "Connection: ✅ Linked"
     : "Connection: ⏳ Not linked yet";
-  const docWord = documentCount === 1 ? "document" : "documents";
   return (
     `${greeting}` +
     `Managing <b>@${escapeHtml(username)}</b>\n\n` +
     `Status: ${statusIcon}\n` +
-    `${connectionLine}\n` +
-    `Knowledge: ${documentCount} ${docWord}`
+    `${connectionLine}`
   );
 }
 

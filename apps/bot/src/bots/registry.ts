@@ -11,7 +11,7 @@ import {
   conversations as grammyConvs,
   createConversation,
 } from "@grammyjs/conversations";
-import { eq, and, asc, desc, sql } from "drizzle-orm";
+import { eq, and, asc, desc } from "drizzle-orm";
 import { db } from "@tg-business/db";
 import {
   tenants,
@@ -19,7 +19,6 @@ import {
   businessConnections,
   conversations as convTable,
   messages,
-  documents,
 } from "@tg-business/db";
 import { decrypt } from "@tg-business/crypto";
 import { uploadFile, b2BucketId } from "@tg-business/storage";
@@ -174,39 +173,45 @@ const cancelKb = new InlineKeyboard().text("Cancel", "biz_cancel");
 const docCancelKb = new InlineKeyboard().text("Cancel", "biz_doc_cancel");
 
 async function showManagementMenu(ctx: Context, botId: string) {
-  const botRecord = await db.query.tenantBots.findFirst({
-    where: eq(tenantBots.id, botId),
-  });
-  if (!botRecord) {
-    await ctx.reply(BOT_NOT_FOUND);
-    return;
+  // Hot path: management menu is the first screen every owner /start
+  // hits. We read everything we need from the cached `BotEntry` in
+  // registry memory (loaded at boot or first webhook). Falls back to a
+  // single `tenantBots.findFirst` only when the cache miss happens —
+  // process restart, lazy load, or some other rare path.
+  const entry = registry.getEntry(botId);
+  let botUsername: string;
+  let isActive: boolean;
+  let autoReadBusinessMessages: boolean;
+  let dailyUserAiReplyLimit: number | null;
+  let connectionLinked: boolean;
+
+  if (entry) {
+    botUsername = entry.botUsername;
+    autoReadBusinessMessages = entry.autoReadBusinessMessages;
+    dailyUserAiReplyLimit = entry.dailyUserAiReplyLimit;
+    connectionLinked = entry.businessConnectionId !== null;
+    // BotEntry doesn't carry the `status` column. We treat a cached
+    // entry as active — `BotRegistry.get` already filters out
+    // non-active rows from the cache, so this assumption holds.
+    isActive = true;
+  } else {
+    const botRecord = await db.query.tenantBots.findFirst({
+      where: eq(tenantBots.id, botId),
+    });
+    if (!botRecord) {
+      await ctx.reply(BOT_NOT_FOUND);
+      return;
+    }
+    botUsername = botRecord.botUsername ?? "";
+    isActive = botRecord.status === "active";
+    autoReadBusinessMessages = botRecord.autoReadBusinessMessages;
+    dailyUserAiReplyLimit = botRecord.dailyUserAiReplyLimit;
+    connectionLinked = botRecord.connectedBusinessUserId !== null;
   }
 
-  // Fetch the at-a-glance fields the header surfaces. Two cheap reads —
-  // an indexed COUNT(*) and a single-row lookup. Both fail-open: a DB
-  // hiccup degrades the header rather than blocking the menu.
-  const [docRows, connRow] = await Promise.all([
-    db
-      .select({ count: sql<number>`count(*)::int` })
-      .from(documents)
-      .where(eq(documents.tenantBotId, botId))
-      .catch(() => [{ count: 0 }] as { count: number }[]),
-    db.query.businessConnections
-      .findFirst({
-        where: and(
-          eq(businessConnections.tenantBotId, botId),
-          eq(businessConnections.isEnabled, true),
-        ),
-        columns: { id: true },
-      })
-      .catch(() => null),
-  ]);
-  const documentCount = docRows[0]?.count ?? 0;
-  const connectionLinked = connRow !== null && connRow !== undefined;
-
-  const statusIcon = botRecord.status === "active" ? "✅ Active" : "⏸ Paused";
-  const autoReadLabel = `👁 Auto-read: ${botRecord.autoReadBusinessMessages ? "On" : "Off"}`;
-  const capLabel = dailyCapButtonLabel(botRecord.dailyUserAiReplyLimit);
+  const statusIcon = isActive ? "✅ Active" : "⏸ Paused";
+  const autoReadLabel = `👁 Auto-read: ${autoReadBusinessMessages ? "On" : "Off"}`;
+  const capLabel = dailyCapButtonLabel(dailyUserAiReplyLimit);
   const kb = new InlineKeyboard()
     .text("✏️ Prompt", "biz_edit_prompt")
     .text("💬 Welcome", "biz_edit_welcome")
@@ -219,10 +224,9 @@ async function showManagementMenu(ctx: Context, botId: string) {
     .row();
 
   const text = managementMenu({
-    username: botRecord.botUsername ?? "",
+    username: botUsername,
     statusIcon,
     connectionLinked,
-    documentCount,
     firstName: ctx.from?.first_name ?? null,
   });
 
@@ -1059,6 +1063,15 @@ export class BotRegistry {
     private ownerReplyTargets: AdminReplyTargets = new DbAdminReplyTargets(),
   ) {}
 
+  /**
+   * Public read-only lookup. Used by free helpers in this module
+   * (e.g. showManagementMenu) to read cached BotEntry state without
+   * hitting the DB.
+   */
+  getEntry(botId: string): BotEntry | undefined {
+    return this.bots.get(botId);
+  }
+
   async get(botId: string): Promise<Bot<Context> | null> {
     const existing = this.bots.get(botId);
     if (existing) {
@@ -1338,11 +1351,13 @@ export class BotRegistry {
     bot.command("start", async (ctx) => {
       const ownerId = String(ctx.from?.id ?? "");
       if (this.findByOwner(ownerId)) {
-        // Register /start and /help in the owner's slash-menu the first
-        // time they /start. Scoped to this chat, so customers using the
-        // same bot don't see /help (which would confuse them — it's a
-        // management surface they shouldn't tap into). Fire-and-forget;
-        // a transient Telegram error here shouldn't block the menu.
+        await showManagementMenu(ctx, botId);
+        // Register /start and /help in the owner's slash-menu AFTER
+        // sending the menu — the call is idempotent and Telegram's
+        // round-trip shouldn't delay first-paint of the menu itself.
+        // Scoped to this chat so customers chatting with the same bot
+        // don't see /help (a management-surface command). Fire-and-
+        // forget; transient errors log a warn.
         const fromId = ctx.from?.id;
         if (fromId !== undefined) {
           ctx.api
@@ -1360,7 +1375,6 @@ export class BotRegistry {
               );
             });
         }
-        await showManagementMenu(ctx, botId);
         return;
       }
 
