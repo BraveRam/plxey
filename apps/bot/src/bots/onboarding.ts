@@ -8,6 +8,7 @@ import { ownerCaptureMiddleware } from "../lib/owner-capture";
 import { attachBillingHandlers, buildBillingMenuButton } from "./billing";
 import { attachAdminCommands } from "./admin-commands";
 import { registry } from "./registry";
+import { ownerDistinctId, track } from "../lib/analytics";
 import {
   checkQuota,
   decrementBotCount,
@@ -167,6 +168,15 @@ async function deleteBotConversation(
         { reply_markup: cancelKb, parse_mode: "HTML" },
       );
       screenMsgId = sent.message_id;
+      const ownerIdMismatch = String(ctx.from?.id ?? "");
+      if (ownerIdMismatch) {
+        track(
+          ownerDistinctId(ownerIdMismatch),
+          "onboarding.bot.delete.mismatch",
+          {},
+          { bot: botId },
+        );
+      }
       continue;
     }
 
@@ -179,6 +189,15 @@ async function deleteBotConversation(
       await conversation.external(() => {
         registry.invalidate(botId);
       });
+      const ownerIdDel = String(ctx.from?.id ?? "");
+      if (ownerIdDel) {
+        track(
+          ownerDistinctId(ownerIdDel),
+          "onboarding.bot.delete.confirmed",
+          {},
+          { bot: botId },
+        );
+      }
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : "Unknown error";
       if (screenMsgId !== null) {
@@ -271,6 +290,16 @@ async function createBotConversation(conversation: Conversation<BaseCtx, BaseCtx
       continue;
     }
 
+    {
+      const submittingId = String(ctx.from?.id ?? "");
+      if (submittingId) {
+        track(
+          ownerDistinctId(submittingId),
+          "onboarding.bot.create.token_submitted",
+        );
+      }
+    }
+
     const msg = response.message;
     if (msg) {
       await ctx.api.deleteMessage(msg.chat.id, msg.message_id).catch(() => {});
@@ -313,6 +342,11 @@ async function createBotConversation(conversation: Conversation<BaseCtx, BaseCtx
       });
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : "Unknown error";
+      track(
+        ownerDistinctId(ownerTelegramId),
+        "onboarding.bot.create.token_invalid",
+        { errMsg: errMsg.slice(0, 200) },
+      );
       if (errMsg.includes("Invalid")) {
         if (screenMsgId !== null) {
           await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
@@ -348,6 +382,11 @@ async function createBotConversation(conversation: Conversation<BaseCtx, BaseCtx
     await ctx.reply(onboardingBotConnected(botUsername ?? ""), {
       reply_markup: await buildMainMenuKb(ownerTelegramId),
     });
+    track(
+      ownerDistinctId(ownerTelegramId),
+      "onboarding.bot.create.succeeded",
+      { botUsername: botUsername ?? null },
+    );
     return;
   }
 }
@@ -423,6 +462,7 @@ export async function createOnboardingBot(): Promise<Bot> {
       parse_mode: "HTML",
     });
     logger.debug({ userId }, "onboarding: /start");
+    if (userId) track(ownerDistinctId(userId), "onboarding.start.opened");
   });
 
   bot.command("help", async (ctx) => {
@@ -433,6 +473,7 @@ export async function createOnboardingBot(): Promise<Bot> {
       parse_mode: "HTML",
     });
     logger.debug({ userId }, "onboarding: /help");
+    if (userId) track(ownerDistinctId(userId), "onboarding.help.opened");
   });
 
   bot.callbackQuery("create_bot", async (ctx) => {
@@ -455,10 +496,19 @@ export async function createOnboardingBot(): Promise<Bot> {
         const kb = await buildMainMenuKb(ownerTelegramId);
         await ctx.deleteMessage().catch(() => {});
         await ctx.reply(message, { reply_markup: kb, parse_mode: "HTML" });
+        track(ownerDistinctId(ownerTelegramId), "onboarding.bot.create.blocked", {
+          reason: quota.reason ?? "unknown",
+        });
         return;
       }
     }
     await ctx.answerCallbackQuery();
+    if (ownerTelegramId) {
+      track(
+        ownerDistinctId(ownerTelegramId),
+        "onboarding.bot.create.prompt_shown",
+      );
+    }
     await ctx.conversation.enter("createBot");
   });
 
@@ -479,6 +529,15 @@ export async function createOnboardingBot(): Promise<Bot> {
   bot.callbackQuery(/^bot_(.+)$/, async (ctx) => {
     await ctx.answerCallbackQuery();
     const botId = ctx.match![1]!;
+    const ownerId = String(ctx.from?.id ?? "");
+    if (ownerId) {
+      track(
+        ownerDistinctId(ownerId),
+        "onboarding.bot.opened",
+        {},
+        { bot: botId },
+      );
+    }
     await showBotSettings(ctx, botId);
   });
 
@@ -490,6 +549,15 @@ export async function createOnboardingBot(): Promise<Bot> {
     // returns "Bot not active". Without this the cached entry would
     // keep serving webhooks despite the DB status flip.
     registry.invalidate(botId);
+    const ownerId = String(ctx.from?.id ?? "");
+    if (ownerId) {
+      track(
+        ownerDistinctId(ownerId),
+        "onboarding.bot.pause.toggled",
+        { newStatus: "paused" },
+        { bot: botId },
+      );
+    }
     await showBotSettings(ctx, botId);
   });
 
@@ -500,12 +568,30 @@ export async function createOnboardingBot(): Promise<Bot> {
     // Force a fresh load so any state that changed while paused (e.g.
     // welcome message tweaks via the API) is picked up cleanly.
     registry.invalidate(botId);
+    const ownerId = String(ctx.from?.id ?? "");
+    if (ownerId) {
+      track(
+        ownerDistinctId(ownerId),
+        "onboarding.bot.resume.toggled",
+        {},
+        { bot: botId },
+      );
+    }
     await showBotSettings(ctx, botId);
   });
 
   bot.callbackQuery(/^delete_(.+)$/, async (ctx) => {
     await ctx.answerCallbackQuery();
     const botId = ctx.match![1]!;
+    const ownerId = String(ctx.from?.id ?? "");
+    if (ownerId) {
+      track(
+        ownerDistinctId(ownerId),
+        "onboarding.bot.delete.prompt_shown",
+        {},
+        { bot: botId },
+      );
+    }
     await ctx.conversation.enter("deleteBot", botId);
   });
 

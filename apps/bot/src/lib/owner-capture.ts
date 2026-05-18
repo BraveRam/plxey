@@ -1,6 +1,7 @@
 import type { Context, MiddlewareFn } from "grammy";
 import { upsertOwnerProfile } from "./owners";
 import { logger } from "./logger";
+import { identifyOwner } from "./analytics";
 
 /**
  * Opportunistic owner-profile upsert middleware. Runs upsertOwnerProfile
@@ -30,6 +31,10 @@ export function ownerCaptureMiddleware(): MiddlewareFn<Context> {
           "owner profile upsert failed",
         );
       });
+      // Identify in PostHog. Dedups per process inside `identifyOwner`,
+      // so this is effectively once-per-owner per process even though we
+      // call it on every update.
+      identifyOwner(ctx.from);
     }
     await next();
   };

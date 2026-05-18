@@ -24,6 +24,7 @@ import {
   enforceOwnerQuota,
   recomputeEffectivePlan,
 } from "../../lib/owners";
+import { ownerDistinctId, track } from "../../lib/analytics";
 
 export const subscriptionLapsed = inngest.createFunction(
   {
@@ -68,6 +69,20 @@ export const subscriptionLapsed = inngest.createFunction(
             },
           },
         });
+      });
+    }
+
+    track(ownerDistinctId(ownerTelegramUserId), "sub.lapsed", {
+      reason,
+      pausedBots: quotaResult.paused.length,
+    });
+    if (reason === "trial_expired") {
+      track(ownerDistinctId(ownerTelegramUserId), "sub.trial.expired");
+    }
+    if (quotaResult.paused.length > 0) {
+      track(ownerDistinctId(ownerTelegramUserId), "over_quota.set", {
+        pausedBots: quotaResult.paused.length,
+        reason,
       });
     }
 

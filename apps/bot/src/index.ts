@@ -7,6 +7,11 @@ import {
   isOwnerBannedCached,
   loadBannedOwnersCache,
 } from "./lib/banned";
+import {
+  flush as flushAnalytics,
+  ownerDistinctId,
+  track,
+} from "./lib/analytics";
 import { logger, pinoLogger } from "./lib/logger";
 import { api } from "./api/routes";
 import { verifyWebhookSecret, WEBHOOK_SECRET_HEADER } from "./lib/webhook-secret";
@@ -62,13 +67,26 @@ app.post("/webhook/tenant/:id", async (c) => {
     // in-memory banned-owners Set, also zero DB hits. Net: a typical
     // /start hits Telegram once and does no DB I/O before handleUpdate.
     const bot = await registry.get(id);
-    if (!bot) return c.text("Bot not active", 200);
+    if (!bot) {
+      // Webhook fired for a bot the registry no longer serves —
+      // paused/deleted/over-quota. Telegram's 200 stops retries; we
+      // still want PostHog to surface the volume so an unexpected
+      // spike is visible.
+      track("system", "error.webhook.bot_not_active", { botId: id });
+      return c.text("Bot not active", 200);
+    }
 
     // Banned-owner ingress drop. Return 200 to Telegram (so it stops
     // retrying) but skip handler entirely — no AI calls, no costs
     // incurred on banned owners' traffic. See SUBSCRIPTION.md "Bans".
     const entry = registry.getEntry(id);
     if (entry && isOwnerBannedCached(entry.ownerTelegramId)) {
+      track(
+        ownerDistinctId(entry.ownerTelegramId),
+        "error.banned_ingress_drop",
+        {},
+        { bot: id },
+      );
       return c.text("OK", 200);
     }
 
@@ -125,6 +143,21 @@ async function start() {
   } else {
     logger.warn("PUBLIC_URL not set — webhooks not registered");
   }
+
+  // Drain the PostHog event buffer on SIGINT/SIGTERM so a rolling
+  // deploy or Ctrl-C doesn't drop in-flight events. Bounded to 2s
+  // inside `flush` so a hung PostHog client can't block shutdown.
+  const drainAndExit = async (signal: string): Promise<void> => {
+    logger.info({ signal }, "shutting down");
+    await flushAnalytics();
+    process.exit(0);
+  };
+  process.on("SIGINT", () => {
+    void drainAndExit("SIGINT");
+  });
+  process.on("SIGTERM", () => {
+    void drainAndExit("SIGTERM");
+  });
 }
 
 start().catch((err) => { logger.fatal({ err }, "bot failed to start"); process.exit(1); });

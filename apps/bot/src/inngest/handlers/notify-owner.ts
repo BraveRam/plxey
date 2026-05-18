@@ -19,6 +19,7 @@ import { inngest } from "../client";
 import type { Events, NotifyOwnerKind } from "../events";
 import { redis } from "../../lib/redis";
 import { sendOwnerDm } from "./_telegram";
+import { ownerDistinctId, track } from "../../lib/analytics";
 import {
   TRIAL_STARTED_DM,
   TRIAL_ENDING_3D_DM,
@@ -209,6 +210,8 @@ export const notifyOwner = inngest.createFunction(
     const sent = await step.run("send-dm", async () => {
       return sendOwnerDm(ownerTelegramUserId, text, { parseMode: "HTML" });
     });
+
+    track(ownerDistinctId(ownerTelegramUserId), "sub.notify.sent", { kind });
 
     return { sent };
   },

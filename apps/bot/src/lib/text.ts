@@ -250,7 +250,7 @@ export function managementMenu(args: {
     : "Connection: ⏳ Not linked yet";
   return (
     `${greeting}` +
-    `<b>Bot management</b>\n\n` +
+    `<b>Manage your bot</b>\n\n` +
     `Status: ${statusIcon}\n` +
     `${connectionLine}`
   );
@@ -413,7 +413,7 @@ export function analyticsLanding(args: { hasAnyActivity: boolean }): string {
   }
   return (
     `${header}\n\n` +
-    "Pick a window to see how many customers messaged this bot, how " +
+    "Pick a window to see how many customers messaged you, how " +
     "many the AI replied to, and how many of those were unique people."
   );
 }
@@ -434,11 +434,7 @@ export function analyticsBucketScreen(args: {
   const lastLine = args.lastMessageAt
     ? `Last message: ${formatRelativeAgo(args.lastMessageAt, args.now)}`
     : "Last message: —";
-  return (
-    `${header}\n\n` +
-    `${formatBucket(args.bucket)}\n\n` +
-    lastLine
-  );
+  return `${header}\n\n` + `${formatBucket(args.bucket)}\n\n` + lastLine;
 }
 
 // =============================================================================
@@ -479,10 +475,7 @@ export function docLimitReached(max: number): string {
   return `You've reached the ${max}-document limit. Delete one before adding another.`;
 }
 
-export function docAddPrompt(args: {
-  sizeLabel: string;
-  max: number;
-}): string {
+export function docAddPrompt(args: { sizeLabel: string; max: number }): string {
   return (
     `Send me a document to add as knowledge for this bot.\n\n` +
     `Supported: PDF, TXT, Markdown (.md), Word (.docx), HTML.\n\n` +

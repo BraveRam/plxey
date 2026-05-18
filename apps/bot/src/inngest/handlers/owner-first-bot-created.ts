@@ -11,6 +11,7 @@
 
 import { inngest } from "../client";
 import type { Events } from "../events";
+import { ownerDistinctId, track } from "../../lib/analytics";
 
 export const ownerFirstBotCreated = inngest.createFunction(
   {
@@ -31,6 +32,8 @@ export const ownerFirstBotCreated = inngest.createFunction(
         },
       });
     });
+
+    track(ownerDistinctId(ownerTelegramUserId), "sub.trial.started");
 
     return { ok: true };
   },

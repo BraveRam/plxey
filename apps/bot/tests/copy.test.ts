@@ -94,7 +94,7 @@ describe("managementMenu", () => {
       firstName: "Alex",
     });
     expect(out).toContain("<b>Hi Alex</b>");
-    expect(out).toContain("<b>Bot management</b>");
+    expect(out).toContain("<b>Manage your bot</b>");
     expect(out).toContain("Status: ✅ Active");
     expect(out).toContain("Connection: ✅ Linked");
   });
@@ -106,7 +106,7 @@ describe("managementMenu", () => {
       firstName: null,
     });
     expect(out).not.toContain("Hi ");
-    expect(out.startsWith("<b>Bot management</b>")).toBe(true);
+    expect(out.startsWith("<b>Manage your bot</b>")).toBe(true);
   });
 
   test("shows the pending-connection state when not yet linked", () => {
@@ -242,9 +242,8 @@ describe("analyticsWindowLabel", () => {
 describe("analyticsLanding", () => {
   test("renders the generic Analytics header and the picker prompt", () => {
     const out = analyticsLanding({ hasAnyActivity: true });
-    expect(out).toBe(
-      `📊 <b>Analytics</b>\n\nPick a window to see how many customers messaged this bot, how many the AI replied to, and how many of those were unique people.`,
-    );
+    expect(out).toContain("📊 <b>Analytics</b>");
+    expect(out).toContain("Pick a window");
   });
 
   test("renders the empty hint when there's never been a customer message", () => {

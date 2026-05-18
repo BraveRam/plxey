@@ -16,6 +16,7 @@ import { eq } from "drizzle-orm";
 import { db, starPayments, subscriptions } from "@tg-business/db";
 import { inngest } from "../client";
 import type { Events } from "../events";
+import { ownerDistinctId, track } from "../../lib/analytics";
 
 export const subscriptionRefunded = inngest.createFunction(
   {
@@ -79,6 +80,10 @@ export const subscriptionRefunded = inngest.createFunction(
         name: "subscription/lapsed",
         data: { ownerTelegramUserId, reason: "refunded" },
       });
+    });
+
+    track(ownerDistinctId(ownerTelegramUserId), "sub.refunded", {
+      stars: subRow?.starsPerPeriod ?? 0,
     });
 
     return { refunded: true, subscriptionId: subRow?.id ?? null };

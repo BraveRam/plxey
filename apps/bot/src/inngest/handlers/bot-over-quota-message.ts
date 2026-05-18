@@ -17,6 +17,7 @@ import { db, tenantBots, tenants } from "@tg-business/db";
 import { inngest } from "../client";
 import type { Events } from "../events";
 import { redis } from "../../lib/redis";
+import { ownerDistinctId, track } from "../../lib/analytics";
 
 export const botOverQuotaMessage = inngest.createFunction(
   {
@@ -81,6 +82,13 @@ export const botOverQuotaMessage = inngest.createFunction(
         },
       });
     });
+
+    track(
+      ownerDistinctId(lookup.ownerTelegramUserId),
+      "over_quota.customer_pinged",
+      {},
+      { bot: botId },
+    );
 
     return { notified: true, botId };
   },

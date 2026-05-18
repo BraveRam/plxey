@@ -61,12 +61,21 @@ import {
 import {
   customerMessageLimiter,
   permissionRefreshLimiter,
+  redis,
 } from "../lib/redis";
 import {
   getDailyAiReplyCount,
   incrDailyAiReplyCount,
+  utcDateKey,
 } from "../lib/daily-ai-limit";
 import { getBotStats } from "../lib/analytics-stats";
+import {
+  customerDistinctId,
+  identifyBotGroup,
+  identifyCustomer,
+  ownerDistinctId,
+  track,
+} from "../lib/analytics";
 import {
   effectiveDailyAiReplyCap,
   PLANS,
@@ -312,6 +321,15 @@ function makeEditPromptConversation(botId: string) {
         await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
         screenMsgId = null;
       }
+      const promptOwnerId = ctx.from?.id;
+      if (promptOwnerId !== undefined) {
+        track(
+          ownerDistinctId(promptOwnerId),
+          "mgmt.prompt.updated",
+          {},
+          { bot: botId },
+        );
+      }
       await ctx.reply(PROMPT_UPDATED);
       await showManagementMenu(ctx, botId);
       return;
@@ -380,6 +398,15 @@ function makeEditWelcomeConversation(
           await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
           screenMsgId = null;
         }
+        const resetOwnerId = response.from?.id;
+        if (resetOwnerId !== undefined) {
+          track(
+            ownerDistinctId(resetOwnerId),
+            "mgmt.welcome.reset",
+            {},
+            { bot: botId },
+          );
+        }
         await response.reply(WELCOME_RESET);
         await showManagementMenu(response, botId);
         return;
@@ -416,6 +443,15 @@ function makeEditWelcomeConversation(
       if (screenMsgId !== null) {
         await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
         screenMsgId = null;
+      }
+      const welcomeOwnerId = ctx.from?.id;
+      if (welcomeOwnerId !== undefined) {
+        track(
+          ownerDistinctId(welcomeOwnerId),
+          "mgmt.welcome.updated",
+          {},
+          { bot: botId },
+        );
       }
       await ctx.reply(WELCOME_UPDATED);
       await showManagementMenu(ctx, botId);
@@ -487,6 +523,15 @@ async function runBusyReplyEditorScreen(
       if (screenMsgId !== null) {
         await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
       }
+      const brResetId = response.from?.id;
+      if (brResetId !== undefined) {
+        track(
+          ownerDistinctId(brResetId),
+          "mgmt.busy_reply.reset",
+          {},
+          { bot: botId },
+        );
+      }
       await response.reply(DAILY_CAP_MESSAGE_RESET);
       return "reset";
     }
@@ -524,6 +569,15 @@ async function runBusyReplyEditorScreen(
     });
     if (screenMsgId !== null) {
       await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
+    }
+    const brSaveId = ctx.from?.id;
+    if (brSaveId !== undefined) {
+      track(
+        ownerDistinctId(brSaveId),
+        "mgmt.busy_reply.updated",
+        {},
+        { bot: botId },
+      );
     }
     await ctx.reply(dailyCapMessageUpdated(text));
     return "saved";
@@ -614,6 +668,15 @@ function makeEditDailyCapConversation(
           await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
           screenMsgId = null;
         }
+        const offBtnId = response.from?.id;
+        if (offBtnId !== undefined) {
+          track(
+            ownerDistinctId(offBtnId),
+            "mgmt.daily_limit.removed",
+            {},
+            { bot: botId },
+          );
+        }
         await response.reply(dailyCapUpdated(null));
         await showManagementMenu(response, botId);
         return;
@@ -673,6 +736,15 @@ function makeEditDailyCapConversation(
           await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
           screenMsgId = null;
         }
+        const offTextId = ctx.from?.id;
+        if (offTextId !== undefined) {
+          track(
+            ownerDistinctId(offTextId),
+            "mgmt.daily_limit.removed",
+            {},
+            { bot: botId },
+          );
+        }
         await ctx.reply(dailyCapUpdated(null));
         await showManagementMenu(ctx, botId);
         return;
@@ -692,6 +764,15 @@ function makeEditDailyCapConversation(
           { reply_markup: kb },
         );
         screenMsgId = sent.message_id;
+        const invalidId = ctx.from?.id;
+        if (invalidId !== undefined) {
+          track(
+            ownerDistinctId(invalidId),
+            "mgmt.daily_limit.invalid_input",
+            { reason: verdict.reason },
+            { bot: botId },
+          );
+        }
         continue;
       }
 
@@ -703,6 +784,15 @@ function makeEditDailyCapConversation(
       if (screenMsgId !== null) {
         await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
         screenMsgId = null;
+      }
+      const setId = ctx.from?.id;
+      if (setId !== undefined) {
+        track(
+          ownerDistinctId(setId),
+          "mgmt.daily_limit.set",
+          { value: newValue },
+          { bot: botId },
+        );
       }
       await ctx.reply(dailyCapUpdated(newValue));
       await showManagementMenu(ctx, botId);
@@ -1149,6 +1239,11 @@ export class BotRegistry {
       businessConnectionId: conn.businessConnectionId,
       businessRights: conn.businessRights,
     });
+    identifyBotGroup(botId, {
+      botUsername: row.botUsername ?? null,
+      ownerTelegramUserId: tenant.telegramOwnerId,
+      tenantId: row.tenantId,
+    });
     return bot;
   }
 
@@ -1323,6 +1418,11 @@ export class BotRegistry {
       businessConnectionId: conn.businessConnectionId,
       businessRights: conn.businessRights,
     });
+    identifyBotGroup(row.id, {
+      botUsername: row.botUsername ?? null,
+      ownerTelegramUserId: tenant.telegramOwnerId,
+      tenantId: row.tenantId,
+    });
     return bot;
   }
 
@@ -1350,11 +1450,25 @@ export class BotRegistry {
     systemPrompt: string,
     businessName: string,
   ): void {
+    // Local PostHog helper. Captures `botId` via closure, derives the
+    // distinct_id from ctx.from, and tags every event with the `bot`
+    // group so PostHog dashboards roll up by tenant bot.
+    const trackMgmt = (
+      ctx: Context,
+      event: string,
+      properties: Record<string, unknown> = {},
+    ): void => {
+      const id = ctx.from?.id;
+      if (id === undefined) return;
+      track(ownerDistinctId(id), event, properties, { bot: botId });
+    };
+
     // --- Owner management ---
 
     bot.command("start", async (ctx) => {
       const ownerId = String(ctx.from?.id ?? "");
       if (this.findByOwner(ownerId)) {
+        trackMgmt(ctx, "mgmt.start.opened");
         await showManagementMenu(ctx, botId);
         // Register /start and /help in the owner's slash-menu AFTER
         // sending the menu — the call is idempotent and Telegram's
@@ -1396,26 +1510,31 @@ export class BotRegistry {
       // Only respond to the bot owner. Customers hitting /help would just
       // be confused by management-menu copy, so silently ignore them.
       if (!this.findByOwner(ownerId)) return;
+      trackMgmt(ctx, "mgmt.help.opened");
       await ctx.reply(tenantHelp(), { parse_mode: "HTML" });
     });
 
     bot.callbackQuery("biz_edit_prompt", async (ctx) => {
       await ctx.answerCallbackQuery();
+      trackMgmt(ctx, "mgmt.prompt.opened");
       await (ctx as unknown as BizCtx).conversation.enter("editPrompt");
     });
 
     bot.callbackQuery("biz_edit_welcome", async (ctx) => {
       await ctx.answerCallbackQuery();
+      trackMgmt(ctx, "mgmt.welcome.opened");
       await (ctx as unknown as BizCtx).conversation.enter("editWelcome");
     });
 
     bot.callbackQuery("biz_documents", async (ctx) => {
       await ctx.answerCallbackQuery();
+      trackMgmt(ctx, "mgmt.knowledge.opened");
       await (ctx as unknown as BizCtx).conversation.enter("documentMgmt");
     });
 
     bot.callbackQuery("biz_edit_daily_cap", async (ctx) => {
       await ctx.answerCallbackQuery();
+      trackMgmt(ctx, "mgmt.daily_limit.opened");
       await (ctx as unknown as BizCtx).conversation.enter("editDailyCap");
     });
 
@@ -1425,6 +1544,7 @@ export class BotRegistry {
     // inside 60s — see analytics-stats.ts).
     bot.callbackQuery("biz_analytics", async (ctx) => {
       await ctx.answerCallbackQuery();
+      trackMgmt(ctx, "mgmt.analytics.opened");
       const stats = await getBotStats(botId);
       const hasAnyActivity =
         stats.lastMessageAt !== null ||
@@ -1451,6 +1571,7 @@ export class BotRegistry {
       window: AnalyticsWindow,
     ): Promise<void> => {
       await ctx.answerCallbackQuery();
+      trackMgmt(ctx, "mgmt.analytics.window_picked", { window });
       const stats = await getBotStats(botId);
       const bucket =
         window === "today"
@@ -1508,6 +1629,9 @@ export class BotRegistry {
       // Reflect in the cached entry so the business_message handler picks
       // up the new value without waiting for a registry reload.
       entry.autoReadBusinessMessages = newValue;
+      trackMgmt(ctx, "mgmt.autoread.toggled", {
+        newValue: newValue ? "on" : "off",
+      });
       await ctx.answerCallbackQuery({
         text: newValue ? TOAST_AUTOREAD_ON : TOAST_AUTOREAD_OFF,
       });
@@ -1517,6 +1641,7 @@ export class BotRegistry {
 
     bot.callbackQuery("biz_permissions", async (ctx) => {
       await ctx.answerCallbackQuery();
+      trackMgmt(ctx, "mgmt.permissions.opened");
       const entry = this.bots.get(botId);
       if (!entry) return;
       const text = permissionsPanel(formatPermissions(entry.businessRights));
@@ -1571,6 +1696,7 @@ export class BotRegistry {
               entry.businessConnectionId,
             ),
           );
+        trackMgmt(ctx, "mgmt.permissions.refreshed");
         await ctx.answerCallbackQuery({ text: TOAST_PERMISSIONS_REFRESHED });
       } catch (err) {
         logger.warn({ err, botId }, "getBusinessConnection failed");
@@ -1610,9 +1736,25 @@ export class BotRegistry {
       const target = await this.ownerReplyTargets.activate(ownerId, token);
       if (!target) {
         await ctx.answerCallbackQuery({ text: TOAST_REPLY_EXPIRED });
+        if (ownerId) {
+          track(
+            ownerDistinctId(ownerId),
+            "owner_reply.expired",
+            {},
+            { bot: botId },
+          );
+        }
         return;
       }
       await ctx.answerCallbackQuery();
+      if (ownerId) {
+        track(
+          ownerDistinctId(ownerId),
+          "owner_reply.tapped",
+          {},
+          { bot: botId },
+        );
+      }
 
       const contextLine = target.customerLabel
         ? replyPromptContext(escapeHtml(target.customerLabel))
@@ -1645,6 +1787,15 @@ export class BotRegistry {
       await this.ownerReplyTargets.clearSelection(token);
       await ctx.deleteMessage().catch(() => {});
       await ctx.reply(REPLY_CANCELLED);
+      const cancelOwnerId = ctx.from?.id;
+      if (cancelOwnerId !== undefined) {
+        track(
+          ownerDistinctId(cancelOwnerId),
+          "owner_reply.cancelled",
+          {},
+          { bot: botId },
+        );
+      }
     });
 
     // Catch-all: callbacks no earlier handler matched. Buttons left over
@@ -1851,8 +2002,26 @@ export class BotRegistry {
               "failed to enqueue bot/over.quota.message",
             );
           }
+          // Track the over-quota drop under the customer's distinct_id.
+          // The customer is identified here even though their messages
+          // never get a reply — we want the funnel signal "customer
+          // tried to talk while bot was paused".
+          if (from) {
+            identifyCustomer(from, botId);
+            track(
+              customerDistinctId(from.id),
+              "customer.message.handled",
+              { responseType: "over_quota" },
+              { bot: botId },
+            );
+          }
           return;
         }
+
+        // Identify the customer once (process-level dedup in
+        // identifyCustomer) so subsequent customer.* events have a
+        // person attached.
+        if (from) identifyCustomer(from, botId);
 
         // Log every customer message that gets past the over-quota
         // short-circuit, regardless of whether we go on to reply. This
@@ -1876,6 +2045,39 @@ export class BotRegistry {
           content: question,
           telegramMessageId: String(msg.message_id),
         });
+
+        // PostHog: customer.message.received fires for every inbound
+        // message past the over-quota gate, regardless of the eventual
+        // response path. Powers PostHog dashboards for total inbound
+        // volume by bot. customer.daily_first_seen is deduped via
+        // Upstash so PostHog gets exactly one event per (bot, customer,
+        // UTC day) — the signal we use for "unique customers today".
+        if (from) {
+          track(
+            customerDistinctId(from.id),
+            "customer.message.received",
+            { chatId, textLen: question.length },
+            { bot: botId },
+          );
+          const dfsKey = `posthog:dfs:${botId}:${from.id}:${utcDateKey()}`;
+          const claimed = await redis()
+            .set(dfsKey, "1", { nx: true, ex: 86400 })
+            .catch((err) => {
+              logger.warn(
+                { err, botId, customerId: from.id },
+                "posthog daily_first_seen NX set failed",
+              );
+              return null;
+            });
+          if (claimed) {
+            track(
+              customerDistinctId(from.id),
+              "customer.daily_first_seen",
+              {},
+              { bot: botId },
+            );
+          }
+        }
 
         // Pre-flight: without can_reply we can't actually send a response,
         // so don't burn AI tokens. Alert the owner so they can fix it —
@@ -1910,6 +2112,14 @@ export class BotRegistry {
               "skipped customer message — can_reply not granted (owner already alerted)",
             );
           }
+          if (from) {
+            track(
+              customerDistinctId(from.id),
+              "customer.message.handled",
+              { responseType: "dropped_no_permission" },
+              { bot: botId },
+            );
+          }
           return;
         }
 
@@ -1929,6 +2139,14 @@ export class BotRegistry {
             { botId, connId, customerKey },
             "customer message rate-limited (10/60s); skipping AI",
           );
+          if (from) {
+            track(
+              customerDistinctId(from.id),
+              "customer.message.handled",
+              { responseType: "rate_limited" },
+              { bot: botId },
+            );
+          }
           return;
         }
 
@@ -1958,6 +2176,20 @@ export class BotRegistry {
                 "failed to enqueue bot/usage.exceeded",
               );
             }
+            track(
+              ownerDistinctId(ownerTelegramId),
+              "quota.message.at_cap",
+              { used: msgQuota.used, cap: msgQuota.limit, plan: msgQuota.plan },
+              { bot: botId },
+            );
+          }
+          if (from) {
+            track(
+              customerDistinctId(from.id),
+              "customer.message.handled",
+              { responseType: "over_quota" },
+              { bot: botId },
+            );
           }
           return;
         }
@@ -2000,6 +2232,20 @@ export class BotRegistry {
               logger.warn(
                 { err, botId, connId },
                 "failed to send daily-cap canned reply",
+              );
+            }
+            if (from) {
+              track(
+                customerDistinctId(from.id),
+                "customer.message.handled",
+                { responseType: "busy_reply" },
+                { bot: botId },
+              );
+              track(
+                customerDistinctId(from.id),
+                "customer.cap_reached.busy_reply_sent",
+                {},
+                { bot: botId },
               );
             }
             return;
@@ -2073,6 +2319,12 @@ export class BotRegistry {
           // Roll back the pre-call increment so a failed AI round-trip
           // doesn't count against the owner's monthly cap.
           await decrementMessageCount(ownerTelegramId).catch(() => {});
+          track(
+            ownerDistinctId(ownerTelegramId),
+            "error.ai.generate_failed",
+            { message: err instanceof Error ? err.message.slice(0, 200) : String(err).slice(0, 200) },
+            { bot: botId },
+          );
           return { text: null };
         });
 
@@ -2099,6 +2351,15 @@ export class BotRegistry {
             .update(convTable)
             .set({ lastMessageAt: new Date() })
             .where(eq(convTable.id, conv.id));
+
+          if (from) {
+            track(
+              customerDistinctId(from.id),
+              "customer.message.handled",
+              { responseType: "ai" },
+              { bot: botId },
+            );
+          }
 
           const renderedText = markdownToTelegramHtml(result.text);
           try {
@@ -2181,12 +2442,24 @@ export class BotRegistry {
               .catch(() => {});
           }
           await ctx.reply(REPLY_SENT);
+          track(
+            ownerDistinctId(ownerId),
+            "owner_reply.sent",
+            {},
+            { bot: state.botId },
+          );
         } catch (e) {
           logger.warn(
             { err: e, botId: state.botId },
             "forwarding owner reply failed",
           );
           await ctx.reply(REPLY_FAILED_GENERIC);
+          track(
+            ownerDistinctId(ownerId),
+            "error.business_reply.failed",
+            { message: e instanceof Error ? e.message.slice(0, 200) : String(e).slice(0, 200) },
+            { bot: state.botId },
+          );
         }
         return;
       }

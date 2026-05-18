@@ -18,6 +18,7 @@ import {
   recomputeEffectivePlan,
   resetMessageCount,
 } from "../../lib/owners";
+import { ownerDistinctId, track } from "../../lib/analytics";
 
 export const subscriptionRenewed = inngest.createFunction(
   {
@@ -79,6 +80,12 @@ export const subscriptionRenewed = inngest.createFunction(
 
     await step.run("enforce-quota", async () => {
       await enforceOwnerQuota(ownerTelegramUserId);
+    });
+
+    track(ownerDistinctId(ownerTelegramUserId), "sub.renewed", {
+      plan: planResult.plan,
+      stars: starsAmount,
+      currentPeriodEnd: periodEnd.toISOString(),
     });
 
     // Renewal is intentionally silent — Telegram emits its own receipt.

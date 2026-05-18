@@ -711,6 +711,39 @@ Owner-configurable per bot via the management menu ("🎯 Daily limit" button). 
 - **Validation** (`validateDailyCap` in `lib/plans.ts`): owner-supplied values must be positive integers ≤ plan ceiling; UI rejects out-of-range values verbatim. Re-validated on the server side in the conversation handler — client side is never trusted.
 - **Order of checks** for an incoming customer message: webhook secret → BusinessBotRights pre-flight → `customerMessageLimiter` (10/60s burst) → owner-monthly `checkQuota("message")` → per-user daily cap → AI call. The daily cap sits between owner-monthly enforcement and the AI tool so both budgets are independent.
 
+### PostHog (product analytics)
+
+Developer-facing telemetry layer. Optional — when `POSTHOG_PROJECT_TOKEN` is unset every call short-circuits to a no-op (dev environments stay silent).
+
+- Wrapper: `apps/bot/src/lib/analytics.ts → track / identifyOwner / identifyCustomer / identifyBotGroup / flush`.
+- Default host: `https://us.i.posthog.com`. Override with `POSTHOG_HOST`.
+- All `track` calls are fire-and-forget (no `await`); the underlying `posthog-node` client batches every 10s or 100 events.
+- Process shutdown handler in `index.ts` calls `flush()` (≤2s timeout) so SIGINT / SIGTERM doesn't drop in-flight events.
+
+**Identity model**:
+
+| Person type | distinct_id shape | Identified by |
+|---|---|---|
+| Owner | `owner:<telegram_user_id>` | `ownerCaptureMiddleware` after `upsertOwnerProfile` |
+| Customer | `customer:<telegram_user_id>` | `business_message` handler, post-over-quota gate |
+
+Prefixed ids prevent collision when the same Telegram user is both an owner of one bot and a customer of another. A process-local Set in `analytics.ts` short-circuits duplicate `identify` calls.
+
+**Groups**: every per-bot event carries `groups: { bot: <botId> }`. The `bot` group is `groupIdentify`-registered once per bot at load with `{ botUsername, ownerTelegramUserId, tenantId }`.
+
+**Event taxonomy** (high-level — see `apps/bot/src/lib/analytics.ts` callers for full list):
+
+- `onboarding.*` — start/help opened, bot create flow (prompt shown, token submitted/invalid/succeeded/blocked), open/pause/resume/delete each bot in the manage list.
+- `billing.*` — menu opened, plan picked, invoice minted, cancel tapped/confirmed (with reason), keep, resume, upgrade tapped/confirmed.
+- `mgmt.*` — every management-menu surface (prompt updated, welcome updated/reset, knowledge opened, daily-limit set/removed/invalid, busy-reply updated/reset, autoread toggled, permissions opened/refreshed, analytics opened, analytics window picked).
+- `customer.*` — `customer.identified` on first sighting, `customer.message.received` for every inbound, `customer.daily_first_seen` deduped via Upstash `posthog:dfs:{botId}:{userId}:{YYYYMMDD}` (NX EX 86400), `customer.message.handled` with `responseType ∈ "ai" | "busy_reply" | "over_quota" | "dropped_no_permission" | "rate_limited"`, `customer.cap_reached.busy_reply_sent` when the daily cap triggers.
+- `owner_reply.*` — tapped, sent, cancelled, expired.
+- `sub.*` — emitted from Inngest handlers: `sub.trial.started` (first-bot-created), `sub.trial.expired` (lapse with reason=trial_expired), `sub.started`/`renewed`/`canceled`/`lapsed`/`refunded`, `sub.notify.sent` for each owner-DM.
+- `over_quota.*` — `over_quota.set` (via subscription-lapsed when bots get paused), `over_quota.customer_pinged` (when a customer messages a paused bot).
+- `error.*` — `error.ai.generate_failed`, `error.business_reply.failed`, `error.webhook.bot_not_active`, `error.banned_ingress_drop`.
+
+---
+
 ### Owner-facing analytics (📊 Analytics)
 
 Read-only screen reachable from the tenant-bot management menu (row 4). Surfaces per-bot counters for three rolling windows.

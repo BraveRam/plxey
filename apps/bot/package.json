@@ -6,15 +6,16 @@
     "dev": "bun run src/index.ts"
   },
   "dependencies": {
-    "hono": "^4.12.18",
-    "grammy": "^1.42.0",
     "@grammyjs/conversations": "^2.1.1",
-    "ai": "^6.0.182",
-    "inngest": "^4.4.0",
-    "zod": "^4.4.3",
-    "pino": "^10.3.1",
-    "@tg-business/db": "*",
     "@tg-business/crypto": "*",
-    "@tg-business/storage": "*"
+    "@tg-business/db": "*",
+    "@tg-business/storage": "*",
+    "ai": "^6.0.182",
+    "grammy": "^1.42.0",
+    "hono": "^4.12.18",
+    "inngest": "^4.4.0",
+    "pino": "^10.3.1",
+    "posthog-node": "^5.34.3",
+    "zod": "^4.4.3"
   }
 }

@@ -41,6 +41,7 @@ import {
   resumeStarSubscription,
 } from "../inngest/handlers/_telegram";
 import { logger } from "../lib/logger";
+import { ownerDistinctId, track } from "../lib/analytics";
 import { PLANS, planLimits, type PlanKey } from "../lib/plans";
 import { recomputeEffectivePlan } from "../lib/owners";
 import { redis } from "../lib/redis";
@@ -168,6 +169,7 @@ export function attachBillingHandlers(bot: Bot<Context>): void {
   bot.command("billing", async (ctx) => {
     const userId = ctx.from?.id;
     if (userId === undefined) return;
+    track(ownerDistinctId(userId), "billing.menu.opened");
     await renderBillingScreen(ctx, String(userId));
   });
 
@@ -175,27 +177,50 @@ export function attachBillingHandlers(bot: Bot<Context>): void {
     await ctx.answerCallbackQuery();
     const userId = ctx.from?.id;
     if (userId === undefined) return;
+    track(ownerDistinctId(userId), "billing.menu.opened");
     await ctx.deleteMessage().catch(() => {});
     await renderBillingScreen(ctx, String(userId));
   });
 
   bot.callbackQuery(CB.subscribePro, async (ctx) => {
+    const userId = ctx.from?.id;
+    if (userId !== undefined) {
+      track(ownerDistinctId(userId), "billing.plan.picked", { plan: "pro" });
+    }
     await handleSubscribeTap(ctx, "pro");
   });
 
   bot.callbackQuery(CB.subscribeBusiness, async (ctx) => {
+    const userId = ctx.from?.id;
+    if (userId !== undefined) {
+      track(ownerDistinctId(userId), "billing.plan.picked", {
+        plan: "business",
+      });
+    }
     await handleSubscribeTap(ctx, "business");
   });
 
   bot.callbackQuery(CB.upgradeBusiness, async (ctx) => {
+    const userId = ctx.from?.id;
+    if (userId !== undefined) {
+      track(ownerDistinctId(userId), "billing.upgrade.tapped");
+    }
     await handleUpgradeTap(ctx);
   });
 
   bot.callbackQuery(CB.upgradeConfirm, async (ctx) => {
+    const userId = ctx.from?.id;
+    if (userId !== undefined) {
+      track(ownerDistinctId(userId), "billing.upgrade.confirmed");
+    }
     await handleUpgradeConfirm(ctx);
   });
 
   bot.callbackQuery(CB.cancel, async (ctx) => {
+    const userId = ctx.from?.id;
+    if (userId !== undefined) {
+      track(ownerDistinctId(userId), "billing.cancel.tapped");
+    }
     await handleCancelTap(ctx);
   });
 
@@ -207,6 +232,7 @@ export function attachBillingHandlers(bot: Bot<Context>): void {
     await ctx.deleteMessage().catch(() => {});
     const userId = ctx.from?.id;
     if (userId !== undefined) {
+      track(ownerDistinctId(userId), "billing.keep.tapped");
       await renderBillingScreen(ctx, String(userId));
     }
   });
@@ -217,6 +243,12 @@ export function attachBillingHandlers(bot: Bot<Context>): void {
       await ctx.answerCallbackQuery().catch(() => {});
       return;
     }
+    const userId = ctx.from?.id;
+    if (userId !== undefined) {
+      track(ownerDistinctId(userId), "billing.cancel.confirmed", {
+        reason: null,
+      });
+    }
     await handleCancelConfirm(ctx, subId);
   });
 
@@ -226,10 +258,20 @@ export function attachBillingHandlers(bot: Bot<Context>): void {
       await ctx.answerCallbackQuery().catch(() => {});
       return;
     }
+    const userId = ctx.from?.id;
+    if (userId !== undefined) {
+      track(ownerDistinctId(userId), "billing.cancel.confirmed", {
+        reason: parsed.key,
+      });
+    }
     await handleCancelReason(ctx, parsed.key, parsed.subId);
   });
 
   bot.callbackQuery(CB.resume, async (ctx) => {
+    const userId = ctx.from?.id;
+    if (userId !== undefined) {
+      track(ownerDistinctId(userId), "billing.resume.tapped");
+    }
     await handleResumeTap(ctx);
   });
 
@@ -519,6 +561,10 @@ async function handleSubscribeTap(
   const kb = new InlineKeyboard().url("⭐ Subscribe", link);
   await ctx.reply(`⭐ ${planLabelFor(plan)} — tap below to pay with Stars.`, {
     reply_markup: kb,
+  });
+  track(ownerDistinctId(ownerId), "billing.invoice.minted", {
+    plan,
+    stars: PLANS[plan].starsPerPeriod,
   });
 }
 

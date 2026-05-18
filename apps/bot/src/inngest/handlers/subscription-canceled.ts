@@ -18,6 +18,7 @@ import { db, subscriptions } from "@tg-business/db";
 import { inngest } from "../client";
 import type { Events } from "../events";
 import { recomputeEffectivePlan } from "../../lib/owners";
+import { ownerDistinctId, track } from "../../lib/analytics";
 
 export const subscriptionCanceled = inngest.createFunction(
   {
@@ -73,6 +74,11 @@ export const subscriptionCanceled = inngest.createFunction(
           },
         },
       });
+    });
+
+    track(ownerDistinctId(ownerTelegramUserId), "sub.canceled", {
+      plan: updated?.plan ?? null,
+      endsAt: updated?.currentPeriodEnd ?? null,
     });
 
     return { plan: planResult.plan, status: planResult.status };

@@ -19,6 +19,7 @@ import {
   recomputeEffectivePlan,
   resetMessageCount,
 } from "../../lib/owners";
+import { ownerDistinctId, track } from "../../lib/analytics";
 
 export const subscriptionStarted = inngest.createFunction(
   {
@@ -105,6 +106,12 @@ export const subscriptionStarted = inngest.createFunction(
           },
         },
       });
+    });
+
+    track(ownerDistinctId(ownerTelegramUserId), "sub.started", {
+      plan,
+      stars: starsAmount,
+      currentPeriodEnd: new Date(subscriptionExpirationDate * 1000).toISOString(),
     });
 
     return { plan: planResult.plan, status: planResult.status };
