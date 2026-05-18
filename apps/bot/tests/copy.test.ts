@@ -1,10 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import {
+  ANALYTICS_EMPTY_HINT,
   ONBOARDING_CREATE_PROMPT,
   ONBOARDING_HELP,
   TOAST_AUTOREAD_OFF,
   TOAST_AUTOREAD_ON,
   TOAST_STALE_CALLBACK,
+  analyticsScreen,
   dailyCapButtonLabel,
   dailyCapUpdated,
   managementMenu,
@@ -215,6 +217,7 @@ describe("tenantHelp", () => {
     expect(out).toContain("✉️ Edit busy reply");
     expect(out).toContain("👁 Auto-read");
     expect(out).toContain("🔒 Permissions");
+    expect(out).toContain("📊 Analytics");
   });
 
   test("describes the human-reply escalation flow", () => {
@@ -223,6 +226,82 @@ describe("tenantHelp", () => {
 
   test("escapes HTML in the username", () => {
     expect(tenantHelp({ username: "<bad>" })).toContain("@&lt;bad&gt;");
+  });
+});
+
+describe("analyticsScreen", () => {
+  const NOW = new Date("2026-05-18T12:00:00.000Z");
+  const filled = {
+    today: { received: 124, answered: 98, customers: 18 },
+    last7d: { received: 812, answered: 692, customers: 47 },
+    last30d: { received: 3210, answered: 2884, customers: 119 },
+  };
+
+  test("renders header with bot username (HTML-escaped)", () => {
+    const out = analyticsScreen({
+      username: "<evil>",
+      ...filled,
+      lastMessageAt: new Date("2026-05-18T11:56:00.000Z"),
+      now: NOW,
+    });
+    expect(out).toContain("📊 <b>Analytics — @&lt;evil&gt;</b>");
+  });
+
+  test("renders all three buckets with received / answered / customers", () => {
+    const out = analyticsScreen({
+      username: "supportbot",
+      ...filled,
+      lastMessageAt: new Date("2026-05-18T11:56:00.000Z"),
+      now: NOW,
+    });
+    expect(out).toContain("<b>Today</b>");
+    expect(out).toContain("Messages received:  124");
+    expect(out).toContain("AI replies sent:    98");
+    expect(out).toContain("Unique customers:   18");
+    expect(out).toContain("<b>Last 7 days</b>");
+    expect(out).toContain("Messages received:  812");
+    expect(out).toContain("<b>Last 30 days</b>");
+    expect(out).toContain("Messages received:  3,210");
+    expect(out).toContain("Unique customers:   119");
+  });
+
+  test("renders the relative-time line for the last customer message", () => {
+    const out = analyticsScreen({
+      username: "supportbot",
+      ...filled,
+      lastMessageAt: new Date("2026-05-18T11:56:00.000Z"),
+      now: NOW,
+    });
+    expect(out).toContain("Last message: 4 minutes ago");
+  });
+
+  test("renders the empty hint when there's never been a customer message", () => {
+    const out = analyticsScreen({
+      username: "supportbot",
+      today: { received: 0, answered: 0, customers: 0 },
+      last7d: { received: 0, answered: 0, customers: 0 },
+      last30d: { received: 0, answered: 0, customers: 0 },
+      lastMessageAt: null,
+      now: NOW,
+    });
+    expect(out).toContain("📊 <b>Analytics — @supportbot</b>");
+    expect(out).toContain(ANALYTICS_EMPTY_HINT);
+    expect(out).not.toContain("Today");
+    expect(out).not.toContain("Last 7 days");
+  });
+
+  test("does NOT show the empty hint when at least one bucket has activity", () => {
+    const out = analyticsScreen({
+      username: "supportbot",
+      today: { received: 0, answered: 0, customers: 0 },
+      last7d: { received: 0, answered: 0, customers: 0 },
+      last30d: { received: 3, answered: 2, customers: 1 },
+      lastMessageAt: new Date("2026-05-10T11:56:00.000Z"),
+      now: NOW,
+    });
+    expect(out).not.toContain(ANALYTICS_EMPTY_HINT);
+    expect(out).toContain("Last 30 days");
+    expect(out).toContain("Messages received:  3");
   });
 });
 

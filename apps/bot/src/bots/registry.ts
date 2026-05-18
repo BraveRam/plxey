@@ -66,6 +66,7 @@ import {
   getDailyAiReplyCount,
   incrDailyAiReplyCount,
 } from "../lib/daily-ai-limit";
+import { getBotStats } from "../lib/analytics-stats";
 import {
   effectiveDailyAiReplyCap,
   PLANS,
@@ -133,6 +134,7 @@ import {
   docListHeader,
   docTooLarge,
   editPromptHeader,
+  analyticsScreen,
   managementMenu,
   missingCanReplyAlert,
   permissionsPanel,
@@ -221,6 +223,8 @@ async function showManagementMenu(ctx: Context, botId: string) {
     .row()
     .text(autoReadLabel, "biz_toggle_autoread")
     .text("🔒 Permissions", "biz_permissions")
+    .row()
+    .text("📊 Analytics", "biz_analytics")
     .row();
 
   const text = managementMenu({
@@ -1424,6 +1428,28 @@ export class BotRegistry {
       await (ctx as unknown as BizCtx).conversation.enter("editDailyCap");
     });
 
+    bot.callbackQuery("biz_analytics", async (ctx) => {
+      await ctx.answerCallbackQuery();
+      const entry = this.bots.get(botId);
+      const stats = await getBotStats(botId);
+      const text = analyticsScreen({
+        username: entry?.botUsername ?? "",
+        today: stats.today,
+        last7d: stats.last7d,
+        last30d: stats.last30d,
+        lastMessageAt: stats.lastMessageAt,
+      });
+      const kb = new InlineKeyboard().text("⬅ Back to menu", "biz_analytics_back");
+      await ctx.deleteMessage().catch(() => {});
+      await ctx.reply(text, { reply_markup: kb, parse_mode: "HTML" });
+    });
+
+    bot.callbackQuery("biz_analytics_back", async (ctx) => {
+      await ctx.answerCallbackQuery();
+      await ctx.deleteMessage().catch(() => {});
+      await showManagementMenu(ctx, botId);
+    });
+
     bot.callbackQuery("biz_edit_cap_message", async (ctx) => {
       await ctx.answerCallbackQuery();
       await (ctx as unknown as BizCtx).conversation.enter("editCapMessage");
@@ -1786,6 +1812,29 @@ export class BotRegistry {
           return;
         }
 
+        // Log every customer message that gets past the over-quota
+        // short-circuit, regardless of whether we go on to reply. This
+        // is what the owner's analytics screen reads to compute
+        // "messages received today" — without it the busy-reply /
+        // permission-missing / rate-limited / cap-reached drop paths
+        // would invisibly hide customer activity. The matching
+        // assistant row is only inserted further down on the AI path,
+        // so `COUNT(role='user') - COUNT(role='assistant')` cleanly
+        // surfaces "received but not answered".
+        const tenantId = botEntry.tenantId;
+        const conv = await this.getOrCreateConversation(
+          tenantId,
+          connId,
+          chatId,
+        );
+        await db.insert(messages).values({
+          conversationId: conv.id,
+          tenantId,
+          role: "user",
+          content: question,
+          telegramMessageId: String(msg.message_id),
+        });
+
         // Pre-flight: without can_reply we can't actually send a response,
         // so don't burn AI tokens. Alert the owner so they can fix it —
         // throttled to once per 30 min per bot via a Redis NX+EX lock so
@@ -1930,21 +1979,11 @@ export class BotRegistry {
             });
         }
 
-        const tenantId = botEntry.tenantId;
-        const conv = await this.getOrCreateConversation(
-          tenantId,
-          connId,
-          chatId,
-        );
-        const dbHistory = await this.loadHistory(conv.id);
-
-        await db.insert(messages).values({
-          conversationId: conv.id,
-          tenantId,
-          role: "user",
-          content: question,
-          telegramMessageId: String(msg.message_id),
-        });
+        // History for the AI call. The current user message is already
+        // logged above; drop it from the tail so askAI doesn't see
+        // duplicates when it appends `question` itself.
+        const fullHistory = await this.loadHistory(conv.id);
+        const dbHistory = fullHistory.slice(0, -1);
 
         await this.sendTypingAction(ctx, chatId, connId, botId);
 

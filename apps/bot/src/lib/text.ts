@@ -113,7 +113,9 @@ export function tenantHelp(args: { username: string }): string {
     "• <b>👁 Auto-read</b> — toggle whether the bot marks incoming customer " +
     "messages as read automatically.\n" +
     "• <b>🔒 Permissions</b> — check what your Business connection has " +
-    "granted the bot.\n\n" +
+    "granted the bot.\n" +
+    "• <b>📊 Analytics</b> — see how many customers talked to this bot " +
+    "today and over the last week and month.\n\n" +
     "<b>Replying to a customer yourself</b>\n" +
     "When the AI escalates, you'll get a message with a <b>✏️ Reply</b> " +
     "button. Tap it, send your message in any format (text, photo, voice, " +
@@ -349,6 +351,78 @@ export function editPromptHeader(args: {
 }
 
 export const PROMPT_UPDATED = "✅ Prompt updated.";
+
+// =============================================================================
+// Owner-facing 📊 Analytics screen
+// =============================================================================
+
+export const ANALYTICS_EMPTY_HINT =
+  "No customer activity yet. Once customers start messaging your bot, " +
+  "their numbers will show up here.";
+
+interface AnalyticsScreenBucket {
+  received: number;
+  answered: number;
+  customers: number;
+}
+
+function formatNumber(n: number): string {
+  return n.toLocaleString("en-US");
+}
+
+function formatRelativeAgo(when: Date, now: Date = new Date()): string {
+  const diffMs = Math.max(0, now.getTime() - when.getTime());
+  const sec = Math.floor(diffMs / 1000);
+  if (sec < 60) return "just now";
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min} minute${min === 1 ? "" : "s"} ago`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr} hour${hr === 1 ? "" : "s"} ago`;
+  const day = Math.floor(hr / 24);
+  return `${day} day${day === 1 ? "" : "s"} ago`;
+}
+
+function formatBucket(b: AnalyticsScreenBucket): string {
+  return (
+    `  Messages received:  ${formatNumber(b.received)}\n` +
+    `  AI replies sent:    ${formatNumber(b.answered)}\n` +
+    `  Unique customers:   ${formatNumber(b.customers)}`
+  );
+}
+
+/**
+ * Renders the owner-facing analytics screen. HTML; caller sends with
+ * `parse_mode: "HTML"`. When every bucket is empty AND there has
+ * never been a customer message, returns the empty-state hint
+ * instead of a wall of zeros.
+ */
+export function analyticsScreen(args: {
+  username: string;
+  today: AnalyticsScreenBucket;
+  last7d: AnalyticsScreenBucket;
+  last30d: AnalyticsScreenBucket;
+  lastMessageAt: Date | null;
+  now?: Date;
+}): string {
+  const header = `📊 <b>Analytics — @${escapeHtml(args.username)}</b>`;
+  if (
+    args.lastMessageAt === null &&
+    args.today.received === 0 &&
+    args.last30d.received === 0
+  ) {
+    return `${header}\n\n${ANALYTICS_EMPTY_HINT}`;
+  }
+  const lastLine = args.lastMessageAt
+    ? `Last message: ${formatRelativeAgo(args.lastMessageAt, args.now)}`
+    : "Last message: —";
+  return (
+    `${header}\n\n` +
+    `<b>Today</b>\n${formatBucket(args.today)}\n\n` +
+    `<b>Last 7 days</b>\n${formatBucket(args.last7d)}\n\n` +
+    `<b>Last 30 days</b>\n${formatBucket(args.last30d)}\n\n` +
+    lastLine
+  );
+}
 
 // =============================================================================
 // Welcome editor

@@ -711,6 +711,19 @@ Owner-configurable per bot via the management menu ("🎯 Daily limit" button). 
 - **Validation** (`validateDailyCap` in `lib/plans.ts`): owner-supplied values must be positive integers ≤ plan ceiling; UI rejects out-of-range values verbatim. Re-validated on the server side in the conversation handler — client side is never trusted.
 - **Order of checks** for an incoming customer message: webhook secret → BusinessBotRights pre-flight → `customerMessageLimiter` (10/60s burst) → owner-monthly `checkQuota("message")` → per-user daily cap → AI call. The daily cap sits between owner-monthly enforcement and the AI tool so both budgets are independent.
 
+### Owner-facing analytics (📊 Analytics)
+
+Read-only screen reachable from the tenant-bot management menu (row 4). Surfaces per-bot counters for three rolling windows.
+
+- Helper: `apps/bot/src/lib/analytics-stats.ts → getBotStats(botId)`.
+- Single SQL round-trip with `FILTER (WHERE …)` aggregates over a `messages JOIN conversations` plus a `business_connections` CTE scoped to this bot. Indexes used: `business_connections.tenant_bot_id`, `conversations.business_connection_id`, `messages.conversation_id` + `created_at` composite.
+- Each bucket reports three numbers: `received` (`role='user'`), `answered` (`role='assistant'`), `customers` (`COUNT DISTINCT telegram_chat_id`). Difference between received and answered = customer messages that hit busy-reply / rate-limit / missing-permission / quota wall.
+- Cached in Upstash at `stats:bot:{botId}` for 60s (`SET … EX 60`). Owner re-tap inside the window returns cached payload. Cache failures fall through transparently to the DB query.
+
+**Data completeness**: the `business_message` handler inserts the customer's `role='user'` row right after the over-quota short-circuit, *before* the permission / rate-limit / quota / daily-cap checks. So every customer message that survives the over-quota gate is logged regardless of whether the bot replied. The matching `role='assistant'` row is still only inserted on a successful AI dispatch. Banned and over-quota owners are intentionally silenced end-to-end (no logs).
+
+**UX**: render copy lives in `apps/bot/src/lib/text.ts → analyticsScreen({ username, today, last7d, last30d, lastMessageAt })`. Empty-state copy (`ANALYTICS_EMPTY_HINT`) renders when there has never been a customer message instead of three blocks of zeros. The screen ends with a `⬅ Back to menu` button (`biz_analytics_back`) that returns to `showManagementMenu`.
+
 ---
 
 ## RAG Retrieval
