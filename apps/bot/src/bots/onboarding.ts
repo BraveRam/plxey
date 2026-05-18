@@ -42,14 +42,14 @@ type OnCtx = BaseCtx & ConversationFlavor<BaseCtx>;
 // available keyboard for stale-callback recovery). The /start path uses
 // `buildMainMenuKb` so the billing button reflects current owner state.
 const menuKb = new InlineKeyboard()
-  .text("🤖 Create Bot", "create_bot")
-  .text("⚙️ Manage", "manage");
+  .text("🤖 New bot", "create_bot")
+  .text("⚙️ Your bots", "manage");
 
 async function buildMainMenuKb(userId: string): Promise<InlineKeyboard> {
   const billing = await buildBillingMenuButton(userId);
   return new InlineKeyboard()
-    .text("🤖 Create Bot", "create_bot")
-    .text("⚙️ Manage", "manage")
+    .text("🤖 New bot", "create_bot")
+    .text("⚙️ Your bots", "manage")
     .row()
     .text(billing.label, billing.callbackData);
 }
@@ -61,11 +61,11 @@ async function botsListKb(userId: string) {
   const kb = new InlineKeyboard();
   for (const b of bots) {
     const label = b.botUsername ? `@${b.botUsername}` : b.id.slice(0, 8);
-    const statusIcon = b.status === "active" ? "✅" : "⏸️";
+    const statusIcon = b.status === "active" ? "✅" : "⏸";
     kb.text(`${statusIcon} ${label}`, `bot_${b.id}`).row();
   }
-  kb.text("🤖 + New Bot", "create_bot").row();
-  kb.text("🔙 Back", "menu");
+  kb.text("🤖 New bot", "create_bot").row();
+  kb.text("⬅ Back", "menu");
   return { kb, bots };
 }
 
@@ -78,16 +78,17 @@ async function showBotSettings(ctx: OnCtx, botId: string) {
     return;
   }
 
-  const statusIcon = botRecord.status === "active" ? "✅ Active" : "⏸️ Paused";
+  const statusIcon = botRecord.status === "active" ? "✅ Active" : "⏸ Paused";
   const kb = new InlineKeyboard();
 
   if (botRecord.status === "active") {
-    kb.text("⏸️ Pause", `pause_${botId}`);
+    kb.text("⏸ Pause", `pause_${botId}`);
   } else {
-    kb.text("▶️ Resume", `resume_${botId}`);
+    kb.text("▶ Resume", `resume_${botId}`);
   }
-  kb.text("🗑️ Delete", `delete_${botId}`).row();
-  kb.text("🔙 Back", "manage");
+  kb.row();
+  kb.text("⬅ Back to bots", "manage").row();
+  kb.text("⚠ Delete bot", `delete_${botId}`);
 
   await ctx.deleteMessage().catch(() => {});
   await ctx.reply(

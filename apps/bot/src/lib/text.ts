@@ -17,40 +17,53 @@
 // Common toasts (callback query answers)
 // =============================================================================
 
-export const TOAST_STALE_CALLBACK = "Callback query old";
-export const TOAST_BOT_NOT_LOADED = "Bot not loaded.";
+export const TOAST_STALE_CALLBACK = "That button expired. Reopened the menu.";
+export const TOAST_BOT_NOT_LOADED =
+  "Bot isn't loaded yet. Try again in a moment.";
 export const TOAST_PERMISSIONS_REFRESHED = "Permissions refreshed.";
 export const TOAST_PERMISSIONS_FETCH_FAILED =
   "Couldn't reach Telegram. Try again in a moment.";
 export const TOAST_REFRESH_RATE_LIMITED =
   "Already up to date — try again in a moment.";
-export const TOAST_NO_BUSINESS_CONNECTION = "No business connection yet.";
-export const TOAST_REPLY_EXPIRED =
-  "This reply window expired or was already used.";
-export const TOAST_TAP_TRASH_TO_DELETE = "Tap 🗑️ to delete this document.";
+export const TOAST_NO_BUSINESS_CONNECTION =
+  "Bot isn't connected to your Business account yet.";
+export const TOAST_REPLY_EXPIRED = "This reply has expired.";
+export const TOAST_TAP_TRASH_TO_DELETE =
+  "Tap the bin icon to delete this document.";
 export const TOAST_AUTOREAD_ON =
-  "Auto-read enabled — customer messages will show as read.";
+  "Auto-read on. Customer messages will show as read.";
 export const TOAST_AUTOREAD_OFF =
-  "Auto-read disabled — customer messages stay unread until you open them.";
+  "Auto-read off. Customer messages stay unread until you open them.";
 
 // =============================================================================
 // Common UI
 // =============================================================================
 
-export const MAIN_MENU_TITLE = "Main menu:";
-export const BOT_NOT_FOUND = "Bot not found.";
-export const SEND_TEXT_PLEASE = "Please send a text message.";
+export const MAIN_MENU_TITLE = "Main menu";
+export const BOT_NOT_FOUND = "Bot not found. It may have been deleted.";
+export const SEND_TEXT_PLEASE = "Send a text message, or press Cancel.";
+
+/**
+ * Truncate a string to at most `max` visible characters, replacing the
+ * tail with a single ellipsis when truncated. Total length stays within
+ * `max`. Use for keyboard button labels where Telegram clips silently.
+ */
+export function truncateMid(s: string, max: number): string {
+  if (s.length <= max) return s;
+  return `${s.slice(0, max - 1)}…`;
+}
 
 // =============================================================================
 // Onboarding bot — main flow + bot list
 // =============================================================================
 
-export const ONBOARDING_BOT_LIST_EMPTY = "No bots yet. Create one below:";
-export const ONBOARDING_BOT_LIST_HEADER = "Your bots:";
+export const ONBOARDING_BOT_LIST_EMPTY =
+  "No bots yet. Create your first one below.";
+export const ONBOARDING_BOT_LIST_HEADER = "Your bots";
 export const ONBOARDING_BOT_LIST_AFTER_DELETE_EMPTY =
-  "No bots left. Create one below:";
+  "Bot deleted. No bots left — create a new one below.";
 export const ONBOARDING_BOT_LIST_AFTER_DELETE_HEADER =
-  "✅ Bot deleted. Your bots:";
+  "✅ Bot deleted.\n\nYour bots";
 
 export const ONBOARDING_CREATE_PROMPT =
   "Send me your bot token.\n\n" +
@@ -59,9 +72,9 @@ export const ONBOARDING_CREATE_PROMPT =
   "3. Paste the token here";
 
 export const ONBOARDING_TOKEN_REQUIRED =
-  "Please send a valid bot token, or press Cancel.";
+  "Send a valid bot token, or press Cancel.";
 export const ONBOARDING_INVALID_TOKEN =
-  "Invalid token. Send me a valid bot token, or press Cancel.";
+  "That token isn't valid. Send a token from @BotFather, or press Cancel.";
 
 export function onboardingBotConnected(username: string): string {
   return (
@@ -101,7 +114,7 @@ export function deleteBotPrompt(phrase: string): string {
 
 export function deleteBotMismatch(phrase: string): string {
   return (
-    "❌ That doesn't match. Reply with exactly:\n\n" +
+    "That doesn't match. Reply with exactly:\n\n" +
     `<code>${phrase}</code>\n\nOr press Cancel.`
   );
 }
@@ -126,7 +139,7 @@ export function managementMenu(args: {
 // =============================================================================
 
 export function dailyCapButtonLabel(value: number | null): string {
-  return `🚦 Daily cap: ${value === null ? "Off" : String(value)}`;
+  return `🎯 Daily limit: ${value === null ? "Off" : String(value)}`;
 }
 
 export function dailyCapEditorBody(args: {
@@ -138,11 +151,12 @@ export function dailyCapEditorBody(args: {
       ? "Off (unlimited up to your plan's monthly ceiling)"
       : String(args.currentValue);
   return (
-    `🚦 Daily AI reply cap per customer\n\n` +
+    `🎯 Daily reply limit per customer\n\n` +
     `Current: ${current}\n` +
-    `Plan ceiling: ${args.ceiling.toLocaleString("en-US")} / customer / day\n\n` +
-    `Send a positive integer to set a cap, or press "Off" to remove it. ` +
-    `If a customer hits the cap, the bot replies "we're busy" instead of running the AI.`
+    `Plan ceiling: ${args.ceiling.toLocaleString("en-US")} per customer per day\n\n` +
+    `Send a positive integer to set a limit, or tap "Set to Off" to remove it. ` +
+    `If a customer hits the limit, the bot sends the busy reply instead of running the AI. ` +
+    `Tap "Edit busy reply" to customize that message.`
   );
 }
 
@@ -154,14 +168,14 @@ export function dailyCapInvalid(args: {
     return "Send a whole number, or press Cancel.";
   }
   if (args.reason === "not_positive") {
-    return "Send a positive whole number, or press Off / Cancel.";
+    return 'Send a positive whole number, or tap "Set to Off" / Cancel.';
   }
-  return `That's above your plan's ceiling of ${args.ceiling.toLocaleString("en-US")} / customer / day. Send a smaller number, or press Cancel.`;
+  return `That's above your plan's ceiling of ${args.ceiling.toLocaleString("en-US")} per customer per day. Try a smaller number, or press Cancel.`;
 }
 
 export function dailyCapUpdated(value: number | null): string {
-  if (value === null) return "🚦 Daily cap removed.";
-  return `🚦 Daily cap set to ${value} replies / customer / day.`;
+  if (value === null) return "✅ Daily limit removed.";
+  return `✅ Daily limit set to ${value} replies per customer per day.`;
 }
 
 // =============================================================================
@@ -177,20 +191,21 @@ export function dailyCapMessageEditorBody(args: {
     ? `Current:\n${args.currentValue}`
     : `Current: (using default)\n\nDefault:\n${DAILY_AI_CAP_REACHED_REPLY}`;
   return (
-    `✉️ Cap-reached reply\n\n` +
+    `✉️ Busy reply\n\n` +
+    `Sent to a customer once they've hit the daily limit.\n\n` +
     `${current}\n\n` +
     `Send the new message text (max ${DAILY_CAP_MESSAGE_MAX_LENGTH} chars), ` +
-    `or press "Reset to default" to clear your override.`
+    `or tap "Use default" to clear your override.`
   );
 }
 
 export const DAILY_CAP_MESSAGE_TOO_LONG = `That's too long. Keep it under ${DAILY_CAP_MESSAGE_MAX_LENGTH} characters.`;
 
-export const DAILY_CAP_MESSAGE_RESET = "✉️ Cap reply reset to default.";
+export const DAILY_CAP_MESSAGE_RESET = "✅ Busy reply reset to default.";
 
 export function dailyCapMessageUpdated(value: string): string {
   const preview = value.length > 120 ? `${value.slice(0, 120)}…` : value;
-  return `✉️ Cap reply updated:\n\n${preview}`;
+  return `✅ Busy reply updated:\n\n${preview}`;
 }
 
 // =============================================================================
@@ -204,7 +219,7 @@ export function editPromptHeader(args: {
   return `Current prompt for @${args.username}:\n\n${args.prompt}\n\nSend your new prompt, or press Cancel.`;
 }
 
-export const PROMPT_UPDATED = "✅ Prompt updated!";
+export const PROMPT_UPDATED = "✅ Prompt updated.";
 
 // =============================================================================
 // Welcome editor
@@ -222,14 +237,14 @@ export function welcomeEditorBody(current: string): string {
 }
 
 export const WELCOME_RESET = "✅ Welcome message reset to default.";
-export const WELCOME_UPDATED = "✅ Welcome message updated!";
+export const WELCOME_UPDATED = "✅ Welcome message updated.";
 
 // =============================================================================
 // Document manager
 // =============================================================================
 
 export function docListEmpty(args: { max: number; sizeLabel: string }): string {
-  return `No documents yet. (Up to ${args.max}, ${args.sizeLabel} each.)`;
+  return `No documents yet. Add up to ${args.max} files, ${args.sizeLabel} each.`;
 }
 
 export function docListHeader(args: { count: number; max: number }): string {
@@ -241,7 +256,7 @@ export function docConfirmDelete(fileName: string): string {
 }
 
 export function docLimitReached(max: number): string {
-  return `❌ You've reached the ${max}-document limit. Delete one before adding another.`;
+  return `You've reached the ${max}-document limit. Delete one before adding another.`;
 }
 
 export function docAddPrompt(args: {
@@ -259,20 +274,22 @@ export const DOC_UNSUPPORTED =
   "Please send a supported file (PDF, TXT, Markdown, DOCX, or HTML), or press Cancel.";
 
 export function docTooLarge(args: { size: string; limit: string }): string {
-  return `❌ File is too large (${args.size}). Max ${args.limit} per file.`;
+  return `File is too large (${args.size}). Max ${args.limit} per file.`;
 }
 
-export const DOC_RAG_NOT_CONFIGURED = "RAG worker not configured.";
+export const DOC_RAG_NOT_CONFIGURED =
+  "Document processing is temporarily unavailable. Try again shortly.";
 export const DOC_PROCESSING = "📥 Processing document…";
-export const DOC_NO_FILE_ACCESS = "Could not access the file.";
+export const DOC_NO_FILE_ACCESS =
+  "Couldn't access that file. Try sending it again.";
 
 export function docIngestFailed(msg: string): string {
-  return `❌ Failed to process document: ${msg}`;
+  return `Couldn't process that document. ${msg}`;
 }
 
-export const DOC_QUEUED = "✅ Document queued for processing!";
+export const DOC_QUEUED = "✅ Document queued.";
 export const DOC_DELETED = "✅ Document deleted.";
-export const DOC_DELETE_FAILED = "❌ Failed to delete.";
+export const DOC_DELETE_FAILED = "Couldn't delete that document. Try again.";
 
 // =============================================================================
 // Permissions panel
@@ -424,7 +441,7 @@ export function subscriptionLapsedDM(args: {
 }): string {
   const botWord = args.bots === 1 ? "bot" : "bots";
   return (
-    `🚫 <b>${args.planLabel}</b> ended. ${args.bots} ${botWord} paused. ` +
+    `<b>${args.planLabel}</b> ended. ${args.bots} ${botWord} paused. ` +
     "Subscribe to reactivate."
   );
 }
@@ -474,7 +491,7 @@ export function billingHeader(args: {
       return `<b>${args.planLabel}</b> — canceled\nEnds on ${ends}`;
     }
     case "lapsed":
-      return "🚫 No active plan";
+      return "No active plan";
   }
 }
 
@@ -498,7 +515,7 @@ export function billingUsageBlock(args: {
 // Subscriptions — plan picker
 // =============================================================================
 
-export const PLAN_PICKER_HEADER = "⭐ Choose your plan:";
+export const PLAN_PICKER_HEADER = "⭐ Choose your plan";
 
 export function planPickerLine(args: {
   planLabel: string;
@@ -586,8 +603,8 @@ export function docUploadBlocked(args: {
   );
 }
 
-export const SUBSCRIBE_TO_CREATE_BOT = "🚫 Subscribe to create a bot.";
-export const SUBSCRIBE_TO_UPLOAD = "🚫 Subscribe to upload documents.";
+export const SUBSCRIBE_TO_CREATE_BOT = "Subscribe to create a bot.";
+export const SUBSCRIBE_TO_UPLOAD = "Subscribe to upload documents.";
 
 // =============================================================================
 // Subscriptions — toasts (callback query answers)

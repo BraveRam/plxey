@@ -119,7 +119,7 @@ describe("composeBillingScreen", () => {
     // Aggregate doc cap = maxDocsPerBot (3) × botCount (1) = 3
     expect(out).toContain("Documents (all bots): 2/3");
     expect(out).toContain("Messages: 42/500");
-    expect(out).toContain("⭐ Choose your plan:");
+    expect(out).toContain("⭐ Choose your plan");
     expect(out).toContain("Pro");
     expect(out).toContain("Business");
   });
@@ -196,8 +196,8 @@ describe("composeBillingScreen", () => {
         effectivePlan: null,
       }),
     );
-    expect(out).toContain("🚫 No active plan");
-    expect(out).toContain("⭐ Choose your plan:");
+    expect(out).toContain("No active plan");
+    expect(out).toContain("⭐ Choose your plan");
     expect(out).toContain("Pro");
     expect(out).toContain("Business");
   });

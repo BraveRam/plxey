@@ -243,36 +243,18 @@ export function attachBillingHandlers(bot: Bot<Context>): void {
 }
 
 /**
- * Build the dynamic main-menu billing button label.
+ * Build the main-menu billing button.
  *
- * Owners on trialing/lapsed see "⭐ Subscribe" (acquisition CTA), owners on
- * active/canceled see "⚙️ Plan & Billing" (management CTA). Both route to
- * the same `billing_menu` callback.
- *
- * Falls back to the trialing label on DB errors so the menu always renders.
+ * Single stable label across every subscription state — the screen behind
+ * it adapts (subscribe CTA vs. plan management); the button itself should
+ * not lie about its destination. Kept async because callers `await` it
+ * and may grow state-aware behavior later.
  */
 export async function buildBillingMenuButton(
-  ownerTelegramUserId: string,
+  _ownerTelegramUserId: string,
 ): Promise<{ label: string; callbackData: "billing_menu" }> {
-  let status: BillingStatus = "trialing";
-  try {
-    const row = await db.query.owners.findFirst({
-      where: eq(owners.telegramUserId, ownerTelegramUserId),
-      columns: { subscriptionStatus: true },
-    });
-    if (row) {
-      status = row.subscriptionStatus;
-    }
-  } catch (err) {
-    logger.warn(
-      { err, ownerTelegramUserId },
-      "buildBillingMenuButton: owner lookup failed (defaulting to trialing)",
-    );
-  }
-
-  const acquisition = status === "trialing" || status === "lapsed";
   return {
-    label: acquisition ? "⭐ Subscribe" : "⚙️ Plan & Billing",
+    label: "💳 Billing",
     callbackData: CB.menu,
   };
 }

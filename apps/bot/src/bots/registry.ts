@@ -114,6 +114,7 @@ import {
   DAILY_CAP_MESSAGE_MAX_LENGTH,
   DAILY_CAP_MESSAGE_RESET,
   DAILY_CAP_MESSAGE_TOO_LONG,
+  truncateMid,
   dailyCapButtonLabel,
   dailyCapEditorBody,
   dailyCapInvalid,
@@ -179,19 +180,17 @@ async function showManagementMenu(ctx: Context, botId: string) {
     return;
   }
 
-  const statusIcon = botRecord.status === "active" ? "✅ Active" : "⏸️ Paused";
-  const autoReadLabel = `👁️ Auto-read: ${botRecord.autoReadBusinessMessages ? "ON" : "OFF"}`;
+  const statusIcon = botRecord.status === "active" ? "✅ Active" : "⏸ Paused";
+  const autoReadLabel = `👁 Auto-read: ${botRecord.autoReadBusinessMessages ? "On" : "Off"}`;
   const capLabel = dailyCapButtonLabel(botRecord.dailyUserAiReplyLimit);
   const kb = new InlineKeyboard()
-    .text("✏️ Edit Prompt", "biz_edit_prompt")
-    .text("💬 Welcome Message", "biz_edit_welcome")
+    .text("✏️ Prompt", "biz_edit_prompt")
+    .text("💬 Welcome", "biz_edit_welcome")
     .row()
-    .text("📄 Documents", "biz_documents")
-    .text(autoReadLabel, "biz_toggle_autoread")
-    .row()
+    .text("📚 Knowledge", "biz_documents")
     .text(capLabel, "biz_edit_daily_cap")
-    .text("✉️ Cap reply", "biz_edit_cap_message")
     .row()
+    .text(autoReadLabel, "biz_toggle_autoread")
     .text("🔒 Permissions", "biz_permissions")
     .row();
 
@@ -396,23 +395,122 @@ function makeEditWelcomeConversation(
   };
 }
 
+/**
+ * Inline busy-reply editor screen. Used by both the top-level
+ * `editCapMessage` conversation (legacy entry — kept registered so any
+ * stale `biz_edit_cap_message` button in a chat's history still works)
+ * and the nested-in-Daily-limit-editor invocation. The outcome lets the
+ * caller decide where to navigate next.
+ */
+type BusyReplyOutcome = "saved" | "reset" | "canceled" | "stale";
+
+async function runBusyReplyEditorScreen(
+  conversation: Conversation<BaseCtx, BaseCtx>,
+  ctx: BaseCtx,
+  botId: string,
+  onSaved: (newValue: string | null) => void,
+): Promise<BusyReplyOutcome> {
+  const botRecord = await db.query.tenantBots.findFirst({
+    where: eq(tenantBots.id, botId),
+  });
+  if (!botRecord) {
+    await ctx.reply(BOT_NOT_FOUND);
+    return "stale";
+  }
+
+  const kb = new InlineKeyboard()
+    .text("↺ Use default", "biz_cap_msg_reset")
+    .row()
+    .text("Cancel", "biz_cancel");
+
+  const chatId = ctx.chat!.id;
+  let screenMsgId: number | null =
+    ctx.callbackQuery?.message?.message_id ?? null;
+
+  if (screenMsgId !== null) {
+    await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
+  }
+  let sent = await ctx.reply(
+    dailyCapMessageEditorBody({
+      currentValue: botRecord.dailyCapReachedMessage,
+    }),
+    { reply_markup: kb },
+  );
+  screenMsgId = sent.message_id;
+
+  while (true) {
+    const response = await conversation.wait();
+
+    if (response.callbackQuery?.data === "biz_cancel") {
+      await response.answerCallbackQuery();
+      if (screenMsgId !== null) {
+        await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
+      }
+      return "canceled";
+    }
+
+    if (response.callbackQuery?.data === "biz_cap_msg_reset") {
+      await response.answerCallbackQuery();
+      await conversation.external(async () => {
+        await updateBot(botId, { dailyCapReachedMessage: null });
+        onSaved(null);
+      });
+      if (screenMsgId !== null) {
+        await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
+      }
+      await response.reply(DAILY_CAP_MESSAGE_RESET);
+      return "reset";
+    }
+
+    if (response.callbackQuery) {
+      await response.answerCallbackQuery({ text: TOAST_STALE_CALLBACK });
+      await response.deleteMessage().catch(() => {});
+      if (screenMsgId !== null) {
+        await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
+      }
+      return "stale";
+    }
+
+    const text = response.message?.text?.trim() ?? "";
+    if (!text) {
+      if (screenMsgId !== null) {
+        await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
+      }
+      sent = await ctx.reply(SEND_TEXT_PLEASE, { reply_markup: kb });
+      screenMsgId = sent.message_id;
+      continue;
+    }
+    if (text.length > DAILY_CAP_MESSAGE_MAX_LENGTH) {
+      if (screenMsgId !== null) {
+        await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
+      }
+      sent = await ctx.reply(DAILY_CAP_MESSAGE_TOO_LONG, { reply_markup: kb });
+      screenMsgId = sent.message_id;
+      continue;
+    }
+
+    await conversation.external(async () => {
+      await updateBot(botId, { dailyCapReachedMessage: text });
+      onSaved(text);
+    });
+    if (screenMsgId !== null) {
+      await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
+    }
+    await ctx.reply(dailyCapMessageUpdated(text));
+    return "saved";
+  }
+}
+
 function makeEditDailyCapConversation(
   botId: string,
   ownerTelegramId: string,
-  onSaved: (newValue: number | null) => void,
+  onSavedLimit: (newValue: number | null) => void,
+  onSavedMessage: (newValue: string | null) => void,
 ) {
   return async function editDailyCapConversation(
     conversation: Conversation<BaseCtx, BaseCtx>,
     ctx: BaseCtx,
   ) {
-    const botRecord = await db.query.tenantBots.findFirst({
-      where: eq(tenantBots.id, botId),
-    });
-    if (!botRecord) {
-      await ctx.reply(BOT_NOT_FOUND);
-      return;
-    }
-
     // Use the owner's effective plan (via checkQuota — already does the
     // banned/lapsed defenses) as the ceiling. Lapsed → fall back to trial
     // ceiling so the UI still shows a sane bound; bot would be paused
@@ -422,24 +520,47 @@ function makeEditDailyCapConversation(
     const ceiling = PLANS[planForCeiling].maxMessagesPerPeriod;
 
     const kb = new InlineKeyboard()
-      .text("Off", "biz_daily_cap_off")
+      .text("Set to Off", "biz_daily_cap_off")
+      .text("✉️ Edit busy reply", "biz_edit_cap_message")
+      .row()
       .text("Cancel", "biz_cancel");
 
     const chatId = ctx.chat!.id;
     let screenMsgId: number | null =
       ctx.callbackQuery?.message?.message_id ?? null;
 
-    if (screenMsgId !== null) {
-      await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
+    // Draw the editor screen — used both on entry and after the
+    // busy-reply sub-editor finishes.
+    async function drawScreen(): Promise<void> {
+      if (screenMsgId !== null) {
+        await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
+        screenMsgId = null;
+      }
+      const fresh = await db.query.tenantBots.findFirst({
+        where: eq(tenantBots.id, botId),
+      });
+      if (!fresh) {
+        await ctx.reply(BOT_NOT_FOUND);
+        return;
+      }
+      const sent = await ctx.reply(
+        dailyCapEditorBody({
+          currentValue: fresh.dailyUserAiReplyLimit,
+          ceiling,
+        }),
+        { reply_markup: kb },
+      );
+      screenMsgId = sent.message_id;
     }
-    let sent = await ctx.reply(
-      dailyCapEditorBody({
-        currentValue: botRecord.dailyUserAiReplyLimit,
-        ceiling,
-      }),
-      { reply_markup: kb },
-    );
-    screenMsgId = sent.message_id;
+
+    const initial = await db.query.tenantBots.findFirst({
+      where: eq(tenantBots.id, botId),
+    });
+    if (!initial) {
+      await ctx.reply(BOT_NOT_FOUND);
+      return;
+    }
+    await drawScreen();
 
     while (true) {
       const response = await conversation.wait();
@@ -458,7 +579,7 @@ function makeEditDailyCapConversation(
         await response.answerCallbackQuery();
         await conversation.external(async () => {
           await updateBot(botId, { dailyUserAiReplyLimit: null });
-          onSaved(null);
+          onSavedLimit(null);
         });
         if (screenMsgId !== null) {
           await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
@@ -467,6 +588,29 @@ function makeEditDailyCapConversation(
         await response.reply(dailyCapUpdated(null));
         await showManagementMenu(response, botId);
         return;
+      }
+
+      if (response.callbackQuery?.data === "biz_edit_cap_message") {
+        await response.answerCallbackQuery();
+        // Hand control to the inline busy-reply editor; on return,
+        // redraw the daily-limit screen so the owner stays in this
+        // configuration surface.
+        if (screenMsgId !== null) {
+          await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
+          screenMsgId = null;
+        }
+        const outcome = await runBusyReplyEditorScreen(
+          conversation,
+          response,
+          botId,
+          onSavedMessage,
+        );
+        if (outcome === "stale") {
+          await showManagementMenu(response, botId);
+          return;
+        }
+        await drawScreen();
+        continue;
       }
 
       if (response.callbackQuery) {
@@ -494,7 +638,7 @@ function makeEditDailyCapConversation(
       ) {
         await conversation.external(async () => {
           await updateBot(botId, { dailyUserAiReplyLimit: null });
-          onSaved(null);
+          onSavedLimit(null);
         });
         if (screenMsgId !== null) {
           await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
@@ -514,7 +658,7 @@ function makeEditDailyCapConversation(
         if (screenMsgId !== null) {
           await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
         }
-        sent = await ctx.reply(
+        const sent = await ctx.reply(
           dailyCapInvalid({ reason: verdict.reason, ceiling: verdict.ceiling }),
           { reply_markup: kb },
         );
@@ -525,7 +669,7 @@ function makeEditDailyCapConversation(
       const newValue = verdict.value;
       await conversation.external(async () => {
         await updateBot(botId, { dailyUserAiReplyLimit: newValue });
-        onSaved(newValue);
+        onSavedLimit(newValue);
       });
       if (screenMsgId !== null) {
         await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
@@ -546,105 +690,8 @@ function makeEditCapMessageConversation(
     conversation: Conversation<BaseCtx, BaseCtx>,
     ctx: BaseCtx,
   ) {
-    const botRecord = await db.query.tenantBots.findFirst({
-      where: eq(tenantBots.id, botId),
-    });
-    if (!botRecord) {
-      await ctx.reply(BOT_NOT_FOUND);
-      return;
-    }
-
-    const kb = new InlineKeyboard()
-      .text("↺ Reset to default", "biz_cap_msg_reset")
-      .row()
-      .text("Cancel", "biz_cancel");
-
-    const chatId = ctx.chat!.id;
-    let screenMsgId: number | null =
-      ctx.callbackQuery?.message?.message_id ?? null;
-
-    if (screenMsgId !== null) {
-      await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
-    }
-    let sent = await ctx.reply(
-      dailyCapMessageEditorBody({
-        currentValue: botRecord.dailyCapReachedMessage,
-      }),
-      { reply_markup: kb },
-    );
-    screenMsgId = sent.message_id;
-
-    while (true) {
-      const response = await conversation.wait();
-
-      if (response.callbackQuery?.data === "biz_cancel") {
-        await response.answerCallbackQuery();
-        if (screenMsgId !== null) {
-          await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
-          screenMsgId = null;
-        }
-        await showManagementMenu(response, botId);
-        return;
-      }
-
-      if (response.callbackQuery?.data === "biz_cap_msg_reset") {
-        await response.answerCallbackQuery();
-        await conversation.external(async () => {
-          await updateBot(botId, { dailyCapReachedMessage: null });
-          onSaved(null);
-        });
-        if (screenMsgId !== null) {
-          await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
-          screenMsgId = null;
-        }
-        await response.reply(DAILY_CAP_MESSAGE_RESET);
-        await showManagementMenu(response, botId);
-        return;
-      }
-
-      if (response.callbackQuery) {
-        await response.answerCallbackQuery({ text: TOAST_STALE_CALLBACK });
-        await response.deleteMessage().catch(() => {});
-        if (screenMsgId !== null) {
-          await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
-          screenMsgId = null;
-        }
-        await showManagementMenu(response, botId);
-        return;
-      }
-
-      const text = response.message?.text?.trim() ?? "";
-      if (!text) {
-        if (screenMsgId !== null) {
-          await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
-        }
-        sent = await ctx.reply(SEND_TEXT_PLEASE, { reply_markup: kb });
-        screenMsgId = sent.message_id;
-        continue;
-      }
-      if (text.length > DAILY_CAP_MESSAGE_MAX_LENGTH) {
-        if (screenMsgId !== null) {
-          await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
-        }
-        sent = await ctx.reply(DAILY_CAP_MESSAGE_TOO_LONG, {
-          reply_markup: kb,
-        });
-        screenMsgId = sent.message_id;
-        continue;
-      }
-
-      await conversation.external(async () => {
-        await updateBot(botId, { dailyCapReachedMessage: text });
-        onSaved(text);
-      });
-      if (screenMsgId !== null) {
-        await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
-        screenMsgId = null;
-      }
-      await ctx.reply(dailyCapMessageUpdated(text));
-      await showManagementMenu(ctx, botId);
-      return;
-    }
+    await runBusyReplyEditorScreen(conversation, ctx, botId, onSaved);
+    await showManagementMenu(ctx, botId);
   };
 }
 
@@ -672,7 +719,7 @@ function makeDocumentManagementConversation(
         const statusIcon =
           d.status === "ready" ? "✅" : d.status === "failed" ? "❌" : "⏳";
         kb.text(
-          `${statusIcon} ${d.fileName.slice(0, 25)}`,
+          `${statusIcon} ${truncateMid(d.fileName, 25)}`,
           `biz_docitem_${d.id}`,
         )
           .text("🗑️", `biz_del_doc_${d.id}`)
@@ -1166,13 +1213,24 @@ export class BotRegistry {
     );
     bot.use(
       createConversation(
-        makeEditDailyCapConversation(botId, ownerTelegramId, (newValue) => {
-          const entry = this.bots.get(botId);
-          if (entry) entry.dailyUserAiReplyLimit = newValue;
-        }),
+        makeEditDailyCapConversation(
+          botId,
+          ownerTelegramId,
+          (newValue) => {
+            const entry = this.bots.get(botId);
+            if (entry) entry.dailyUserAiReplyLimit = newValue;
+          },
+          (newValue) => {
+            const entry = this.bots.get(botId);
+            if (entry) entry.dailyCapReachedMessage = newValue;
+          },
+        ),
         "editDailyCap",
       ),
     );
+    // The standalone `editCapMessage` conversation stays registered so any
+    // stale `biz_edit_cap_message` button from the old menu layout still
+    // works (the global callback handler enters this conversation).
     bot.use(
       createConversation(
         makeEditCapMessageConversation(botId, (newValue) => {
@@ -1440,8 +1498,8 @@ export class BotRegistry {
 
     // Catch-all: callbacks no earlier handler matched. Buttons left over
     // after a process restart or stale screens whose state is gone. For
-    // owner clicks, surface "Callback query old" and drop them back on
-    // the management menu; for non-owners (shouldn't really happen here),
+    // owner clicks, surface the stale-callback toast and drop them back
+    // on the management menu; for non-owners (shouldn't really happen),
     // just acknowledge silently.
     bot.on("callback_query:data", async (ctx) => {
       const ownerId = String(ctx.from?.id ?? "");

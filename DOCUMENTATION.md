@@ -702,12 +702,12 @@ If Telegram rejects `parse_mode: "HTML"`, the bot falls back to raw markdown tex
 
 ### Per-end-user daily AI reply cap
 
-Owner-configurable per bot via the management menu ("🚦 Daily cap" button). Stored on `tenant_bots.daily_user_ai_reply_limit` (nullable int; `NULL` = unlimited up to the plan's monthly cap).
+Owner-configurable per bot via the management menu ("🎯 Daily limit" button). Stored on `tenant_bots.daily_user_ai_reply_limit` (nullable int; `NULL` = unlimited up to the plan's monthly cap).
 
 - **Counter**: `airep:{botId}:{userId}:{YYYYMMDD}` in Upstash. `INCR` happens after a successful AI generation only — transient Gateway errors don't burn the user's quota.
 - **Effective cap** (`effectiveDailyAiReplyCap` in `lib/plans.ts`): `min(configured ?? planCeiling, planCeiling)` where `planCeiling = plan.maxMessagesPerPeriod` (Trial 500, Pro 5,000, Business 50,000). Lapsed → defends with the trial ceiling. Downgrading a plan auto-tightens previously-permissive caps at read time; no migration needed.
 - **Behavior at cap**: customer gets the canned cap-reached reply (defaults to `DAILY_AI_CAP_REACHED_REPLY` — "we're handling lots of other customers right now — I'll get back to you tomorrow") instead of an AI-generated answer. No token spend, no owner-counter increment.
-- **Owner-customizable reply**: stored on `tenant_bots.daily_cap_reached_message` (≤1024 chars). NULL falls back to the default. Edited via the "✉️ Cap reply" button in the management menu; "Reset to default" clears the override.
+- **Owner-customizable reply**: stored on `tenant_bots.daily_cap_reached_message` (≤1024 chars). NULL falls back to the default. Reached via the "✉️ Edit busy reply" button **inside the Daily-limit editor** (nested sub-setting, not a top-level management button); "Use default" clears the override. The standalone `editCapMessage` conversation + `biz_edit_cap_message` global callback handler remain registered so any stale Cap-reply button still in a chat's history continues to work — they now route through a shared `runBusyReplyEditorScreen` helper.
 - **Validation** (`validateDailyCap` in `lib/plans.ts`): owner-supplied values must be positive integers ≤ plan ceiling; UI rejects out-of-range values verbatim. Re-validated on the server side in the conversation handler — client side is never trusted.
 - **Order of checks** for an incoming customer message: webhook secret → BusinessBotRights pre-flight → `customerMessageLimiter` (10/60s burst) → owner-monthly `checkQuota("message")` → per-user daily cap → AI call. The daily cap sits between owner-monthly enforcement and the AI tool so both budgets are independent.
 
@@ -1079,7 +1079,7 @@ See `packages/db/src/schema.ts` for the full DDL.
 
 `apps/bot/src/bots/billing.ts` exports `attachBillingHandlers(bot)` and `buildBillingMenuButton(ownerId)`. Mounted on the onboarding bot at `createOnboardingBot`. Provides:
 
-- `/billing` command + dynamic main-menu button (`⭐ Subscribe` for trialing/lapsed, `⚙️ Plan & Billing` for active/canceled).
+- `/billing` command + stable `💳 Billing` main-menu button (label no longer flips by subscription state — the screen behind it adapts, the button itself stays consistent).
 - Plan picker with side-by-side Pro / Business invoice buttons.
 - `pre_checkout_query` validation (payload format, banned, already-subscribed-same-plan, nonce dedup).
 - `message:successful_payment` handler that records the ledger row and fires `subscription/started` or `subscription/renewed`.
