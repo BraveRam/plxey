@@ -611,6 +611,9 @@ function generateNonce(): string {
  */
 async function handleCancelTap(ctx: Context): Promise<void> {
   await ctx.answerCallbackQuery().catch(() => {});
+  // Drop the /billing screen that hosted the Cancel button so the owner
+  // can't scroll up and tap a stale one later.
+  await ctx.deleteMessage().catch(() => {});
   const userId = ctx.from?.id;
   if (userId === undefined) return;
   const ownerId = String(userId);
@@ -619,7 +622,6 @@ async function handleCancelTap(ctx: Context): Promise<void> {
   if (!primary) {
     // Nothing to cancel — re-render the menu so the owner gets a fresh
     // surface rather than a silent no-op.
-    await ctx.deleteMessage().catch(() => {});
     await renderBillingScreen(ctx, ownerId);
     return;
   }
