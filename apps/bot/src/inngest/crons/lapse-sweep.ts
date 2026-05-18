@@ -58,7 +58,14 @@ export const lapseSweep = inngest.createFunction(
             ),
           ),
         ),
-        columns: { id: true, ownerTelegramUserId: true },
+        // status lets us pick the right `reason` per owner below — an
+        // active-past-grace lapse is "renewal_failed", a canceled-past-
+        // periodEnd lapse is "canceled_expired".
+        columns: {
+          id: true,
+          ownerTelegramUserId: true,
+          status: true,
+        },
       });
     });
 
@@ -74,22 +81,26 @@ export const lapseSweep = inngest.createFunction(
         .where(inArray(subscriptions.id, ids));
     });
 
-    // Dedup by ownerTelegramUserId — an owner with multiple lapsed subs in
-    // one tick only needs one /lapsed event since the handler recomputes the
-    // effective plan from scratch.
-    const ownerIds = Array.from(
-      new Set(expired.map((e) => e.ownerTelegramUserId)),
-    );
+    // Per-owner reason: if ANY of their lapsing rows was active (renewal
+    // failed silently), use "renewal_failed"; otherwise all rows are
+    // canceled-past-period, use "canceled_expired". Active wins because
+    // it's the more user-actionable wording.
+    const reasonByOwner = new Map<string, "renewal_failed" | "canceled_expired">();
+    for (const row of expired) {
+      const existing = reasonByOwner.get(row.ownerTelegramUserId);
+      if (row.status === "active") {
+        reasonByOwner.set(row.ownerTelegramUserId, "renewal_failed");
+      } else if (!existing) {
+        reasonByOwner.set(row.ownerTelegramUserId, "canceled_expired");
+      }
+    }
 
     await step.run("fire-lapsed-events", async () => {
-      for (const ownerTelegramUserId of ownerIds) {
+      for (const [ownerTelegramUserId, reason] of reasonByOwner) {
         try {
           await inngest.send({
             name: "subscription/lapsed",
-            data: {
-              ownerTelegramUserId,
-              reason: "renewal_failed",
-            },
+            data: { ownerTelegramUserId, reason },
           });
         } catch (err) {
           // Per-owner fail-open: log and continue so one bad event doesn't
@@ -102,6 +113,6 @@ export const lapseSweep = inngest.createFunction(
       }
     });
 
-    return { lapsed: expired.length, owners: ownerIds.length };
+    return { lapsed: expired.length, owners: reasonByOwner.size };
   },
 );

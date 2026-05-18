@@ -37,9 +37,11 @@ export const subscriptionStarted = inngest.createFunction(
     } = data;
 
     // 1. Insert the subscriptions row. UNIQUE on telegramPaymentChargeId
-    //    provides idempotency.
-    await step.run("insert-subscription", async () => {
-      await db
+    //    provides idempotency — return the inserted id so subsequent steps
+    //    know whether THIS invocation actually wrote a new row (vs a
+    //    Telegram redelivery / Inngest retry hitting the existing row).
+    const inserted = await step.run("insert-subscription", async () => {
+      const rows = await db
         .insert(subscriptions)
         .values({
           ownerTelegramUserId,
@@ -49,8 +51,18 @@ export const subscriptionStarted = inngest.createFunction(
           starsPerPeriod: starsAmount,
           currentPeriodEnd: new Date(subscriptionExpirationDate * 1000),
         })
-        .onConflictDoNothing();
+        .onConflictDoNothing()
+        .returning({ id: subscriptions.id });
+      return rows.length > 0;
     });
+
+    // Idempotency guard: if no row was inserted (duplicate charge id), all
+    // downstream side effects already ran on the original invocation —
+    // skip them to avoid double-bumping lifetime_stars_spent or
+    // re-firing the DM.
+    if (!inserted) {
+      return { plan: null, status: "duplicate" as const };
+    }
 
     // 2. Bump lifetime_stars_spent atomically (mirrors subscription-renewed).
     //    The first charge should count toward lifetime spend too.

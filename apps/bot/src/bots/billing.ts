@@ -1017,6 +1017,19 @@ async function handlePreCheckoutQuery(ctx: Context): Promise<void> {
   }
   const { ownerId, plan, nonce } = parsed;
 
+  // Payment-amount validation. Defense in depth: if a webhook-secret leak
+  // ever let an attacker craft a successful_payment with a smaller
+  // total_amount, this rejects at pre_checkout before money moves.
+  const expectedAmount = PLANS[plan].starsPerPeriod;
+  if (q.total_amount !== expectedAmount) {
+    logger.warn(
+      { ownerId, plan, expected: expectedAmount, received: q.total_amount },
+      "pre_checkout total_amount mismatch — rejecting",
+    );
+    await reject("Invoice amount tampered");
+    return;
+  }
+
   // Owner existence + ban check. We don't auto-create the row here — the
   // owner-capture middleware does that on every interaction; if it's
   // missing the owner has done something weird (third-party invoice tap).
@@ -1064,22 +1077,33 @@ async function handlePreCheckoutQuery(ctx: Context): Promise<void> {
     return;
   }
 
-  // Nonce dedup. If the nonce-used key is set, this invoice was already
-  // consumed — reject to make replay attempts impossible.
+  // Nonce dedup. Atomic SET NX EX on the in-flight lock — wins iff no
+  // prior pre_checkout for this nonce has been approved (and no
+  // successful_payment has marked it used). Replaces the previous
+  // GET-then-SET pair, which had a race window where two concurrent
+  // pre_checkout calls could both pass the GET.
   const r = redis();
   try {
+    const pendingKey = `nonce-pending:${nonce}`;
     const usedKey = `nonce-used:${nonce}`;
+    const claim = await r.set(pendingKey, "1", {
+      nx: true,
+      ex: NONCE_PENDING_TTL_SECONDS,
+    });
+    if (claim !== "OK") {
+      // Either an in-flight pre_checkout already won the slot, or the
+      // payment has already completed and `nonce-used` was set. Either way
+      // this invoice can't be charged again.
+      await reject("Invoice already used");
+      return;
+    }
+    // Defensive second check: if successful_payment ran extremely fast in
+    // between, the used-key may exist. Honor it.
     const used = await r.get<string>(usedKey);
     if (used) {
       await reject("Invoice already used");
       return;
     }
-    // Mark in-flight. EX 600 is well past the 10-second window Telegram
-    // gives us, and well past the time it takes for the successful_payment
-    // update to arrive.
-    await r.set(`nonce-pending:${nonce}`, "1", {
-      ex: NONCE_PENDING_TTL_SECONDS,
-    });
   } catch (err) {
     logger.warn({ err, ownerId, plan }, "pre_checkout nonce dedup failed");
     await reject("Service unavailable");

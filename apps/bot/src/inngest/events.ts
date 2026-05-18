@@ -34,6 +34,7 @@ export type SubscriptionRefundedEventData = {
 export type SubscriptionLapsedReason =
   | "trial_expired"
   | "renewal_failed"
+  | "canceled_expired"
   | "refunded"
   | "banned";
 
