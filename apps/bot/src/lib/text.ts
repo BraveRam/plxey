@@ -122,6 +122,78 @@ export function managementMenu(args: {
 }
 
 // =============================================================================
+// Per-end-user daily AI reply cap editor
+// =============================================================================
+
+export function dailyCapButtonLabel(value: number | null): string {
+  return `🚦 Daily cap: ${value === null ? "Off" : String(value)}`;
+}
+
+export function dailyCapEditorBody(args: {
+  currentValue: number | null;
+  ceiling: number;
+}): string {
+  const current =
+    args.currentValue === null
+      ? "Off (unlimited up to your plan's monthly ceiling)"
+      : String(args.currentValue);
+  return (
+    `🚦 Daily AI reply cap per customer\n\n` +
+    `Current: ${current}\n` +
+    `Plan ceiling: ${args.ceiling.toLocaleString("en-US")} / customer / day\n\n` +
+    `Send a positive integer to set a cap, or press "Off" to remove it. ` +
+    `If a customer hits the cap, the bot replies "we're busy" instead of running the AI.`
+  );
+}
+
+export function dailyCapInvalid(args: {
+  reason: "not_an_integer" | "not_positive" | "exceeds_plan";
+  ceiling: number;
+}): string {
+  if (args.reason === "not_an_integer") {
+    return "Send a whole number, or press Cancel.";
+  }
+  if (args.reason === "not_positive") {
+    return "Send a positive whole number, or press Off / Cancel.";
+  }
+  return `That's above your plan's ceiling of ${args.ceiling.toLocaleString("en-US")} / customer / day. Send a smaller number, or press Cancel.`;
+}
+
+export function dailyCapUpdated(value: number | null): string {
+  if (value === null) return "🚦 Daily cap removed.";
+  return `🚦 Daily cap set to ${value} replies / customer / day.`;
+}
+
+// =============================================================================
+// Per-end-user daily AI reply cap — owner-customizable "we're busy" reply
+// =============================================================================
+
+export const DAILY_CAP_MESSAGE_MAX_LENGTH = 1024;
+
+export function dailyCapMessageEditorBody(args: {
+  currentValue: string | null;
+}): string {
+  const current = args.currentValue?.trim()
+    ? `Current:\n${args.currentValue}`
+    : `Current: (using default)\n\nDefault:\n${DAILY_AI_CAP_REACHED_REPLY}`;
+  return (
+    `✉️ Cap-reached reply\n\n` +
+    `${current}\n\n` +
+    `Send the new message text (max ${DAILY_CAP_MESSAGE_MAX_LENGTH} chars), ` +
+    `or press "Reset to default" to clear your override.`
+  );
+}
+
+export const DAILY_CAP_MESSAGE_TOO_LONG = `That's too long. Keep it under ${DAILY_CAP_MESSAGE_MAX_LENGTH} characters.`;
+
+export const DAILY_CAP_MESSAGE_RESET = "✉️ Cap reply reset to default.";
+
+export function dailyCapMessageUpdated(value: string): string {
+  const preview = value.length > 120 ? `${value.slice(0, 120)}…` : value;
+  return `✉️ Cap reply updated:\n\n${preview}`;
+}
+
+// =============================================================================
 // Prompt editor
 // =============================================================================
 
@@ -277,6 +349,14 @@ export function customerReplyFailedAlert(args: {
 }): string {
   return `⚠️ Failed to reply to customer. Make sure the bot has Business Mode enabled in @BotFather and is added to your Telegram Business account and ensure it has the necessary permissions.\n\n${args.customerLabel}\n\nCustomer asked: ${args.question}`;
 }
+
+// =============================================================================
+// Daily AI-reply cap reached for this end user (sent in business chat).
+// Plain text, no HTML — keeps the reply broadly compatible.
+// =============================================================================
+
+export const DAILY_AI_CAP_REACHED_REPLY =
+  "We're handling lots of other customers right now — I'll get back to you tomorrow. Thanks for your patience!";
 
 // =============================================================================
 // Admin escalation notification (HTML — both label and message are

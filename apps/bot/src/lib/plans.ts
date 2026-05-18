@@ -136,3 +136,56 @@ export function planLimits(
     maxMessagesPerPeriod: config.maxMessagesPerPeriod,
   };
 }
+
+/**
+ * Effective per-user daily AI-reply cap for a bot.
+ *
+ * - `configured` is the value on `tenant_bots.daily_user_ai_reply_limit`.
+ *   `null` means the owner has not set a cap → unlimited up to plan ceiling.
+ * - `plan` is the owner's effective plan. Lapsed owners get `null` and we
+ *   fall back to the trial cap (defensive — bots should already be paused
+ *   in that case, but we don't want infinite generation if quota
+ *   enforcement is bypassed).
+ *
+ * Always returns a finite, positive integer. The plan cap is the hard
+ * upper bound — the owner cannot bypass it even with a higher configured
+ * value, and downgrading a plan auto-tightens previously-permissive caps.
+ */
+export function effectiveDailyAiReplyCap(
+  configured: number | null | undefined,
+  plan: PlanKey | null,
+): number {
+  const ceiling = PLANS[plan ?? "trial"].maxMessagesPerPeriod;
+  if (configured === null || configured === undefined) return ceiling;
+  if (!Number.isFinite(configured) || configured <= 0) return ceiling;
+  return Math.min(configured, ceiling);
+}
+
+/**
+ * Validate an owner-supplied cap value for plan tier `plan`.
+ *
+ * Returns `{ ok: true, value }` when the input is a positive integer not
+ * exceeding the plan's monthly ceiling. Otherwise returns a structured
+ * error the UI can render verbatim.
+ */
+export type DailyCapValidation =
+  | { ok: true; value: number | null }
+  | { ok: false; reason: "not_an_integer" | "not_positive" | "exceeds_plan"; ceiling: number };
+
+export function validateDailyCap(
+  input: number | null,
+  plan: PlanKey,
+): DailyCapValidation {
+  const ceiling = PLANS[plan].maxMessagesPerPeriod;
+  if (input === null) return { ok: true, value: null };
+  if (!Number.isFinite(input) || !Number.isInteger(input)) {
+    return { ok: false, reason: "not_an_integer", ceiling };
+  }
+  if (input <= 0) {
+    return { ok: false, reason: "not_positive", ceiling };
+  }
+  if (input > ceiling) {
+    return { ok: false, reason: "exceeds_plan", ceiling };
+  }
+  return { ok: true, value: input };
+}

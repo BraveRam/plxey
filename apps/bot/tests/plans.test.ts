@@ -1,6 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import type { EffectivePlanSubscription } from "../src/lib/plans";
-import { PLANS, effectivePlan, planLimits } from "../src/lib/plans";
+import {
+  PLANS,
+  effectiveDailyAiReplyCap,
+  effectivePlan,
+  planLimits,
+  validateDailyCap,
+} from "../src/lib/plans";
 
 const NOW = new Date("2026-05-17T12:00:00.000Z");
 
@@ -273,5 +279,97 @@ describe("planLimits", () => {
       maxDocsPerBot: 50,
       maxMessagesPerPeriod: 50000,
     });
+  });
+});
+
+describe("effectiveDailyAiReplyCap", () => {
+  test("null configured → plan ceiling for Pro", () => {
+    expect(effectiveDailyAiReplyCap(null, "pro")).toBe(5000);
+  });
+
+  test("null configured → plan ceiling for Business", () => {
+    expect(effectiveDailyAiReplyCap(null, "business")).toBe(50000);
+  });
+
+  test("null configured → trial ceiling for Trial", () => {
+    expect(effectiveDailyAiReplyCap(null, "trial")).toBe(500);
+  });
+
+  test("configured ≤ plan ceiling is honored", () => {
+    expect(effectiveDailyAiReplyCap(20, "pro")).toBe(20);
+  });
+
+  test("configured > plan ceiling is clamped down", () => {
+    // Owner set 9999 while on Pro (5000 cap) — clamp to 5000.
+    expect(effectiveDailyAiReplyCap(9999, "pro")).toBe(5000);
+  });
+
+  test("downgrade auto-tightens at read time", () => {
+    // Owner had 4000 set while on Business, now lapsed/trial — read-time
+    // clamp pulls it down to the trial ceiling.
+    expect(effectiveDailyAiReplyCap(4000, "trial")).toBe(500);
+  });
+
+  test("lapsed (null plan) defends with trial ceiling", () => {
+    expect(effectiveDailyAiReplyCap(null, null)).toBe(500);
+  });
+
+  test("zero or negative configured falls back to ceiling", () => {
+    expect(effectiveDailyAiReplyCap(0, "pro")).toBe(5000);
+    expect(effectiveDailyAiReplyCap(-1, "pro")).toBe(5000);
+  });
+
+  test("NaN configured falls back to ceiling", () => {
+    expect(effectiveDailyAiReplyCap(Number.NaN, "pro")).toBe(5000);
+  });
+});
+
+describe("validateDailyCap", () => {
+  test("null = unset → ok", () => {
+    expect(validateDailyCap(null, "pro")).toEqual({ ok: true, value: null });
+  });
+
+  test("positive int within plan cap → ok", () => {
+    expect(validateDailyCap(20, "pro")).toEqual({ ok: true, value: 20 });
+  });
+
+  test("rejects non-integer", () => {
+    const r = validateDailyCap(1.5, "pro");
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.reason).toBe("not_an_integer");
+      expect(r.ceiling).toBe(5000);
+    }
+  });
+
+  test("rejects zero", () => {
+    const r = validateDailyCap(0, "pro");
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reason).toBe("not_positive");
+  });
+
+  test("rejects negative", () => {
+    const r = validateDailyCap(-10, "pro");
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reason).toBe("not_positive");
+  });
+
+  test("rejects value above plan ceiling with ceiling in error", () => {
+    const r = validateDailyCap(5001, "pro");
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.reason).toBe("exceeds_plan");
+      expect(r.ceiling).toBe(5000);
+    }
+  });
+
+  test("ceiling matches plan tier", () => {
+    expect(validateDailyCap(500, "trial")).toEqual({ ok: true, value: 500 });
+    expect(validateDailyCap(501, "trial").ok).toBe(false);
+    expect(validateDailyCap(50000, "business")).toEqual({
+      ok: true,
+      value: 50000,
+    });
+    expect(validateDailyCap(50001, "business").ok).toBe(false);
   });
 });

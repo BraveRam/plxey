@@ -330,9 +330,12 @@ A Telegram bot registered under a tenant; each bot acts as a separate AI custome
 | welcome_message | text | yes | — | optional greeting on Business Connection open |
 | auto_read_business_messages | boolean | no | true | whether bot auto-marks incoming as read |
 | connected_business_user_id | text | yes | — | Telegram business user ID linked after handshake |
+| over_quota_at | timestamptz | yes | — | set when bot is paused due to plan-cap; null = active |
+| daily_user_ai_reply_limit | integer | yes | — | owner-set per-end-user daily AI-reply cap; null = unlimited up to plan |
+| daily_cap_reached_message | text | yes | — | owner-customizable text sent when an end-user hits the daily cap; null = use `DAILY_AI_CAP_REACHED_REPLY` default |
 | created_at | timestamptz | no | now() | |
 
-**Indexes**: `tenant_bots_tenant_idx` btree on `(tenant_id)`.
+**Indexes**: `tenant_bots_tenant_idx` btree on `(tenant_id)`, `tenant_bots_over_quota_idx` btree on `(over_quota_at)`.
 
 ### business_connections
 
@@ -697,6 +700,17 @@ If Telegram rejects `parse_mode: "HTML"`, the bot falls back to raw markdown tex
 
 `askAI` is `.catch`-wrapped in `registry.ts:1250–1253`. On error: log `error`, return `{ text: null }`. No reply, no customer-facing fallback message — silent failure on the customer side.
 
+### Per-end-user daily AI reply cap
+
+Owner-configurable per bot via the management menu ("🚦 Daily cap" button). Stored on `tenant_bots.daily_user_ai_reply_limit` (nullable int; `NULL` = unlimited up to the plan's monthly cap).
+
+- **Counter**: `airep:{botId}:{userId}:{YYYYMMDD}` in Upstash. `INCR` happens after a successful AI generation only — transient Gateway errors don't burn the user's quota.
+- **Effective cap** (`effectiveDailyAiReplyCap` in `lib/plans.ts`): `min(configured ?? planCeiling, planCeiling)` where `planCeiling = plan.maxMessagesPerPeriod` (Trial 500, Pro 5,000, Business 50,000). Lapsed → defends with the trial ceiling. Downgrading a plan auto-tightens previously-permissive caps at read time; no migration needed.
+- **Behavior at cap**: customer gets the canned cap-reached reply (defaults to `DAILY_AI_CAP_REACHED_REPLY` — "we're handling lots of other customers right now — I'll get back to you tomorrow") instead of an AI-generated answer. No token spend, no owner-counter increment.
+- **Owner-customizable reply**: stored on `tenant_bots.daily_cap_reached_message` (≤1024 chars). NULL falls back to the default. Edited via the "✉️ Cap reply" button in the management menu; "Reset to default" clears the override.
+- **Validation** (`validateDailyCap` in `lib/plans.ts`): owner-supplied values must be positive integers ≤ plan ceiling; UI rejects out-of-range values verbatim. Re-validated on the server side in the conversation handler — client side is never trusted.
+- **Order of checks** for an incoming customer message: webhook secret → BusinessBotRights pre-flight → `customerMessageLimiter` (10/60s burst) → owner-monthly `checkQuota("message")` → per-user daily cap → AI call. The daily cap sits between owner-monthly enforcement and the AI tool so both budgets are independent.
+
 ---
 
 ## RAG Retrieval
@@ -762,10 +776,11 @@ Mounted at `/api` in `apps/bot/src/index.ts`. All routes pass through `apiLimite
 | Per-bot Refresh button | `permissionRefreshLimiter` | Fixed | 1 | 3 s | `rl:perm-refresh:{botId}` | `registry.ts:883–891`, on `biz_refresh_permissions` |
 | Onboarding bot per-user | `@grammyjs/ratelimiter` | In-process sliding | 20 | 60 s | `onboarding:{from.id}` | `onboarding.ts:291–298` |
 | Tenant bot owner-side per-user | `@grammyjs/ratelimiter` | In-process sliding | 30 | 60 s | `bot:{botId}:{from.id}` | `registry.ts:690–697`, filtered to non-business-chat updates only |
+| Per-end-user daily AI replies | `daily-ai-limit.ts` (raw INCR + EXPIRE) | Calendar-day UTC | owner-set (clamped to plan cap) | 24h | `airep:{botId}:{userId}:{YYYYMMDD}` | `registry.ts` business_message handler, after owner-quota check |
 
 ### Fail-open
 
-`apiLimiter`, `customerMessageLimiter`, and `permissionRefreshLimiter` all `.catch(() => ({ success: true }))` — Redis outage allows traffic through rather than taking the service offline.
+`apiLimiter`, `customerMessageLimiter`, `permissionRefreshLimiter`, and the daily-AI-reply counter all fail open on Redis errors — outage allows traffic through rather than taking the service offline. The daily counter logs a warn and treats the read as 0; the INCR-on-success path is best-effort.
 
 ---
 
@@ -781,6 +796,7 @@ Mounted at `/api` in `apps/bot/src/index.ts`. All routes pass through `apiLimite
 | `rl:api:{ip}` | `@upstash/ratelimit` | 60 s sliding | per-IP | rate-limit counter resets |
 | `rl:perm-refresh:{botId}` | `@upstash/ratelimit` | 3 s fixed | per-bot | harmless |
 | `alert:perm:{botId}` | `claimPermissionAlertSlot` (`SET NX EX 1800`) | 1800 s | per-bot | owner may receive a duplicate "missing can_reply" DM sooner |
+| `airep:{botId}:{userId}:{YYYYMMDD}` | `incrDailyAiReplyCount` (`INCR + EXPIRE 90000`) | ~25h | per-bot, per-end-user, per-UTC-day | per-user daily AI-reply counter resets, customer may get extra replies that day |
 
 ---
 

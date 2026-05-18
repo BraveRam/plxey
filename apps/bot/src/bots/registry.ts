@@ -62,6 +62,16 @@ import {
   customerMessageLimiter,
   permissionRefreshLimiter,
 } from "../lib/redis";
+import {
+  getDailyAiReplyCount,
+  incrDailyAiReplyCount,
+} from "../lib/daily-ai-limit";
+import {
+  effectiveDailyAiReplyCap,
+  PLANS,
+  type PlanKey,
+  validateDailyCap,
+} from "../lib/plans";
 import { forwardMessageAsBusinessReply } from "../lib/business-reply";
 import {
   claimPermissionAlertSlot,
@@ -97,9 +107,19 @@ import {
   TOAST_STALE_CALLBACK,
   TOAST_TAP_TRASH_TO_DELETE,
   WELCOME_NO_CUSTOM,
+  DAILY_AI_CAP_REACHED_REPLY,
   WELCOME_RESET,
   WELCOME_UPDATED,
   adminEscalation,
+  DAILY_CAP_MESSAGE_MAX_LENGTH,
+  DAILY_CAP_MESSAGE_RESET,
+  DAILY_CAP_MESSAGE_TOO_LONG,
+  dailyCapButtonLabel,
+  dailyCapEditorBody,
+  dailyCapInvalid,
+  dailyCapMessageEditorBody,
+  dailyCapMessageUpdated,
+  dailyCapUpdated,
   botConnectedAlert,
   botDisconnectedAlert,
   customerReplyFailedAlert,
@@ -131,6 +151,8 @@ interface BotEntry {
   systemPrompt: string;
   welcomeMessage: string | null;
   autoReadBusinessMessages: boolean;
+  dailyUserAiReplyLimit: number | null;
+  dailyCapReachedMessage: string | null;
   botUsername: string;
   connectedBusinessUserId: string | null;
   webhookSecret: string;
@@ -159,12 +181,16 @@ async function showManagementMenu(ctx: Context, botId: string) {
 
   const statusIcon = botRecord.status === "active" ? "✅ Active" : "⏸️ Paused";
   const autoReadLabel = `👁️ Auto-read: ${botRecord.autoReadBusinessMessages ? "ON" : "OFF"}`;
+  const capLabel = dailyCapButtonLabel(botRecord.dailyUserAiReplyLimit);
   const kb = new InlineKeyboard()
     .text("✏️ Edit Prompt", "biz_edit_prompt")
     .text("💬 Welcome Message", "biz_edit_welcome")
     .row()
     .text("📄 Documents", "biz_documents")
     .text(autoReadLabel, "biz_toggle_autoread")
+    .row()
+    .text(capLabel, "biz_edit_daily_cap")
+    .text("✉️ Cap reply", "biz_edit_cap_message")
     .row()
     .text("🔒 Permissions", "biz_permissions")
     .row();
@@ -364,6 +390,258 @@ function makeEditWelcomeConversation(
         screenMsgId = null;
       }
       await ctx.reply(WELCOME_UPDATED);
+      await showManagementMenu(ctx, botId);
+      return;
+    }
+  };
+}
+
+function makeEditDailyCapConversation(
+  botId: string,
+  ownerTelegramId: string,
+  onSaved: (newValue: number | null) => void,
+) {
+  return async function editDailyCapConversation(
+    conversation: Conversation<BaseCtx, BaseCtx>,
+    ctx: BaseCtx,
+  ) {
+    const botRecord = await db.query.tenantBots.findFirst({
+      where: eq(tenantBots.id, botId),
+    });
+    if (!botRecord) {
+      await ctx.reply(BOT_NOT_FOUND);
+      return;
+    }
+
+    // Use the owner's effective plan (via checkQuota — already does the
+    // banned/lapsed defenses) as the ceiling. Lapsed → fall back to trial
+    // ceiling so the UI still shows a sane bound; bot would be paused
+    // anyway via over_quota_at and editing the cap is harmless then.
+    const quota = await checkQuota(ownerTelegramId, "message");
+    const planForCeiling: PlanKey = quota.plan ?? "trial";
+    const ceiling = PLANS[planForCeiling].maxMessagesPerPeriod;
+
+    const kb = new InlineKeyboard()
+      .text("Off", "biz_daily_cap_off")
+      .text("Cancel", "biz_cancel");
+
+    const chatId = ctx.chat!.id;
+    let screenMsgId: number | null =
+      ctx.callbackQuery?.message?.message_id ?? null;
+
+    if (screenMsgId !== null) {
+      await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
+    }
+    let sent = await ctx.reply(
+      dailyCapEditorBody({
+        currentValue: botRecord.dailyUserAiReplyLimit,
+        ceiling,
+      }),
+      { reply_markup: kb },
+    );
+    screenMsgId = sent.message_id;
+
+    while (true) {
+      const response = await conversation.wait();
+
+      if (response.callbackQuery?.data === "biz_cancel") {
+        await response.answerCallbackQuery();
+        if (screenMsgId !== null) {
+          await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
+          screenMsgId = null;
+        }
+        await showManagementMenu(response, botId);
+        return;
+      }
+
+      if (response.callbackQuery?.data === "biz_daily_cap_off") {
+        await response.answerCallbackQuery();
+        await conversation.external(async () => {
+          await updateBot(botId, { dailyUserAiReplyLimit: null });
+          onSaved(null);
+        });
+        if (screenMsgId !== null) {
+          await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
+          screenMsgId = null;
+        }
+        await response.reply(dailyCapUpdated(null));
+        await showManagementMenu(response, botId);
+        return;
+      }
+
+      if (response.callbackQuery) {
+        await response.answerCallbackQuery({ text: TOAST_STALE_CALLBACK });
+        await response.deleteMessage().catch(() => {});
+        if (screenMsgId !== null) {
+          await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
+          screenMsgId = null;
+        }
+        await showManagementMenu(response, botId);
+        return;
+      }
+
+      const raw = response.message?.text?.trim() ?? "";
+      if (!raw) continue;
+
+      // Accept either bare integers or "off" / "none" / "unlimited" as
+      // synonyms for clearing the cap.
+      const lowered = raw.toLowerCase();
+      if (
+        lowered === "off" ||
+        lowered === "none" ||
+        lowered === "unlimited" ||
+        lowered === "0"
+      ) {
+        await conversation.external(async () => {
+          await updateBot(botId, { dailyUserAiReplyLimit: null });
+          onSaved(null);
+        });
+        if (screenMsgId !== null) {
+          await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
+          screenMsgId = null;
+        }
+        await ctx.reply(dailyCapUpdated(null));
+        await showManagementMenu(ctx, botId);
+        return;
+      }
+
+      const parsed = Number.parseInt(raw, 10);
+      const verdict = validateDailyCap(
+        Number.isFinite(parsed) ? parsed : Number.NaN,
+        planForCeiling,
+      );
+      if (!verdict.ok) {
+        if (screenMsgId !== null) {
+          await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
+        }
+        sent = await ctx.reply(
+          dailyCapInvalid({ reason: verdict.reason, ceiling: verdict.ceiling }),
+          { reply_markup: kb },
+        );
+        screenMsgId = sent.message_id;
+        continue;
+      }
+
+      const newValue = verdict.value;
+      await conversation.external(async () => {
+        await updateBot(botId, { dailyUserAiReplyLimit: newValue });
+        onSaved(newValue);
+      });
+      if (screenMsgId !== null) {
+        await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
+        screenMsgId = null;
+      }
+      await ctx.reply(dailyCapUpdated(newValue));
+      await showManagementMenu(ctx, botId);
+      return;
+    }
+  };
+}
+
+function makeEditCapMessageConversation(
+  botId: string,
+  onSaved: (newValue: string | null) => void,
+) {
+  return async function editCapMessageConversation(
+    conversation: Conversation<BaseCtx, BaseCtx>,
+    ctx: BaseCtx,
+  ) {
+    const botRecord = await db.query.tenantBots.findFirst({
+      where: eq(tenantBots.id, botId),
+    });
+    if (!botRecord) {
+      await ctx.reply(BOT_NOT_FOUND);
+      return;
+    }
+
+    const kb = new InlineKeyboard()
+      .text("↺ Reset to default", "biz_cap_msg_reset")
+      .row()
+      .text("Cancel", "biz_cancel");
+
+    const chatId = ctx.chat!.id;
+    let screenMsgId: number | null =
+      ctx.callbackQuery?.message?.message_id ?? null;
+
+    if (screenMsgId !== null) {
+      await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
+    }
+    let sent = await ctx.reply(
+      dailyCapMessageEditorBody({
+        currentValue: botRecord.dailyCapReachedMessage,
+      }),
+      { reply_markup: kb },
+    );
+    screenMsgId = sent.message_id;
+
+    while (true) {
+      const response = await conversation.wait();
+
+      if (response.callbackQuery?.data === "biz_cancel") {
+        await response.answerCallbackQuery();
+        if (screenMsgId !== null) {
+          await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
+          screenMsgId = null;
+        }
+        await showManagementMenu(response, botId);
+        return;
+      }
+
+      if (response.callbackQuery?.data === "biz_cap_msg_reset") {
+        await response.answerCallbackQuery();
+        await conversation.external(async () => {
+          await updateBot(botId, { dailyCapReachedMessage: null });
+          onSaved(null);
+        });
+        if (screenMsgId !== null) {
+          await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
+          screenMsgId = null;
+        }
+        await response.reply(DAILY_CAP_MESSAGE_RESET);
+        await showManagementMenu(response, botId);
+        return;
+      }
+
+      if (response.callbackQuery) {
+        await response.answerCallbackQuery({ text: TOAST_STALE_CALLBACK });
+        await response.deleteMessage().catch(() => {});
+        if (screenMsgId !== null) {
+          await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
+          screenMsgId = null;
+        }
+        await showManagementMenu(response, botId);
+        return;
+      }
+
+      const text = response.message?.text?.trim() ?? "";
+      if (!text) {
+        if (screenMsgId !== null) {
+          await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
+        }
+        sent = await ctx.reply(SEND_TEXT_PLEASE, { reply_markup: kb });
+        screenMsgId = sent.message_id;
+        continue;
+      }
+      if (text.length > DAILY_CAP_MESSAGE_MAX_LENGTH) {
+        if (screenMsgId !== null) {
+          await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
+        }
+        sent = await ctx.reply(DAILY_CAP_MESSAGE_TOO_LONG, {
+          reply_markup: kb,
+        });
+        screenMsgId = sent.message_id;
+        continue;
+      }
+
+      await conversation.external(async () => {
+        await updateBot(botId, { dailyCapReachedMessage: text });
+        onSaved(text);
+      });
+      if (screenMsgId !== null) {
+        await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
+        screenMsgId = null;
+      }
+      await ctx.reply(dailyCapMessageUpdated(text));
       await showManagementMenu(ctx, botId);
       return;
     }
@@ -773,6 +1051,8 @@ export class BotRegistry {
       systemPrompt: row.systemPrompt,
       welcomeMessage: row.welcomeMessage,
       autoReadBusinessMessages: row.autoReadBusinessMessages,
+      dailyUserAiReplyLimit: row.dailyUserAiReplyLimit,
+      dailyCapReachedMessage: row.dailyCapReachedMessage,
       botUsername: row.botUsername ?? "",
       connectedBusinessUserId: row.connectedBusinessUserId,
       webhookSecret: row.webhookSecret,
@@ -884,6 +1164,24 @@ export class BotRegistry {
         "documentMgmt",
       ),
     );
+    bot.use(
+      createConversation(
+        makeEditDailyCapConversation(botId, ownerTelegramId, (newValue) => {
+          const entry = this.bots.get(botId);
+          if (entry) entry.dailyUserAiReplyLimit = newValue;
+        }),
+        "editDailyCap",
+      ),
+    );
+    bot.use(
+      createConversation(
+        makeEditCapMessageConversation(botId, (newValue) => {
+          const entry = this.bots.get(botId);
+          if (entry) entry.dailyCapReachedMessage = newValue;
+        }),
+        "editCapMessage",
+      ),
+    );
     return bot as unknown as Bot<Context>;
   }
 
@@ -916,6 +1214,8 @@ export class BotRegistry {
       systemPrompt: row.systemPrompt,
       welcomeMessage: row.welcomeMessage,
       autoReadBusinessMessages: row.autoReadBusinessMessages,
+      dailyUserAiReplyLimit: row.dailyUserAiReplyLimit,
+      dailyCapReachedMessage: row.dailyCapReachedMessage,
       botUsername: row.botUsername ?? "",
       connectedBusinessUserId: row.connectedBusinessUserId,
       webhookSecret: row.webhookSecret,
@@ -980,6 +1280,16 @@ export class BotRegistry {
     bot.callbackQuery("biz_documents", async (ctx) => {
       await ctx.answerCallbackQuery();
       await (ctx as unknown as BizCtx).conversation.enter("documentMgmt");
+    });
+
+    bot.callbackQuery("biz_edit_daily_cap", async (ctx) => {
+      await ctx.answerCallbackQuery();
+      await (ctx as unknown as BizCtx).conversation.enter("editDailyCap");
+    });
+
+    bot.callbackQuery("biz_edit_cap_message", async (ctx) => {
+      await ctx.answerCallbackQuery();
+      await (ctx as unknown as BizCtx).conversation.enter("editCapMessage");
     });
 
     bot.callbackQuery("biz_toggle_autoread", async (ctx) => {
@@ -1420,6 +1730,50 @@ export class BotRegistry {
           return;
         }
 
+        // Per-end-user daily AI-reply cap. Owner-configurable per bot,
+        // clamped at read time to the plan's monthly ceiling — see
+        // `effectiveDailyAiReplyCap` in `lib/plans.ts`. Counter increments
+        // only AFTER a successful AI generation (further down this
+        // handler) so transient Gateway errors don't burn the end-user's
+        // quota for the day. When the cap is hit the customer gets a
+        // canned "we're busy" reply instead of a generated one.
+        const customerId = from?.id;
+        if (customerId !== undefined) {
+          const cap = effectiveDailyAiReplyCap(
+            botEntry.dailyUserAiReplyLimit,
+            msgQuota.plan,
+          );
+          const used = await getDailyAiReplyCount(botId, customerId).catch(
+            (err) => {
+              logger.warn(
+                { err, botId, customerId },
+                "daily AI cap read failed; allowing this message",
+              );
+              return 0;
+            },
+          );
+          if (used >= cap) {
+            logger.info(
+              { botId, customerId, used, cap },
+              "daily AI cap reached; sending canned reply",
+            );
+            const capReply =
+              botEntry.dailyCapReachedMessage?.trim() ||
+              DAILY_AI_CAP_REACHED_REPLY;
+            try {
+              await ctx.api.sendMessage(chatId, capReply, {
+                business_connection_id: connId,
+              });
+            } catch (err) {
+              logger.warn(
+                { err, botId, connId },
+                "failed to send daily-cap canned reply",
+              );
+            }
+            return;
+          }
+        }
+
         // Mark the customer's message as read (double-check) if the owner
         // opted in AND the bot was actually granted can_read_messages.
         // Skipping the API call when the right is missing saves a doomed
@@ -1501,6 +1855,18 @@ export class BotRegistry {
         });
 
         if (result.text !== null) {
+          // Increment the per-end-user daily counter only on success.
+          // Failed AI calls (caught above) decrement the owner counter but
+          // never touched this one, so nothing to roll back.
+          if (customerId !== undefined) {
+            await incrDailyAiReplyCount(botId, customerId).catch((err) => {
+              logger.warn(
+                { err, botId, customerId },
+                "daily AI cap incr failed",
+              );
+            });
+          }
+
           await db.insert(messages).values({
             conversationId: conv.id,
             tenantId,

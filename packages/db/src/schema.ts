@@ -51,6 +51,13 @@ export const tenantBots = pgTable("tenant_bots", {
   // lapse, cleared on re-subscribe. See SUBSCRIPTION.md "Over-Quota
   // Reconciliation".
   overQuotaAt: timestamp("over_quota_at", { withTimezone: true }),
+  // Per-user-per-day cap on AI replies. NULL = unlimited up to plan cap.
+  // The effective cap at runtime is min(this, plan.maxMessagesPerPeriod).
+  dailyUserAiReplyLimit: integer("daily_user_ai_reply_limit"),
+  // Optional override for the canned "we're busy" reply sent to a customer
+  // who has hit `dailyUserAiReplyLimit` for the day. NULL = use the
+  // default `DAILY_AI_CAP_REACHED_REPLY` constant in `lib/text.ts`.
+  dailyCapReachedMessage: text("daily_cap_reached_message"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 }, (t) => ({
   tenantIdx: index("tenant_bots_tenant_idx").on(t.tenantId),
