@@ -93,15 +93,17 @@ const CB = {
   upgradeConfirm: "billing_upgrade_confirm",
   cancel: "billing_cancel",
   resume: "billing_resume",
-  /** Prefix for `billing_cancel_confirm_{chargeId}`. */
+  /** Prefix for `billing_cancel_confirm_{subUuid}`. We embed the
+   *  subscription row's UUID (36 chars) instead of the Telegram payment
+   *  charge id (~140 chars) because Telegram caps callback_data at 64
+   *  bytes. The handler resolves UUID → chargeId via a DB lookup. */
   cancelConfirmPrefix: "billing_cancel_confirm_",
-  /** Prefix for `billing_cancel_reason_{key}_{chargeId}`. */
+  /** Prefix for `billing_cancel_reason_{key}_{subUuid}`. Same reason as
+   *  cancelConfirmPrefix — UUID, not chargeId. */
   cancelReasonPrefix: "billing_cancel_reason_",
 } as const;
 
-/** Regex for `billing_cancel_confirm_{chargeId}`. Charge ids are
- *  Telegram-provided alphanumeric strings (we also allow underscores/dashes
- *  defensively — Telegram has historically used `_` separators). */
+/** Regex for `billing_cancel_confirm_{subUuid}`. */
 const CANCEL_CONFIRM_RE = /^billing_cancel_confirm_(.+)$/;
 
 /** Regex for `billing_cancel_reason_{reasonKey}_{chargeId}`. Reason key is
@@ -118,6 +120,10 @@ const CANCEL_REASON_KEYS = new Set(CANCEL_REASONS.map((r) => r.key));
 type BillingStatus = "trialing" | "active" | "canceled" | "lapsed";
 
 interface OwnerSubRow {
+  /** Subscription row UUID — short enough to embed in Telegram's 64-byte
+   *  callback_data, unlike telegramPaymentChargeId which routinely runs
+   *  ~140 chars and would push callback strings past Telegram's limit. */
+  id: string;
   plan: PlanKey;
   status: "trialing" | "active" | "canceled" | "lapsed";
   currentPeriodEnd: Date;
@@ -183,12 +189,12 @@ export function attachBillingHandlers(bot: Bot<Context>): void {
   });
 
   bot.callbackQuery(CANCEL_CONFIRM_RE, async (ctx) => {
-    const chargeId = parseCancelConfirmCallback(ctx.callbackQuery?.data);
-    if (!chargeId) {
+    const subId = parseCancelConfirmCallback(ctx.callbackQuery?.data);
+    if (!subId) {
       await ctx.answerCallbackQuery().catch(() => {});
       return;
     }
-    await handleCancelConfirm(ctx, chargeId);
+    await handleCancelConfirm(ctx, subId);
   });
 
   bot.callbackQuery(/^billing_cancel_reason_/, async (ctx) => {
@@ -197,7 +203,7 @@ export function attachBillingHandlers(bot: Bot<Context>): void {
       await ctx.answerCallbackQuery().catch(() => {});
       return;
     }
-    await handleCancelReason(ctx, parsed.key, parsed.chargeId);
+    await handleCancelReason(ctx, parsed.key, parsed.subId);
   });
 
   bot.callbackQuery(CB.resume, async (ctx) => {
@@ -297,6 +303,7 @@ async function loadBillingState(ownerId: string): Promise<BillingState> {
     const subRows = await db.query.subscriptions.findMany({
       where: eq(subscriptions.ownerTelegramUserId, ownerId),
       columns: {
+        id: true,
         plan: true,
         status: true,
         currentPeriodEnd: true,
@@ -346,6 +353,7 @@ async function loadBillingState(ownerId: string): Promise<BillingState> {
       largestBotDocCount,
       messagesThisPeriod: ownerRow.messagesThisPeriod,
       subs: subRows.map((s) => ({
+        id: s.id,
         plan: s.plan,
         status: s.status,
         currentPeriodEnd: s.currentPeriodEnd,
@@ -611,10 +619,7 @@ async function handleCancelTap(ctx: Context): Promise<void> {
     endsOn: formatDate(primary.currentPeriodEnd),
   });
   const kb = new InlineKeyboard()
-    .text(
-      "Yes, cancel",
-      `${CB.cancelConfirmPrefix}${primary.telegramPaymentChargeId}`,
-    )
+    .text("Yes, cancel", `${CB.cancelConfirmPrefix}${primary.id}`)
     .row()
     .text("Keep subscription", CB.menu);
 
@@ -627,49 +632,67 @@ async function handleCancelTap(ctx: Context): Promise<void> {
  */
 async function handleCancelConfirm(
   ctx: Context,
-  telegramPaymentChargeId: string,
+  subId: string,
 ): Promise<void> {
   await ctx.answerCallbackQuery().catch(() => {});
   const userId = ctx.from?.id;
   if (userId === undefined) return;
   const ownerTelegramUserId = String(userId);
 
-  // 1. Telegram-side: switch auto-renew off. Fail-open — DB write below is
-  //    the canonical state.
+  // Resolve sub UUID → chargeId, with ownership double-check.
+  let telegramPaymentChargeId: string | null = null;
+  try {
+    const row = await db.query.subscriptions.findFirst({
+      where: and(
+        eq(subscriptions.id, subId),
+        eq(subscriptions.ownerTelegramUserId, ownerTelegramUserId),
+      ),
+      columns: { telegramPaymentChargeId: true },
+    });
+    telegramPaymentChargeId = row?.telegramPaymentChargeId ?? null;
+  } catch (err) {
+    logger.warn(
+      { err, ownerTelegramUserId, subId },
+      "cancel-confirm: subscription lookup failed",
+    );
+  }
+  if (!telegramPaymentChargeId) {
+    await ctx.deleteMessage().catch(() => {});
+    await renderBillingScreen(ctx, ownerTelegramUserId);
+    return;
+  }
+
+  // 1. Telegram-side: switch auto-renew off. Fail-open — DB is canonical.
   await cancelStarSubscription({
     ownerTelegramUserId,
     telegramPaymentChargeId,
   }).catch((err) => {
     logger.warn(
-      { err, ownerTelegramUserId, telegramPaymentChargeId },
+      { err, ownerTelegramUserId, subId },
       "cancelStarSubscription threw — continuing with DB update",
     );
     return false;
   });
 
-  // 2. DB: mark this row canceled. Scoped by both owner and charge id so a
-  //    stale callback can't touch another owner's row.
+  // 2. DB: mark this row canceled. Scoped by sub id + owner.
   try {
     await db
       .update(subscriptions)
       .set({ status: "canceled", canceledAt: new Date() })
       .where(
         and(
-          eq(
-            subscriptions.telegramPaymentChargeId,
-            telegramPaymentChargeId,
-          ),
+          eq(subscriptions.id, subId),
           eq(subscriptions.ownerTelegramUserId, ownerTelegramUserId),
         ),
       );
   } catch (err) {
     logger.warn(
-      { err, ownerTelegramUserId, telegramPaymentChargeId },
+      { err, ownerTelegramUserId, subId },
       "cancel-confirm DB update failed",
     );
   }
 
-  // 3. Fan out to downstream (notify/owner + recompute plan).
+  // 3. Fan out (notify/owner + recompute plan).
   try {
     await inngest.send({
       name: "subscription/canceled",
@@ -680,17 +703,18 @@ async function handleCancelConfirm(
     });
   } catch (err) {
     logger.warn(
-      { err, ownerTelegramUserId, telegramPaymentChargeId },
+      { err, ownerTelegramUserId, subId },
       "subscription/canceled inngest send failed",
     );
   }
 
-  // 4. Reason picker — optional. "Skip" routes back to the billing menu.
+  // 4. Reason picker. Callback embeds sub UUID, not chargeId, to stay
+  //    within Telegram's 64-byte callback_data cap.
   const kb = new InlineKeyboard();
   for (const reason of CANCEL_REASONS) {
     kb.text(
       reason.label,
-      `${CB.cancelReasonPrefix}${reason.key}_${telegramPaymentChargeId}`,
+      `${CB.cancelReasonPrefix}${reason.key}_${subId}`,
     ).row();
   }
   kb.text("Skip", CB.menu);
@@ -704,7 +728,7 @@ async function handleCancelConfirm(
 async function handleCancelReason(
   ctx: Context,
   reasonKey: string,
-  telegramPaymentChargeId: string,
+  subId: string,
 ): Promise<void> {
   await ctx.answerCallbackQuery().catch(() => {});
   const userId = ctx.from?.id;
@@ -717,16 +741,13 @@ async function handleCancelReason(
       .set({ cancelReason: reasonKey })
       .where(
         and(
-          eq(
-            subscriptions.telegramPaymentChargeId,
-            telegramPaymentChargeId,
-          ),
+          eq(subscriptions.id, subId),
           eq(subscriptions.ownerTelegramUserId, ownerTelegramUserId),
         ),
       );
   } catch (err) {
     logger.warn(
-      { err, ownerTelegramUserId, telegramPaymentChargeId, reasonKey },
+      { err, ownerTelegramUserId, subId, reasonKey },
       "cancel-reason DB update failed",
     );
   }
@@ -1131,8 +1152,10 @@ async function handleSuccessfulPayment(ctx: Context): Promise<void> {
 // ---------------------------------------------------------------------------
 
 /**
- * Parse a `billing_cancel_confirm_{chargeId}` callback. Returns the charge
- * id, or null on prefix mismatch / empty id. Pure helper — tested directly.
+ * Parse a `billing_cancel_confirm_{subId}` callback. Returns the
+ * subscription row UUID, or null on prefix mismatch / empty id. We use the
+ * sub UUID (36 chars) instead of telegram_payment_charge_id (~140 chars)
+ * to stay within Telegram's 64-byte callback_data cap.
  */
 function parseCancelConfirmCallback(
   data: string | undefined,
@@ -1140,35 +1163,31 @@ function parseCancelConfirmCallback(
   if (typeof data !== "string") return null;
   const m = CANCEL_CONFIRM_RE.exec(data);
   if (!m) return null;
-  const chargeId = m[1];
-  if (!chargeId) return null;
-  return chargeId;
+  const subId = m[1];
+  if (!subId) return null;
+  return subId;
 }
 
 /**
- * Parse a `billing_cancel_reason_{key}_{chargeId}` callback. The reason key
+ * Parse a `billing_cancel_reason_{key}_{subId}` callback. The reason key
  * comes from a static allow-list (`CANCEL_REASONS`), so we split off the
- * longest known-key prefix and treat the rest as the charge id.
- *
- * Returns null on prefix mismatch, unknown reason key, or empty charge id.
+ * longest known-key prefix and treat the rest as the sub UUID.
  */
 function parseCancelReasonCallback(
   data: string | undefined,
-): { key: string; chargeId: string } | null {
+): { key: string; subId: string } | null {
   if (typeof data !== "string") return null;
   if (!data.startsWith(CB.cancelReasonPrefix)) return null;
   const remainder = data.slice(CB.cancelReasonPrefix.length);
   if (remainder.length === 0) return null;
 
-  // Try each known reason key (longest first to disambiguate overlapping
-  // prefixes — currently none, but defensive).
   const keys = [...CANCEL_REASON_KEYS].sort((a, b) => b.length - a.length);
   for (const key of keys) {
     const prefix = `${key}_`;
     if (remainder.startsWith(prefix)) {
-      const chargeId = remainder.slice(prefix.length);
-      if (chargeId.length === 0) return null;
-      return { key, chargeId };
+      const subId = remainder.slice(prefix.length);
+      if (subId.length === 0) return null;
+      return { key, subId };
     }
   }
   return null;
@@ -1186,6 +1205,7 @@ async function loadPrimarySubscription(
     const rows = await db.query.subscriptions.findMany({
       where: eq(subscriptions.ownerTelegramUserId, ownerId),
       columns: {
+        id: true,
         plan: true,
         status: true,
         currentPeriodEnd: true,
@@ -1234,6 +1254,7 @@ async function loadResumableSubscription(
         eq(subscriptions.status, "canceled"),
       ),
       columns: {
+        id: true,
         plan: true,
         status: true,
         currentPeriodEnd: true,
@@ -1267,6 +1288,7 @@ async function loadActiveProSubscription(
         eq(subscriptions.status, "active"),
       ),
       columns: {
+        id: true,
         plan: true,
         status: true,
         currentPeriodEnd: true,

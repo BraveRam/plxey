@@ -170,6 +170,7 @@ describe("composeBillingScreen", () => {
         effectivePlan: "pro",
         subs: [
           {
+            id: "sub-uuid-1",
             plan: "pro",
             status: "canceled",
             currentPeriodEnd: tailEnd,
@@ -275,7 +276,7 @@ describe("parseCancelReasonCallback", () => {
     for (const reason of CANCEL_REASONS) {
       const data = `billing_cancel_reason_${reason.key}_charge42`;
       const parsed = parseCancelReasonCallback(data);
-      expect(parsed).toEqual({ key: reason.key, chargeId: "charge42" });
+      expect(parsed).toEqual({ key: reason.key, subId: "charge42" });
     }
   });
 
@@ -285,7 +286,7 @@ describe("parseCancelReasonCallback", () => {
     );
     expect(parsed).toEqual({
       key: "too_expensive",
-      chargeId: "Stars_42_abc",
+      subId: "Stars_42_abc",
     });
   });
 
