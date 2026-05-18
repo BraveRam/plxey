@@ -10,7 +10,8 @@
  * See SUBSCRIPTION.md "Subscribe Flow" + "Inngest Event Registry".
  */
 
-import { db, subscriptions } from "@tg-business/db";
+import { db, owners, subscriptions } from "@tg-business/db";
+import { eq, sql } from "drizzle-orm";
 import { inngest } from "../client";
 import type { Events } from "../events";
 import {
@@ -51,7 +52,18 @@ export const subscriptionStarted = inngest.createFunction(
         .onConflictDoNothing();
     });
 
-    // 2. Recompute the owner's effective plan from owner row + all subs.
+    // 2. Bump lifetime_stars_spent atomically (mirrors subscription-renewed).
+    //    The first charge should count toward lifetime spend too.
+    await step.run("bump-lifetime-stars", async () => {
+      await db
+        .update(owners)
+        .set({
+          lifetimeStarsSpent: sql`${owners.lifetimeStarsSpent} + ${starsAmount}`,
+        })
+        .where(eq(owners.telegramUserId, ownerTelegramUserId));
+    });
+
+    // 3. Recompute the owner's effective plan from owner row + all subs.
     const planResult = await step.run("recompute-plan", async () => {
       return recomputeEffectivePlan(ownerTelegramUserId);
     });
