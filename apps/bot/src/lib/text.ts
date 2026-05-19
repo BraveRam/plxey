@@ -103,7 +103,6 @@ export function tenantHelp(): string {
     "Use <b>/start</b> here at any time to open the management menu.\n\n" +
     "<b>What each option does</b>\n" +
     "• <b>✏️ Prompt</b> — the system prompt that tells the AI how to behave. " +
-    "Use <code>{business_name}</code> as a placeholder for your tenant name.\n" +
     "• <b>💬 Welcome</b> — a custom greeting shown when a customer opens " +
     "this bot for the first time.\n" +
     "• <b>📚 Knowledge</b> — documents (PDF, TXT, Markdown, DOCX, HTML) " +
@@ -139,8 +138,7 @@ export const PRIVACY_POLICY =
   "signed up for. We don't sell it, we don't share it for advertising, " +
   "and you can delete it any time.\n\n" +
   "<b>What we know about you</b>\n" +
-  "• Your Telegram profile: name, username, language, and whether " +
-  "you're a Telegram Premium user.\n" +
+  "• Your Telegram profile: name, username, language - basic info " +
   "• The bots you connect, including the bot token (stored encrypted).\n" +
   "• Messages your customers send to your bots, and the replies the " +
   "AI generates.\n" +
@@ -150,7 +148,7 @@ export const PRIVACY_POLICY =
   "• Powering the AI replies your bots send to your customers.\n" +
   "• Showing you usage stats and billing information.\n" +
   "• Improving the service (we look at anonymized product " +
-  "analytics — which buttons get tapped, where people drop off).\n\n" +
+  "analytics).\n\n" +
   "<b>Who we share it with</b>\n" +
   "We never sell or rent your data. We work with a small set of " +
   "trusted infrastructure providers (cloud hosting, database, file " +
@@ -204,7 +202,7 @@ export const TERMS_OF_SERVICE =
   "you give it. It can be wrong. Treat its replies as a draft your " +
   "customers will see — you're the one who decides what your bot " +
   "should know and how it should behave.\n\n" +
-  "<b>Service is \"as is\"</b>\n" +
+  '<b>Service is "as is"</b>\n' +
   "We do our best to keep things running, but we don't promise the " +
   "service will be available without interruption or free of bugs. " +
   "To the extent the law allows, our liability is limited to the " +
@@ -573,8 +571,7 @@ export function docAddPrompt(args: { sizeLabel: string; max: number }): string {
   );
 }
 
-export const DOC_BATCH_PROMPT =
-  "Send another document or press /done.";
+export const DOC_BATCH_PROMPT = "Send another document or press /done.";
 
 export const DOC_UNSUPPORTED =
   "Please send a supported file (PDF, TXT, Markdown, DOCX, or HTML), or press Cancel.";
