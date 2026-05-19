@@ -15,7 +15,10 @@ interface SendAdminMessageResult {
 
 interface AskAIOptions {
   botId: string;
-  sendAdminMessage?: (input: { message: string; reason: string }) => Promise<SendAdminMessageResult>;
+  sendAdminMessage?: (input: {
+    message: string;
+    reason: string;
+  }) => Promise<SendAdminMessageResult>;
 }
 
 export async function askAI(
@@ -26,34 +29,49 @@ export async function askAI(
   options: AskAIOptions,
 ): Promise<{ text: string | null }> {
   const tools = {
-    ...(options.sendAdminMessage ? {
-      send_admin_message: tool({
-        description:
-          "Send a concrete customer message to the human admin. Only call this when you have the exact message text to pass along.",
-        inputSchema: z.object({
-          message: z.string().describe("The exact customer message to send to the admin"),
-          reason: z.string().describe("Why this needs the human admin"),
-        }),
-        execute: async ({ message, reason }: { message: string; reason: string }) => {
-          logger.info({ reason }, "send_admin_message tool called");
-          return options.sendAdminMessage!({ message, reason });
-        },
-      }),
-    } : {}),
+    ...(options.sendAdminMessage
+      ? {
+          send_admin_message: tool({
+            description:
+              "Send a concrete customer message to the human admin. Only call this when you have the exact message text to pass along.",
+            inputSchema: z.object({
+              message: z
+                .string()
+                .describe("The exact customer message to send to the admin"),
+              reason: z.string().describe("Why this needs the human admin"),
+            }),
+            execute: async ({
+              message,
+              reason,
+            }: {
+              message: string;
+              reason: string;
+            }) => {
+              logger.info({ reason }, "send_admin_message tool called");
+              return options.sendAdminMessage!({ message, reason });
+            },
+          }),
+        }
+      : {}),
     get_information: tool({
       description:
         "Search the knowledge base for information relevant to the customer's question. Call this to retrieve context from uploaded documents.",
       inputSchema: z.object({
-        query: z.string().describe("The search query based on the customer's question"),
+        query: z
+          .string()
+          .describe("The search query based on the customer's question"),
       }),
       execute: async ({ query }: { query: string }) => {
         const results = await findRelevantContent(query, options.botId);
         if (results.length === 0) {
-          return { found: false, message: "No relevant information found in the knowledge base." };
+          return {
+            found: false,
+            message: "No relevant information found in the knowledge base.",
+          };
         }
         return {
           found: true,
-          chunks: results.map(r => r.content).join("\n\n---\n\n"),
+          chunks: results.map((r) => r.content).join("\n\n---\n\n"),
         };
       },
     }),
@@ -62,7 +80,7 @@ export async function askAI(
   const result = await generateText({
     model: process.env.AI_MODEL || "deepseek/deepseek-v4-flash",
     system:
-      systemPrompt.replace("{business_name}", businessName) +
+      systemPrompt +
       "\n\nUse the conversation history for context." +
       "\n\nYou have a knowledge base of uploaded documents. When a customer asks a question, call get_information to search for relevant information. Do not guess or make up information." +
       "\n\nIf the customer asks to leave a message for the admin but does not provide the actual message, ask what they would like you to tell the admin. Do not call a tool yet." +
@@ -79,7 +97,11 @@ export async function askAI(
 
   const trimmed = result.text.trim();
   logger.info(
-    { hasResult: trimmed.length > 0, toolCalls: result.toolCalls?.length ?? 0, finishReason: result.finishReason },
+    {
+      hasResult: trimmed.length > 0,
+      toolCalls: result.toolCalls?.length ?? 0,
+      finishReason: result.finishReason,
+    },
     "AI response",
   );
   return { text: trimmed };
