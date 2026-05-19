@@ -7,7 +7,6 @@ import {
   TERMS_OF_SERVICE,
   TOAST_AUTOREAD_OFF,
   TOAST_AUTOREAD_ON,
-  TOAST_STALE_CALLBACK,
   analyticsBucketScreen,
   analyticsLanding,
   analyticsWindowLabel,
@@ -57,14 +56,6 @@ describe("auto-read toasts", () => {
   test("describe the consequence in plain prose", () => {
     expect(TOAST_AUTOREAD_ON).toContain("show as read");
     expect(TOAST_AUTOREAD_OFF).toContain("stay unread");
-  });
-});
-
-describe("stale-callback toast", () => {
-  test("is a friendly sentence, not jargon", () => {
-    expect(TOAST_STALE_CALLBACK).toBe(
-      "That button expired. Reopened the menu.",
-    );
   });
 });
 

@@ -115,7 +115,6 @@ import {
   TOAST_PERMISSIONS_REFRESHED,
   TOAST_REFRESH_RATE_LIMITED,
   TOAST_REPLY_EXPIRED,
-  TOAST_STALE_CALLBACK,
   TOAST_TAP_TRASH_TO_DELETE,
   WELCOME_NO_CUSTOM,
   DAILY_AI_CAP_REACHED_REPLY,
@@ -293,7 +292,7 @@ function makeEditPromptConversation(botId: string) {
 
       if (response.callbackQuery) {
         // Unknown / stale button — exit cleanly to the management menu.
-        await response.answerCallbackQuery({ text: TOAST_STALE_CALLBACK });
+        await response.answerCallbackQuery();
         await response.deleteMessage().catch(() => {});
         if (screenMsgId !== null) {
           await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
@@ -418,7 +417,7 @@ function makeEditWelcomeConversation(
 
       if (response.callbackQuery) {
         // Unknown / stale button — exit cleanly to the management menu.
-        await response.answerCallbackQuery({ text: TOAST_STALE_CALLBACK });
+        await response.answerCallbackQuery();
         await response.deleteMessage().catch(() => {});
         if (screenMsgId !== null) {
           await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
@@ -541,7 +540,7 @@ async function runBusyReplyEditorScreen(
     }
 
     if (response.callbackQuery) {
-      await response.answerCallbackQuery({ text: TOAST_STALE_CALLBACK });
+      await response.answerCallbackQuery();
       await response.deleteMessage().catch(() => {});
       if (screenMsgId !== null) {
         await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
@@ -710,7 +709,7 @@ function makeEditDailyCapConversation(
       }
 
       if (response.callbackQuery) {
-        await response.answerCallbackQuery({ text: TOAST_STALE_CALLBACK });
+        await response.answerCallbackQuery();
         await response.deleteMessage().catch(() => {});
         if (screenMsgId !== null) {
           await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
@@ -1013,7 +1012,7 @@ function makeDocumentManagementConversation(
 
       if (response.callbackQuery) {
         // Unknown / stale button — exit cleanly to the management menu.
-        await response.answerCallbackQuery({ text: TOAST_STALE_CALLBACK });
+        await response.answerCallbackQuery();
         await response.deleteMessage().catch(() => {});
         if (screenMsgId !== null) {
           await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
@@ -1851,7 +1850,7 @@ export class BotRegistry {
         return;
       }
       await ctx
-        .answerCallbackQuery({ text: TOAST_STALE_CALLBACK })
+        .answerCallbackQuery()
         .catch(() => {});
       await ctx.deleteMessage().catch(() => {});
       await showManagementMenu(ctx, botId);

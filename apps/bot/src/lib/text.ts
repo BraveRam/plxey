@@ -17,7 +17,6 @@
 // Common toasts (callback query answers)
 // =============================================================================
 
-export const TOAST_STALE_CALLBACK = "That button expired. Reopened the menu.";
 export const TOAST_BOT_NOT_LOADED =
   "Bot isn't loaded yet. Try again in a moment.";
 export const TOAST_PERMISSIONS_REFRESHED = "Permissions refreshed.";

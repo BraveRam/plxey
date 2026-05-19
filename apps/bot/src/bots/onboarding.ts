@@ -31,7 +31,6 @@ import {
   ONBOARDING_INVALID_TOKEN,
   ONBOARDING_TOKEN_REQUIRED,
   SUBSCRIBE_TO_CREATE_BOT,
-  TOAST_STALE_CALLBACK,
   botCreateBlocked,
   deleteBotMismatch,
   deleteBotPrompt,
@@ -143,7 +142,7 @@ async function deleteBotConversation(
     }
 
     if (response.callbackQuery) {
-      await response.answerCallbackQuery({ text: TOAST_STALE_CALLBACK });
+      await response.answerCallbackQuery();
       await response.deleteMessage().catch(() => {});
       if (screenMsgId !== null) {
         await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
@@ -268,7 +267,7 @@ async function createBotConversation(conversation: Conversation<BaseCtx, BaseCtx
 
     if (response.callbackQuery) {
       // Stale button from an older state. Exit cleanly to the main menu.
-      await response.answerCallbackQuery({ text: TOAST_STALE_CALLBACK });
+      await response.answerCallbackQuery();
       await response.deleteMessage().catch(() => {});
       if (screenMsgId !== null) {
         await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
@@ -643,7 +642,7 @@ export async function createOnboardingBot(): Promise<Bot> {
   // over after a process restart, or stale buttons whose state is gone.
   bot.on("callback_query:data", async (ctx) => {
     await ctx
-      .answerCallbackQuery({ text: TOAST_STALE_CALLBACK })
+      .answerCallbackQuery()
       .catch(() => {});
     await ctx.deleteMessage().catch(() => {});
     const userId = String(ctx.from?.id ?? "");
