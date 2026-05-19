@@ -213,19 +213,23 @@ Entered when the owner taps "Documents". Created per-bot by `makeDocumentManagem
 
 Dispatches on callback data:
 
-- `biz_doc_back` → management menu, exits.
-- `biz_doc_cancel` → re-shows docs list.
-- `biz_add_doc` → checks `MAX_DOCUMENTS_PER_BOT`; if under limit, sends upload prompt.
+- `biz_doc_back` → management menu, exits. Clears `inBatchUpload`.
+- `biz_doc_cancel` → re-shows docs list. Clears `inBatchUpload`.
+- `biz_doc_done` → exit batch upload mode, re-shows docs list.
+- `biz_add_doc` → checks plan quota + `MAX_DOCUMENTS_PER_BOT`; if under limit, sends the batch upload prompt (`docAddPrompt`, keyboard `[Cancel] [✅ Done]`) and flips `inBatchUpload = true`.
 - `biz_docitem_{id}` → answers with delete hint, stays in loop.
 - `biz_del_doc_{id}` → shows confirm-delete screen.
 - `biz_confirm_del_{id}` → `deleteDocument(docId)`; re-shows list.
 - Stale callback → management menu, exits.
+- Text `/done` (when `inBatchUpload`) → re-shows docs list.
 - Document message:
   1. `detectMimeType`.
-  2. Checks `MAX_DOCUMENTS_PER_BOT` and `MAX_DOCUMENT_SIZE_BYTES`.
+  2. Re-runs the plan-cap quota gate, `MAX_DOCUMENTS_PER_BOT`, and `MAX_DOCUMENT_SIZE_BYTES` checks per file (batch-safe).
   3. `ctx.api.getFile` to resolve `file_path`.
   4. Inside `conversation.external`: fetch raw bytes from Telegram CDN, upload to B2 under `tenants/{tenantId}/docs/{uuid}.{ext}`, POST to `{WORKER_URL}/ingest`.
-  5. Shows "Queued" confirmation; re-shows list.
+  5. Replies `✅ Document queued.` then, if still in batch mode, re-posts the `DOC_BATCH_PROMPT` ("Send another document or press /done.") with the `[Cancel] [✅ Done]` keyboard at the bottom of the chat. Outside batch mode, falls back to re-rendering the full docs list.
+
+**Batch upload mode**: tapping ➕ Add Document enters a sub-mode where the owner can drop multiple files into the chat back-to-back. The docs list is *not* re-rendered between uploads; instead a single rolling prompt sits at the bottom of the chat. The owner exits the batch by sending `/done`, tapping ✅ Done, or tapping Cancel — all three return them to the docs list. Each file is still uploaded, queued, and ingested individually (one `documents` row, one `rag/document.ingest` event per file); only the UI is batched.
 
 ---
 

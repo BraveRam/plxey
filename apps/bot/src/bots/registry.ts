@@ -93,6 +93,7 @@ import {
   DOC_DELETED,
   DOC_DELETE_FAILED,
   DOC_NO_FILE_ACCESS,
+  DOC_BATCH_PROMPT,
   DOC_PROCESSING,
   DOC_QUEUED,
   DOC_RAG_NOT_CONFIGURED,
@@ -184,6 +185,9 @@ interface HistoryEntry {
 
 const cancelKb = new InlineKeyboard().text("Cancel", "biz_cancel");
 const docCancelKb = new InlineKeyboard().text("Cancel", "biz_doc_cancel");
+const docBatchKb = new InlineKeyboard()
+  .text("Cancel", "biz_doc_cancel")
+  .text("✅ Done", "biz_doc_done");
 
 async function showManagementMenu(ctx: Context, botId: string) {
   // Hot path: management menu is the first screen every owner /start
@@ -830,6 +834,9 @@ function makeDocumentManagementConversation(
     // one — keeps the screen at the bottom of the chat even after the bot
     // sent progress messages in between.
     let screenMsgId: number | null = ctx.callbackQuery?.message?.message_id ?? null;
+    // Set to true once the owner taps "➕ Add Document" and enters the batch
+    // upload sub-mode. /done, the Done button, and Cancel all clear it.
+    let inBatchUpload = false;
 
     async function showDocsList() {
       const docs = await listDocuments(botId);
@@ -882,6 +889,7 @@ function makeDocumentManagementConversation(
 
       if (response.callbackQuery?.data === "biz_doc_back") {
         await response.answerCallbackQuery();
+        inBatchUpload = false;
         if (screenMsgId !== null) {
           await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
           screenMsgId = null;
@@ -892,6 +900,14 @@ function makeDocumentManagementConversation(
 
       if (response.callbackQuery?.data === "biz_doc_cancel") {
         await response.answerCallbackQuery();
+        inBatchUpload = false;
+        await showDocsList();
+        continue;
+      }
+
+      if (response.callbackQuery?.data === "biz_doc_done") {
+        await response.answerCallbackQuery();
+        inBatchUpload = false;
         await showDocsList();
         continue;
       }
@@ -951,11 +967,10 @@ function makeDocumentManagementConversation(
             sizeLabel: formatBytes(MAX_DOCUMENT_SIZE_BYTES),
             max: MAX_DOCUMENTS_PER_BOT,
           }),
-          {
-            reply_markup: new InlineKeyboard().text("Cancel", "biz_doc_cancel"),
-          },
+          { reply_markup: docBatchKb },
         );
         screenMsgId = sent.message_id;
+        inBatchUpload = true;
         continue;
       }
 
@@ -1008,12 +1023,23 @@ function makeDocumentManagementConversation(
         return;
       }
 
+      if (
+        inBatchUpload &&
+        response.message?.text?.trim().toLowerCase() === "/done"
+      ) {
+        inBatchUpload = false;
+        await showDocsList();
+        continue;
+      }
+
       const doc = response.message?.document;
       const detectedMime = doc
         ? detectMimeType(doc.file_name, doc.mime_type)
         : null;
       if (!doc || !detectedMime) {
-        await ctx.reply(DOC_UNSUPPORTED, { reply_markup: docCancelKb });
+        await ctx.reply(DOC_UNSUPPORTED, {
+          reply_markup: inBatchUpload ? docBatchKb : docCancelKb,
+        });
         continue;
       }
 
@@ -1033,7 +1059,7 @@ function makeDocumentManagementConversation(
                 planLabel: uploadQuota.plan ?? "",
               });
         await ctx.reply(message, {
-          reply_markup: docCancelKb,
+          reply_markup: inBatchUpload ? docBatchKb : docCancelKb,
           parse_mode: "HTML",
         });
         continue;
@@ -1045,9 +1071,10 @@ function makeDocumentManagementConversation(
         currentDocCount: existing.length,
       });
       if (!limitCheck.ok) {
+        const limitKb = inBatchUpload ? docBatchKb : docCancelKb;
         if (limitCheck.reason === "too_many") {
           await ctx.reply(docLimitReached(limitCheck.limit), {
-            reply_markup: docCancelKb,
+            reply_markup: limitKb,
           });
         } else {
           await ctx.reply(
@@ -1055,7 +1082,7 @@ function makeDocumentManagementConversation(
               size: formatBytes(limitCheck.size),
               limit: formatBytes(limitCheck.limit),
             }),
-            { reply_markup: docCancelKb },
+            { reply_markup: limitKb },
           );
         }
         continue;
@@ -1140,7 +1167,21 @@ function makeDocumentManagementConversation(
         await ctx.reply(DOC_QUEUED);
       }
 
-      await showDocsList();
+      if (inBatchUpload) {
+        // Re-prompt for the next file (or /done) without re-rendering the
+        // full docs list between uploads. Mirrors showDocsList's "delete
+        // previous screen, post a new one at the bottom" pattern so the
+        // owner can keep dropping files into the chat.
+        if (screenMsgId !== null) {
+          await ctx.api.deleteMessage(chatId, screenMsgId).catch(() => {});
+        }
+        const sent = await ctx.reply(DOC_BATCH_PROMPT, {
+          reply_markup: docBatchKb,
+        });
+        screenMsgId = sent.message_id;
+      } else {
+        await showDocsList();
+      }
     }
   };
 }

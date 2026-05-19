@@ -567,11 +567,15 @@ export function docLimitReached(max: number): string {
 
 export function docAddPrompt(args: { sizeLabel: string; max: number }): string {
   return (
-    `Send me a document to add as knowledge for this bot.\n\n` +
+    `Send me one or more documents to add as knowledge for this bot.\n\n` +
     `Supported: PDF, TXT, Markdown (.md), Word (.docx), HTML.\n\n` +
-    `Max ${args.sizeLabel} per file, up to ${args.max} documents per bot.`
+    `Max ${args.sizeLabel} per file, up to ${args.max} documents per bot.\n\n` +
+    `Send /done when you're finished.`
   );
 }
+
+export const DOC_BATCH_PROMPT =
+  "Send another document or press /done.";
 
 export const DOC_UNSUPPORTED =
   "Please send a supported file (PDF, TXT, Markdown, DOCX, or HTML), or press Cancel.";
