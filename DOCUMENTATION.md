@@ -653,7 +653,7 @@ Configured via `AI_MODEL`. Default: `"deepseek/deepseek-v4-flash"` (`services/ai
 
 ### System prompt construction
 
-`askAI` receives `question`, `systemPrompt`. The `systemPrompt` comes from `tenant_bots.system_prompt` and is used verbatim — there is **no** template substitution and no global business-name variable. Owners write their actual business name directly into the prompt via the /prompt editor. The bot then appends instructions to: use conversation history, always call `get_information` before answering, two-step `send_admin_message` (ask for the message text first), never falsely claim a message was sent, fallback when retrieval is empty.
+`askAI` receives `question`, `systemPrompt`. The `systemPrompt` comes from `tenant_bots.system_prompt` and is used verbatim — there is **no** template substitution and no global business-name variable. Owners write their actual business name directly into the prompt via the /prompt editor. The bot then appends instructions to: use conversation history, call `get_information` for questions needing document context, two-step `send_admin_message` (ask for the message text first), never falsely claim a message was sent. The grounding rule is deliberately *not* doc-only: the model may answer from facts stated directly in the owner's prompt (business name, role, scope) without retrieval, and only refuses when a question needs document context, retrieval is empty, and the answer isn't in the instructions. This avoids the failure where a bot refuses "what's your company name?" despite the name being in its own system prompt.
 
 ### Tools
 
