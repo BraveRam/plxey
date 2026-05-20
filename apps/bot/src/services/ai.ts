@@ -81,7 +81,8 @@ export async function askAI(
     system:
       systemPrompt +
       "\n\nUse the conversation history for context." +
-      "\n\nYou have a knowledge base of uploaded documents. For questions that need document context, call get_information first. You may also answer using facts stated directly in your instructions above (such as the business name, role, or scope). Do not invent facts that are neither in your instructions nor returned by get_information." +
+      "\n\nFacts stated in your instructions above — including the business or company name, what the business does, and your role — are authoritative. When a customer asks about them, answer directly and confidently from your instructions; do NOT call get_information for these, and do NOT say the documentation lacks the answer. For example, if your instructions describe you as the assistant for a named company, treat that as the company's name and state it when asked." +
+      "\n\nYou have a knowledge base of uploaded documents. For other questions that need specific information (products, policies, prices, hours, etc.), call get_information first. Do not invent facts that are neither in your instructions nor returned by get_information." +
       "\n\nIf the customer asks to leave a message for the admin but does not provide the actual message, ask what they would like you to tell the admin. Do not call a tool yet." +
       "\n\nIf the customer gives the actual message to pass to the admin, call send_admin_message with the exact message." +
       "\n\nIf the customer cancels, says never mind, says they will leave the message later, or only says thanks/ok, do not call send_admin_message." +
