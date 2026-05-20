@@ -1,12 +1,15 @@
 import { Hono } from "hono";
+import { z } from "zod";
+import { zValidator } from "@hono/zod-validator";
 import { eq } from "drizzle-orm";
 import { db, documents, tenants } from "@tg-business/db";
 import { getOrCreateTenant, listBots, createBot, updateBot, deleteBot, listDocuments, deleteDocument } from "../lib/api";
-import { isBotOwnerBanned, isOwnerBanned } from "../lib/banned";
+import { isBotOwnerBanned, isOwnerBanned, ownerIdForBot } from "../lib/banned";
 import { apiLimiter } from "../lib/redis";
 import { clientIp } from "../lib/client-ip";
+import { authMiddleware } from "../lib/auth";
 
-export const api = new Hono();
+export const api = new Hono<{ Variables: { user: { id: number } } }>();
 
 async function ownerForDocId(docId: string): Promise<string | null> {
   const doc = await db.query.documents.findFirst({
@@ -33,9 +36,20 @@ api.use("*", async (c, next) => {
   await next();
 });
 
-api.post("/tenants", async (c) => {
-  const { telegramOwnerId } = await c.req.json<{ telegramOwnerId: string }>();
-  if (!telegramOwnerId) return c.json({ error: "telegramOwnerId required" }, 400);
+api.use("*", authMiddleware);
+
+const tenantsSchema = z.object({
+  telegramOwnerId: z.string().min(1),
+});
+
+api.post("/tenants", zValidator("json", tenantsSchema), async (c) => {
+  const { telegramOwnerId } = c.req.valid("json");
+
+  const authUser = c.get("user");
+  if (telegramOwnerId !== String(authUser.id)) {
+    return c.json({ error: "Forbidden: User ID mismatch" }, 403);
+  }
+
   if (await isOwnerBanned(telegramOwnerId)) {
     return c.json({ error: "banned" }, 403);
   }
@@ -47,16 +61,35 @@ api.post("/tenants", async (c) => {
   }
 });
 
-api.get("/bots", async (c) => {
-  const userId = c.req.query("userId");
-  if (!userId) return c.json({ error: "userId required" }, 400);
+const listBotsSchema = z.object({
+  userId: z.string().min(1),
+});
+
+api.get("/bots", zValidator("query", listBotsSchema), async (c) => {
+  const { userId } = c.req.valid("query");
+
+  const authUser = c.get("user");
+  if (userId !== String(authUser.id)) {
+    return c.json({ error: "Forbidden: User ID mismatch" }, 403);
+  }
+
   const bots = await listBots(userId);
   return c.json(bots);
 });
 
-api.post("/bots", async (c) => {
-  const { token, telegramOwnerId } = await c.req.json<{ token: string; telegramOwnerId: string }>();
-  if (!token || !telegramOwnerId) return c.json({ error: "token and telegramOwnerId required" }, 400);
+const botsSchema = z.object({
+  token: z.string().min(1),
+  telegramOwnerId: z.string().min(1),
+});
+
+api.post("/bots", zValidator("json", botsSchema), async (c) => {
+  const { token, telegramOwnerId } = c.req.valid("json");
+
+  const authUser = c.get("user");
+  if (telegramOwnerId !== String(authUser.id)) {
+    return c.json({ error: "Forbidden: User ID mismatch" }, 403);
+  }
+
   if (await isOwnerBanned(telegramOwnerId)) {
     return c.json({ error: "banned" }, 403);
   }
@@ -68,12 +101,26 @@ api.post("/bots", async (c) => {
   }
 });
 
-api.patch("/bots/:id", async (c) => {
-  const id = c.req.param("id");
+const updateBotSchema = z.object({
+  status: z.enum(["active", "paused", "revoked"]).optional(),
+  systemPrompt: z.string().min(1).optional(),
+  welcomeMessage: z.string().nullable().optional(),
+  autoReadBusinessMessages: z.boolean().optional(),
+});
+
+api.patch("/bots/:id", zValidator("param", z.object({ id: z.string().uuid() })), zValidator("json", updateBotSchema), async (c) => {
+  const { id } = c.req.valid("param");
+
+  const authUser = c.get("user");
+  const ownerId = await ownerIdForBot(id);
+  if (ownerId !== String(authUser.id)) {
+    return c.json({ error: "Forbidden: User ID mismatch" }, 403);
+  }
+
   if (await isBotOwnerBanned(id)) {
     return c.json({ error: "banned" }, 403);
   }
-  const { status, systemPrompt, welcomeMessage, autoReadBusinessMessages } = await c.req.json<{ status?: string; systemPrompt?: string; welcomeMessage?: string | null; autoReadBusinessMessages?: boolean }>();
+  const { status, systemPrompt, welcomeMessage, autoReadBusinessMessages } = c.req.valid("json");
   try {
     const updated = await updateBot(id, { status, systemPrompt, welcomeMessage, autoReadBusinessMessages });
     return c.json(updated);
@@ -82,8 +129,15 @@ api.patch("/bots/:id", async (c) => {
   }
 });
 
-api.delete("/bots/:id", async (c) => {
-  const id = c.req.param("id");
+api.delete("/bots/:id", zValidator("param", z.object({ id: z.string().uuid() })), async (c) => {
+  const { id } = c.req.valid("param");
+
+  const authUser = c.get("user");
+  const ownerId = await ownerIdForBot(id);
+  if (ownerId !== String(authUser.id)) {
+    return c.json({ error: "Forbidden: User ID mismatch" }, 403);
+  }
+
   if (await isBotOwnerBanned(id)) {
     return c.json({ error: "banned" }, 403);
   }
@@ -95,16 +149,32 @@ api.delete("/bots/:id", async (c) => {
   }
 });
 
-api.get("/documents", async (c) => {
-  const botId = c.req.query("botId");
-  if (!botId) return c.json({ error: "botId required" }, 400);
+const listDocsSchema = z.object({
+  botId: z.string().uuid(),
+});
+
+api.get("/documents", zValidator("query", listDocsSchema), async (c) => {
+  const { botId } = c.req.valid("query");
+
+  const authUser = c.get("user");
+  const ownerId = await ownerIdForBot(botId);
+  if (ownerId !== String(authUser.id)) {
+    return c.json({ error: "Forbidden: User ID mismatch" }, 403);
+  }
+
   const docs = await listDocuments(botId);
   return c.json(docs);
 });
 
-api.delete("/documents/:id", async (c) => {
-  const id = c.req.param("id");
+api.delete("/documents/:id", zValidator("param", z.object({ id: z.string().uuid() })), async (c) => {
+  const { id } = c.req.valid("param");
   const ownerId = await ownerForDocId(id);
+
+  const authUser = c.get("user");
+  if (ownerId !== String(authUser.id)) {
+    return c.json({ error: "Forbidden: User ID mismatch" }, 403);
+  }
+
   if (ownerId !== null && (await isOwnerBanned(ownerId))) {
     return c.json({ error: "banned" }, 403);
   }

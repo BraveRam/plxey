@@ -32,6 +32,17 @@ app.all("/api/inngest", async (c) => inngestHandler(c));
 
 app.route("/api", api);
 
+app.onError((err, c) => {
+  logger.error({ err, path: c.req.path }, "unhandled error");
+  return c.json(
+    {
+      error: "Internal Server Error",
+      message: process.env.NODE_ENV === "production" ? "An unexpected error occurred" : err.message,
+    },
+    500,
+  );
+});
+
 const onboardingBot = await createOnboardingBot();
 
 const onboardingWebhookSecret =

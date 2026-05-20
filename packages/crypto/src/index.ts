@@ -7,8 +7,11 @@ function deriveKey(): Uint8Array<ArrayBuffer> {
   if (raw) {
     return new TextEncoder().encode(raw).slice(0, 32) as Uint8Array<ArrayBuffer>;
   }
-  console.warn("ENCRYPTION_KEY not set — deriving key from BOT_TOKEN (insecure)");
-  const hash = createHash("sha256").update(process.env.BOT_TOKEN || "dev-key-fallback").digest();
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("ENCRYPTION_KEY environment variable is required in production");
+  }
+  console.warn("ENCRYPTION_KEY not set — using dev fallback key (insecure)");
+  const hash = createHash("sha256").update("dev-key-fallback").digest();
   return new Uint8Array(hash) as Uint8Array<ArrayBuffer>;
 }
 

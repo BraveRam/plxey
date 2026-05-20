@@ -16,6 +16,19 @@ const SUPPORTED_MIMES = new Set([
 
 const app = new Hono();
 
+// Shared secret authentication between bot and rag services.
+app.use("/ingest", async (c, next) => {
+  const secret = process.env.INTERNAL_API_SECRET;
+  if (!secret) {
+    console.error("INTERNAL_API_SECRET not set");
+    return c.json({ error: "Internal Server Error" }, 500);
+  }
+  if (c.req.header("X-Internal-Secret") !== secret) {
+    return c.json({ error: "Unauthorized" }, 401);
+  }
+  await next();
+});
+
 const handler = serve({ client: inngest, functions: [processDocument] });
 app.all("/api/inngest", async (c) => handler(c));
 
