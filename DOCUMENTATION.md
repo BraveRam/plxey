@@ -331,7 +331,7 @@ A Telegram bot registered under a tenant; each bot acts as a separate AI custome
 | bot_username | text | yes | — | @username resolved from Telegram API |
 | status | bot_status | no | 'active' | active / paused / revoked |
 | webhook_secret | text | no | — | per-bot secret used to validate webhook calls |
-| system_prompt | text | no | (default string) | LLM system prompt; `{business_name}` placeholder supported |
+| system_prompt | text | no | (default string) | LLM system prompt, used verbatim; no placeholder substitution — owners write the business name into the prompt directly |
 | welcome_message | text | yes | — | optional greeting on Business Connection open |
 | auto_read_business_messages | boolean | no | true | whether bot auto-marks incoming as read |
 | connected_business_user_id | text | yes | — | Telegram business user ID linked after handshake |
@@ -653,7 +653,7 @@ Configured via `AI_MODEL`. Default: `"deepseek/deepseek-v4-flash"` (`services/ai
 
 ### System prompt construction
 
-`askAI` receives `question`, `businessName`, `systemPrompt`. The `systemPrompt` comes from `tenant_bots.system_prompt`. Template substitution: a single `systemPrompt.replace("{business_name}", businessName)`. After substitution the bot appends instructions to: use conversation history, always call `get_information` before answering, two-step `send_admin_message` (ask for the message text first), never falsely claim a message was sent, fallback when retrieval is empty.
+`askAI` receives `question`, `systemPrompt`. The `systemPrompt` comes from `tenant_bots.system_prompt` and is used verbatim — there is **no** template substitution and no global business-name variable. Owners write their actual business name directly into the prompt via the /prompt editor. The bot then appends instructions to: use conversation history, always call `get_information` before answering, two-step `send_admin_message` (ask for the message text first), never falsely claim a message was sent, fallback when retrieval is empty.
 
 ### Tools
 

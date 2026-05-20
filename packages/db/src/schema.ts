@@ -18,6 +18,15 @@ const vector = customType<{ data: number[]; driverData: string }>({
   },
 });
 
+// Default system prompt for a freshly created tenant bot. No
+// `{business_name}` placeholder — there is no global business-name
+// substitution; owners put their actual business name directly into
+// the prompt via the /prompt editor. Exported so `createBot` can set
+// it explicitly on insert rather than relying on the DB column default
+// (which can drift in this push-based migration workflow).
+export const DEFAULT_SYSTEM_PROMPT =
+  "You are a helpful customer support assistant. Answer questions based on the provided documentation. If you cannot find the answer in the documentation, politely say so and ask the customer to rephrase or contact support.";
+
 export const botStatus = pgEnum("bot_status", ["active", "paused", "revoked"]);
 export const docStatus = pgEnum("doc_status", [
   "processing",
@@ -71,11 +80,7 @@ export const tenantBots = pgTable(
     botUsername: text("bot_username"),
     status: botStatus("status").notNull().default("active"),
     webhookSecret: text("webhook_secret").notNull(),
-    systemPrompt: text("system_prompt")
-      .notNull()
-      .default(
-        "You are a helpful customer support assistant. Answer questions based on the provided documentation. If you cannot find the answer in the documentation, politely say so and ask the customer to rephrase or contact support.",
-      ),
+    systemPrompt: text("system_prompt").notNull().default(DEFAULT_SYSTEM_PROMPT),
     welcomeMessage: text("welcome_message"),
     autoReadBusinessMessages: boolean("auto_read_business_messages")
       .notNull()

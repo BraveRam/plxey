@@ -1260,7 +1260,6 @@ export class BotRegistry {
       botId,
       tenant.telegramOwnerId,
       row.systemPrompt,
-      row.botUsername ?? "",
     );
     const conn = await this.loadActiveBusinessConnection(botId);
     this.bots.set(botId, {
@@ -1439,7 +1438,6 @@ export class BotRegistry {
       row.id,
       tenant.telegramOwnerId,
       row.systemPrompt,
-      row.botUsername ?? "",
     );
     const conn = await this.loadActiveBusinessConnection(row.id);
     this.bots.set(row.id, {
@@ -1488,7 +1486,6 @@ export class BotRegistry {
     botId: string,
     ownerTelegramId: string,
     systemPrompt: string,
-    businessName: string,
   ): void {
     // Local PostHog helper. Captures `botId` via closure, derives the
     // distinct_id from ctx.from, and tags every event with the `bot`
@@ -2322,7 +2319,6 @@ export class BotRegistry {
 
         const result: Awaited<ReturnType<typeof askAI>> = await askAI(
           question,
-          businessName,
           systemPrompt,
           dbHistory,
           {

@@ -1,6 +1,12 @@
 import { eq, inArray } from "drizzle-orm";
 import { Bot } from "grammy";
-import { db, documents, tenants, tenantBots } from "@tg-business/db";
+import {
+  db,
+  documents,
+  tenants,
+  tenantBots,
+  DEFAULT_SYSTEM_PROMPT,
+} from "@tg-business/db";
 import { encrypt, decrypt } from "@tg-business/crypto";
 import { deleteFile, b2BucketId } from "@tg-business/storage";
 import { logger } from "./logger";
@@ -108,6 +114,7 @@ export async function createBot(token: string, telegramOwnerId: string): Promise
     botTokenEncrypted: encryptedToken,
     botUsername: botUser.username,
     webhookSecret,
+    systemPrompt: DEFAULT_SYSTEM_PROMPT,
   }).returning();
 
   logger.info({ botId: botRecord!.id, botUsername: botRecord!.botUsername }, "bot registered");

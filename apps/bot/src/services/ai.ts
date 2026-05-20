@@ -23,7 +23,6 @@ interface AskAIOptions {
 
 export async function askAI(
   question: string,
-  businessName: string,
   systemPrompt: string,
   history: HistoryEntry[] = [],
   options: AskAIOptions,
