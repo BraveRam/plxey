@@ -1,7 +1,14 @@
 import { expect, test, describe, beforeEach } from "bun:test";
 import { encrypt, decrypt } from "@tg-business/crypto";
 
+import { resetCachedKey } from "@tg-business/crypto";
+
 describe("encrypt/decrypt", () => {
+  beforeEach(() => {
+    process.env.ENCRYPTION_KEY = "test-key-32-chars-exactly-123456";
+    resetCachedKey();
+  });
+
   test("roundtrip: decrypt reverses encrypt", async () => {
     const plaintext = "hello world";
     const encrypted = await encrypt(plaintext);

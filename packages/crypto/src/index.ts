@@ -4,15 +4,17 @@ const ALGORITHM = "AES-GCM";
 
 function deriveKey(): Uint8Array<ArrayBuffer> {
   const raw = process.env.ENCRYPTION_KEY;
-  if (raw) {
-    return new TextEncoder().encode(raw).slice(0, 32) as Uint8Array<ArrayBuffer>;
+  if (!raw) {
+    throw new Error("ENCRYPTION_KEY environment variable is strictly required.");
   }
-  console.warn("ENCRYPTION_KEY not set — deriving key from BOT_TOKEN (insecure)");
-  const hash = createHash("sha256").update(process.env.BOT_TOKEN || "dev-key-fallback").digest();
-  return new Uint8Array(hash) as Uint8Array<ArrayBuffer>;
+  return new TextEncoder().encode(raw).slice(0, 32) as Uint8Array<ArrayBuffer>;
 }
 
 let cachedKey: CryptoKey | null = null;
+
+export function resetCachedKey(): void {
+  cachedKey = null;
+}
 
 async function getKey(): Promise<CryptoKey> {
   if (cachedKey) return cachedKey;

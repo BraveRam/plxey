@@ -16,6 +16,14 @@ const SUPPORTED_MIMES = new Set([
 
 const app = new Hono();
 
+app.use("*", async (c, next) => {
+  const secret = process.env.INTERNAL_API_SECRET;
+  if (secret && c.req.header("X-Internal-Secret") !== secret) {
+    return c.json({ error: "Unauthorized" }, 401);
+  }
+  await next();
+});
+
 const handler = serve({ client: inngest, functions: [processDocument] });
 app.all("/api/inngest", async (c) => handler(c));
 
