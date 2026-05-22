@@ -10,8 +10,6 @@ import { cn } from "@/lib/utils";
 const RIGHT_LABELS: Record<string, string> = {
   can_reply: "Reply to customers",
   can_read_messages: "Read messages",
-  can_delete_sent_messages: "Delete its own messages",
-  can_delete_all_messages: "Delete any message",
   can_edit_name: "Edit account name",
   can_edit_bio: "Edit bio",
   can_edit_profile_photo: "Edit profile photo",
