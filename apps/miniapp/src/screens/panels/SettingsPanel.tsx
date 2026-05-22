@@ -105,6 +105,11 @@ export function SettingsPanel({ bot }: { bot: PublicBot }) {
   };
 
   const doDelete = async () => {
+    if (!deleteMatches) {
+      haptic.error();
+      toast.error(`Type ${deleteToken} to confirm deletion.`);
+      return;
+    }
     try {
       await remove.mutateAsync(bot.id);
       haptic.success();
@@ -115,15 +120,12 @@ export function SettingsPanel({ bot }: { bot: PublicBot }) {
       toast.error(err instanceof Error ? err.message : "Delete failed");
     } finally {
       setDeleteOpen(false);
+      setDeleteConfirm("");
     }
   };
 
   const openDelete = () => {
-    if (!deleteMatches) {
-      haptic.error();
-      toast.error(`Type ${deleteToken} to confirm deletion.`);
-      return;
-    }
+    setDeleteConfirm("");
     setDeleteOpen(true);
   };
 
@@ -202,17 +204,6 @@ export function SettingsPanel({ bot }: { bot: PublicBot }) {
         {update.isPending ? "Saving…" : "Save changes"}
       </Button>
 
-      <div className="space-y-2">
-        <Label htmlFor="delete-confirm">{deleteLabel}</Label>
-        <Input
-          id="delete-confirm"
-          value={deleteConfirm}
-          onChange={(e) => setDeleteConfirm(e.target.value)}
-          placeholder={deleteToken}
-          autoComplete="off"
-        />
-      </div>
-
       <div className="flex gap-2">
         <Button variant="outline" className="flex-1" onClick={togglePause}>
           {bot.status === "active" ? "Pause bot" : "Resume bot"}
@@ -220,14 +211,20 @@ export function SettingsPanel({ bot }: { bot: PublicBot }) {
         <Button
           variant="destructive"
           className="flex-1"
-          disabled={remove.isPending || !deleteMatches}
+          disabled={remove.isPending}
           onClick={openDelete}
         >
           <Trash2 /> {remove.isPending ? "Deleting…" : "Delete"}
         </Button>
       </div>
 
-      <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+      <Dialog
+        open={deleteOpen}
+        onOpenChange={(open) => {
+          setDeleteOpen(open);
+          if (!open) setDeleteConfirm("");
+        }}
+      >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Delete bot?</DialogTitle>
@@ -235,6 +232,17 @@ export function SettingsPanel({ bot }: { bot: PublicBot }) {
               Delete this bot and all its knowledge documents. This can't be undone.
             </DialogDescription>
           </DialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="delete-confirm">{deleteLabel}</Label>
+            <Input
+              id="delete-confirm"
+              value={deleteConfirm}
+              onChange={(e) => setDeleteConfirm(e.target.value)}
+              placeholder={deleteToken}
+              autoComplete="off"
+              autoFocus
+            />
+          </div>
           <DialogFooter>
             <Button
               variant="outline"
