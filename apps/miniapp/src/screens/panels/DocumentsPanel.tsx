@@ -1,6 +1,6 @@
 import { useRef } from "react";
 import { toast } from "sonner";
-import { FileText, Trash2, Upload, CheckCircle2, Clock, XCircle } from "lucide-react";
+import { FileText, Trash2, Upload, CheckCircle2, Clock, XCircle, Loader2 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -59,6 +59,9 @@ export function DocumentsPanel({ botId }: { botId: string }) {
     }
   };
 
+  const processingCount =
+    docs?.filter((d) => d.status === "processing").length ?? 0;
+
   return (
     <div className="space-y-4">
       <input
@@ -76,6 +79,14 @@ export function DocumentsPanel({ botId }: { botId: string }) {
       >
         <Upload /> {upload.isPending ? "Uploading…" : "Upload document"}
       </Button>
+
+      {processingCount > 0 ? (
+        <div className="flex items-center gap-2 rounded-lg bg-muted px-3 py-2 text-sm text-muted-foreground">
+          <Loader2 className="size-4 animate-spin" />
+          {processingCount} document{processingCount > 1 ? "s" : ""} processing —
+          this updates automatically.
+        </div>
+      ) : null}
 
       {isLoading ? (
         <Skeleton className="h-16 w-full" />
