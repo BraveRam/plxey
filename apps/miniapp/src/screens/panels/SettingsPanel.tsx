@@ -26,9 +26,13 @@ export function SettingsPanel({ bot }: { bot: PublicBot }) {
   const [deleteConfirm, setDeleteConfirm] = useState("");
 
   const deleteHandle = bot.botUsername?.trim() ?? "";
+  const deleteToken = deleteHandle === "" ? "DELETE" : deleteHandle;
+  const deleteLabel =
+    deleteHandle === ""
+      ? "Type DELETE to confirm deletion"
+      : `Type ${deleteHandle} to confirm deletion (no @)`;
   const deleteMatches =
-    deleteHandle === "" ||
-    deleteConfirm.trim().toLowerCase() === deleteHandle.toLowerCase();
+    deleteConfirm.trim().toLowerCase() === deleteToken.toLowerCase();
 
   const dirty =
     systemPrompt !== bot.systemPrompt ||
@@ -92,9 +96,9 @@ export function SettingsPanel({ bot }: { bot: PublicBot }) {
   };
 
   const doDelete = async () => {
-    if (deleteHandle && !deleteMatches) {
+    if (!deleteMatches) {
       haptic.error();
-      toast.error(`Type ${deleteHandle} to confirm deletion.`);
+      toast.error(`Type ${deleteToken} to confirm deletion.`);
       return;
     }
     const ok = await confirm(
@@ -187,20 +191,16 @@ export function SettingsPanel({ bot }: { bot: PublicBot }) {
         {update.isPending ? "Saving…" : "Save changes"}
       </Button>
 
-      {deleteHandle ? (
-        <div className="space-y-2">
-          <Label htmlFor="delete-confirm">
-            Type {deleteHandle} to confirm deletion (no @)
-          </Label>
-          <Input
-            id="delete-confirm"
-            value={deleteConfirm}
-            onChange={(e) => setDeleteConfirm(e.target.value)}
-            placeholder={deleteHandle}
-            autoComplete="off"
-          />
-        </div>
-      ) : null}
+      <div className="space-y-2">
+        <Label htmlFor="delete-confirm">{deleteLabel}</Label>
+        <Input
+          id="delete-confirm"
+          value={deleteConfirm}
+          onChange={(e) => setDeleteConfirm(e.target.value)}
+          placeholder={deleteToken}
+          autoComplete="off"
+        />
+      </div>
 
       <div className="flex gap-2">
         <Button variant="outline" className="flex-1" onClick={togglePause}>
