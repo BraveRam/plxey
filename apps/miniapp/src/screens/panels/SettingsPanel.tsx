@@ -3,6 +3,14 @@ import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { Trash2 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
@@ -24,6 +32,7 @@ export function SettingsPanel({ bot }: { bot: PublicBot }) {
   );
   const [capMessage, setCapMessage] = useState(bot.dailyCapReachedMessage ?? "");
   const [deleteConfirm, setDeleteConfirm] = useState("");
+  const [deleteOpen, setDeleteOpen] = useState(false);
 
   const deleteHandle = bot.botUsername?.trim() ?? "";
   const deleteToken = deleteHandle === "" ? "DELETE" : deleteHandle;
@@ -96,24 +105,25 @@ export function SettingsPanel({ bot }: { bot: PublicBot }) {
   };
 
   const doDelete = async () => {
-    if (!deleteMatches) {
-      haptic.error();
-      toast.error(`Type ${deleteToken} to confirm deletion.`);
-      return;
-    }
-    const ok = await confirm(
-      "Delete this bot and all its knowledge documents? This can't be undone.",
-    );
-    if (!ok) return;
     try {
       await remove.mutateAsync(bot.id);
       haptic.success();
       toast.success("Bot deleted");
+      setDeleteOpen(false);
       navigate("/", { replace: true });
     } catch (err) {
       haptic.error();
       toast.error(err instanceof Error ? err.message : "Delete failed");
     }
+  };
+
+  const openDelete = () => {
+    if (!deleteMatches) {
+      haptic.error();
+      toast.error(`Type ${deleteToken} to confirm deletion.`);
+      return;
+    }
+    setDeleteOpen(true);
   };
 
   return (
@@ -210,11 +220,38 @@ export function SettingsPanel({ bot }: { bot: PublicBot }) {
           variant="destructive"
           className="flex-1"
           disabled={remove.isPending || !deleteMatches}
-          onClick={doDelete}
+          onClick={openDelete}
         >
           <Trash2 /> {remove.isPending ? "Deleting…" : "Delete"}
         </Button>
       </div>
+
+      <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete bot?</DialogTitle>
+            <DialogDescription>
+              Delete this bot and all its knowledge documents. This can't be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setDeleteOpen(false)}
+              disabled={remove.isPending}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={doDelete}
+              disabled={remove.isPending || !deleteMatches}
+            >
+              {remove.isPending ? "Deleting…" : "Delete bot"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
