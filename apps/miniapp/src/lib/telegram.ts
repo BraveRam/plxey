@@ -73,7 +73,11 @@ export function confirm(message: string): Promise<boolean> {
   });
 }
 
-/** Open a t.me link inside Telegram (closes the Mini App on most clients). */
+/**
+ * Open a t.me link inside Telegram. On Bot API 8.0+ this minimizes the
+ * Mini App to the bottom bar and brings the target chat forward — there
+ * is no programmatic minimize method, so this is the intended path.
+ */
 export function openTelegramLink(url: string): void {
   WebApp.openTelegramLink(url);
 }
