@@ -78,6 +78,15 @@ api.use("*", async (c, next) => {
   const botToken = process.env.BOT_TOKEN ?? "";
   const result = verifyInitData(initData, botToken);
   if (!result.ok) {
+    // TEMP DIAGNOSTIC: log why initData failed + which fields were present
+    // (keys only, never values) so we can debug the live 401s.
+    const keys = initData
+      ? [...new URLSearchParams(initData).keys()].join(",")
+      : "(empty)";
+    logger.warn(
+      { reason: result.reason, keys, tokenSet: botToken.length > 0 },
+      "initData verify failed",
+    );
     return c.json({ error: "unauthorized" }, 401);
   }
   const ownerId = String(result.user.id);
