@@ -3,6 +3,7 @@ import { serve as serveInngest } from "inngest/hono";
 import { randomBytes } from "crypto";
 import { createOnboardingBot } from "./bots/onboarding";
 import { registry } from "./bots/registry";
+import { setOnboardingBotUsername } from "./lib/bot-identity";
 import {
   isOwnerBannedCached,
   loadBannedOwnersCache,
@@ -142,6 +143,16 @@ async function start() {
     }
   } else {
     logger.warn("PUBLIC_URL not set — webhooks not registered");
+  }
+
+  // Resolve the onboarding bot's @username once so the Mini App can build
+  // the `t.me/<username>?start=billing` deep link for its billing button.
+  try {
+    const me = await onboardingBot.api.getMe();
+    setOnboardingBotUsername(me.username ?? null);
+    logger.info({ username: me.username }, "onboarding bot identity resolved");
+  } catch (err) {
+    logger.warn({ err }, "failed to resolve onboarding bot username");
   }
 
   // Point the onboarding bot's chat menu button at the Mini App so every

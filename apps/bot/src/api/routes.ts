@@ -23,6 +23,7 @@ import { checkDocumentLimits } from "../bots/document-limits";
 import { ingestDocument } from "../lib/doc-ingest";
 import { getBotStats } from "../lib/analytics-stats";
 import { getBillingSummary } from "../lib/billing-read";
+import { getOnboardingBotUsername } from "../lib/bot-identity";
 import { logger } from "../lib/logger";
 
 // `ownerId` is the Telegram user id proven via initData HMAC. Every route
@@ -205,7 +206,7 @@ api.get("/bots/:id/permissions", async (c) => {
 
 api.get("/owners/billing", async (c) => {
   const summary = await getBillingSummary(c.get("ownerId"));
-  return c.json(summary);
+  return c.json({ ...summary, botUsername: getOnboardingBotUsername() });
 });
 
 api.get("/documents", async (c) => {

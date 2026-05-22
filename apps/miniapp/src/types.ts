@@ -38,6 +38,8 @@ export interface BillingSummary {
     maxDocsPerBot: number;
     maxMessagesPerPeriod: number;
   } | null;
+  /** Onboarding bot @username, for the billing deep link. */
+  botUsername: string | null;
 }
 
 export interface StatsBucket {

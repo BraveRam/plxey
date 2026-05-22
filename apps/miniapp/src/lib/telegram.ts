@@ -73,6 +73,11 @@ export function confirm(message: string): Promise<boolean> {
   });
 }
 
+/** Open a t.me link inside Telegram (closes the Mini App on most clients). */
+export function openTelegramLink(url: string): void {
+  WebApp.openTelegramLink(url);
+}
+
 export const haptic = {
   success: () => WebApp.HapticFeedback?.notificationOccurred("success"),
   error: () => WebApp.HapticFeedback?.notificationOccurred("error"),

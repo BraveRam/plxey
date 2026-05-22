@@ -5,7 +5,11 @@ import { logger } from "../lib/logger";
 import { createBot, updateBot, deleteBot, listBots } from "../lib/api";
 import { sequentializeByChat } from "../lib/sequentialize";
 import { ownerCaptureMiddleware } from "../lib/owner-capture";
-import { attachBillingHandlers, buildBillingMenuButton } from "./billing";
+import {
+  attachBillingHandlers,
+  buildBillingMenuButton,
+  renderBillingScreen,
+} from "./billing";
 import { attachAdminCommands } from "./admin-commands";
 import { registry } from "./registry";
 import { ownerDistinctId, track } from "../lib/analytics";
@@ -457,6 +461,14 @@ export async function createOnboardingBot(): Promise<Bot> {
 
   bot.command("start", async (ctx) => {
     const userId = String(ctx.from?.id ?? "");
+    // Deep-link payload: the Mini App's billing "Manage" button opens
+    // `?start=billing`, which lands here. Render the billing screen
+    // directly instead of the welcome.
+    if (userId && ctx.match === "billing") {
+      track(ownerDistinctId(userId), "onboarding.start.billing_deeplink");
+      await renderBillingScreen(ctx as unknown as Context, userId);
+      return;
+    }
     const kb = userId ? await buildMainMenuKb(userId) : menuKb;
     await ctx.reply(onboardingWelcome(ctx.from?.first_name ?? null), {
       reply_markup: kb,

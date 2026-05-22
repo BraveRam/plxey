@@ -305,7 +305,7 @@ export async function buildBillingMenuButton(
 // Screen render
 // ---------------------------------------------------------------------------
 
-async function renderBillingScreen(
+export async function renderBillingScreen(
   ctx: Context,
   ownerId: string,
 ): Promise<void> {

@@ -1,9 +1,12 @@
+import { CreditCard } from "lucide-react";
 import { Screen } from "@/components/Screen";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useBilling } from "@/hooks/api";
 import { useBack } from "@/hooks/useBack";
+import { haptic, openTelegramLink } from "@/lib/telegram";
 import type { BillingSummary } from "@/types";
 
 function planLabel(plan: BillingSummary["plan"]): string {
@@ -98,9 +101,24 @@ export function Billing() {
             </CardContent>
           </Card>
 
-          <p className="px-1 text-center text-xs text-muted-foreground">
-            Manage your subscription with /billing in the bot chat.
-          </p>
+          {data.botUsername ? (
+            <Button
+              size="lg"
+              className="w-full"
+              onClick={() => {
+                haptic.tap();
+                openTelegramLink(
+                  `https://t.me/${data.botUsername}?start=billing`,
+                );
+              }}
+            >
+              <CreditCard /> Manage subscription
+            </Button>
+          ) : (
+            <p className="px-1 text-center text-xs text-muted-foreground">
+              Manage your subscription with /billing in the bot chat.
+            </p>
+          )}
         </>
       )}
     </Screen>
