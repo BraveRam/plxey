@@ -1,7 +1,10 @@
-import { CheckCircle2, XCircle } from "lucide-react";
+import { CheckCircle2, XCircle, RefreshCw } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Button } from "@/components/ui/button";
 import { usePermissions } from "@/hooks/api";
+import { haptic } from "@/lib/telegram";
+import { cn } from "@/lib/utils";
 
 // Human labels for the Telegram business-bot rights flags.
 const RIGHT_LABELS: Record<string, string> = {
@@ -35,18 +38,38 @@ function Row({ label, granted }: { label: string; granted: boolean }) {
 }
 
 export function PermissionsPanel({ botId }: { botId: string }) {
-  const { data, isLoading } = usePermissions(botId);
+  const { data, isLoading, isFetching, refetch } = usePermissions(botId);
+
+  const onRefresh = () => {
+    haptic.tap();
+    void refetch();
+  };
 
   if (isLoading || !data) {
     return <Skeleton className="h-40 w-full" />;
   }
 
+  const refreshButton = (
+    <Button
+      variant="outline"
+      className="w-full"
+      disabled={isFetching}
+      onClick={onRefresh}
+    >
+      <RefreshCw className={cn("size-4", isFetching && "animate-spin")} />
+      Refresh
+    </Button>
+  );
+
   if (!data.connected) {
     return (
-      <Card className="p-6 text-center text-sm text-muted-foreground">
-        This bot isn't connected to a business account yet. Add it under
-        Telegram → Settings → Business → Chatbots.
-      </Card>
+      <div className="space-y-4">
+        <Card className="p-6 text-center text-sm text-muted-foreground">
+          This bot isn't connected to a business account yet. Add it under
+          Telegram → Settings → Business → Chatbots, then refresh.
+        </Card>
+        {refreshButton}
+      </div>
     );
   }
 
@@ -55,11 +78,6 @@ export function PermissionsPanel({ botId }: { botId: string }) {
 
   return (
     <div className="space-y-4">
-      {!data.isEnabled ? (
-        <Card className="p-4 text-sm text-amber-600 dark:text-amber-400">
-          The business connection is currently disabled.
-        </Card>
-      ) : null}
       <Card>
         <CardContent className="divide-y pt-2">
           {entries.length > 0 ? (
@@ -77,6 +95,7 @@ export function PermissionsPanel({ botId }: { botId: string }) {
           )}
         </CardContent>
       </Card>
+      {refreshButton}
     </div>
   );
 }

@@ -153,7 +153,7 @@ async function start() {
       await onboardingBot.api.setChatMenuButton({
         menu_button: {
           type: "web_app",
-          text: "Manage",
+          text: "Open",
           web_app: { url: miniappOrigin },
         },
       });

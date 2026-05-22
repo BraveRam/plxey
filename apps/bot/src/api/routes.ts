@@ -1,6 +1,6 @@
 import { Hono, type Context } from "hono";
 import { cors } from "hono/cors";
-import { eq } from "drizzle-orm";
+import { eq, and, desc } from "drizzle-orm";
 import { db, documents, tenants, tenantBots, businessConnections } from "@tg-business/db";
 import {
   getOrCreateTenant,
@@ -185,8 +185,14 @@ api.get("/bots/:id/permissions", async (c) => {
   const id = c.req.param("id");
   const denied = await requireBotOwner(c, id);
   if (denied) return denied;
+  // Match the bot's active-connection selection: the enabled connection,
+  // freshest first. A plain findFirst could return a stale/disabled row.
   const conn = await db.query.businessConnections.findFirst({
-    where: eq(businessConnections.tenantBotId, id),
+    where: and(
+      eq(businessConnections.tenantBotId, id),
+      eq(businessConnections.isEnabled, true),
+    ),
+    orderBy: [desc(businessConnections.lastSyncedAt)],
     columns: { rights: true, isEnabled: true, lastSyncedAt: true },
   });
   return c.json({
