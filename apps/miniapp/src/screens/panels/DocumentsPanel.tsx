@@ -1,13 +1,21 @@
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import { toast } from "sonner";
 import { FileText, Trash2, Upload, CheckCircle2, Clock, XCircle, Loader2, FolderOpen } from "lucide-react";
 import { GlowIcon } from "@/components/GlowIcon";
 import { Card, CardContent } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useDocuments, useUploadDocument, useDeleteDocument } from "@/hooks/api";
-import { haptic, confirm } from "@/lib/telegram";
+import { haptic } from "@/lib/telegram";
 import type { DocumentItem } from "@/types";
 
 function DocStatus({ status }: { status: string }) {
@@ -35,6 +43,7 @@ export function DocumentsPanel({ botId }: { botId: string }) {
   const upload = useUploadDocument(botId);
   const del = useDeleteDocument(botId);
   const fileInput = useRef<HTMLInputElement>(null);
+  const [deleteTarget, setDeleteTarget] = useState<DocumentItem | null>(null);
 
   const onPick = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -50,16 +59,21 @@ export function DocumentsPanel({ botId }: { botId: string }) {
     }
   };
 
-  const onDelete = async (doc: DocumentItem) => {
-    const ok = await confirm(`Delete "${doc.fileName}" and its data?`);
-    if (!ok) return;
+  const onDelete = (doc: DocumentItem) => {
+    setDeleteTarget(doc);
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
     try {
-      await del.mutateAsync(doc.id);
+      await del.mutateAsync(deleteTarget.id);
       haptic.success();
       toast.success("Document deleted");
     } catch (err) {
       haptic.error();
       toast.error(err instanceof Error ? err.message : "Delete failed");
+    } finally {
+      setDeleteTarget(null);
     }
   };
 
@@ -127,6 +141,29 @@ export function DocumentsPanel({ botId }: { botId: string }) {
           </p>
         </Card>
       )}
+
+      <Dialog open={Boolean(deleteTarget)} onOpenChange={(open) => !open && setDeleteTarget(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete document?</DialogTitle>
+            <DialogDescription>
+              Delete "{deleteTarget?.fileName}" and its data. This can't be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setDeleteTarget(null)}
+              disabled={del.isPending}
+            >
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={confirmDelete} disabled={del.isPending}>
+              {del.isPending ? "Deleting…" : "Delete document"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

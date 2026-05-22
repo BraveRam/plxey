@@ -3,6 +3,14 @@ import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { Trash2 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
@@ -24,6 +32,7 @@ export function SettingsPanel({ bot }: { bot: PublicBot }) {
   );
   const [capMessage, setCapMessage] = useState(bot.dailyCapReachedMessage ?? "");
   const [deleteConfirm, setDeleteConfirm] = useState("");
+  const [deleteOpen, setDeleteOpen] = useState(false);
 
   const deleteHandle = bot.botUsername?.trim() ?? "";
   const deleteToken = deleteHandle === "" ? "DELETE" : deleteHandle;
@@ -101,10 +110,6 @@ export function SettingsPanel({ bot }: { bot: PublicBot }) {
       toast.error(`Type ${deleteToken} to confirm deletion.`);
       return;
     }
-    const ok = await confirm(
-      "Delete this bot and all its knowledge documents? This can't be undone.",
-    );
-    if (!ok) return;
     try {
       await remove.mutateAsync(bot.id);
       haptic.success();
@@ -113,7 +118,15 @@ export function SettingsPanel({ bot }: { bot: PublicBot }) {
     } catch (err) {
       haptic.error();
       toast.error(err instanceof Error ? err.message : "Delete failed");
+    } finally {
+      setDeleteOpen(false);
+      setDeleteConfirm("");
     }
+  };
+
+  const openDelete = () => {
+    setDeleteConfirm("");
+    setDeleteOpen(true);
   };
 
   return (
@@ -191,17 +204,6 @@ export function SettingsPanel({ bot }: { bot: PublicBot }) {
         {update.isPending ? "Saving…" : "Save changes"}
       </Button>
 
-      <div className="space-y-2">
-        <Label htmlFor="delete-confirm">{deleteLabel}</Label>
-        <Input
-          id="delete-confirm"
-          value={deleteConfirm}
-          onChange={(e) => setDeleteConfirm(e.target.value)}
-          placeholder={deleteToken}
-          autoComplete="off"
-        />
-      </div>
-
       <div className="flex gap-2">
         <Button variant="outline" className="flex-1" onClick={togglePause}>
           {bot.status === "active" ? "Pause bot" : "Resume bot"}
@@ -209,12 +211,56 @@ export function SettingsPanel({ bot }: { bot: PublicBot }) {
         <Button
           variant="destructive"
           className="flex-1"
-          disabled={remove.isPending || !deleteMatches}
-          onClick={doDelete}
+          disabled={remove.isPending}
+          onClick={openDelete}
         >
           <Trash2 /> {remove.isPending ? "Deleting…" : "Delete"}
         </Button>
       </div>
+
+      <Dialog
+        open={deleteOpen}
+        onOpenChange={(open) => {
+          setDeleteOpen(open);
+          if (!open) setDeleteConfirm("");
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete bot?</DialogTitle>
+            <DialogDescription>
+              Delete this bot and all its knowledge documents. This can't be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="delete-confirm">{deleteLabel}</Label>
+            <Input
+              id="delete-confirm"
+              value={deleteConfirm}
+              onChange={(e) => setDeleteConfirm(e.target.value)}
+              placeholder={deleteToken}
+              autoComplete="off"
+              autoFocus
+            />
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setDeleteOpen(false)}
+              disabled={remove.isPending}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={doDelete}
+              disabled={remove.isPending || !deleteMatches}
+            >
+              {remove.isPending ? "Deleting…" : "Delete bot"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
