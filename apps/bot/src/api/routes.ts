@@ -24,7 +24,19 @@ import { ingestDocument } from "../lib/doc-ingest";
 import { getBotStats } from "../lib/analytics-stats";
 import { getBillingSummary } from "../lib/billing-read";
 import { getOnboardingBotUsername } from "../lib/bot-identity";
+import { ownerDistinctId, track } from "../lib/analytics";
 import { logger } from "../lib/logger";
+
+// All Mini App analytics events share the `miniapp.` prefix so they're
+// distinguishable from the bot-side `mgmt.`/`onboarding.` events. Helper
+// keeps call sites terse and tags the bot group when relevant.
+function trackMini(
+  ownerId: string,
+  event: string,
+  botId?: string,
+): void {
+  track(ownerDistinctId(ownerId), `miniapp.${event}`, {}, botId ? { bot: botId } : {});
+}
 
 // `ownerId` is the Telegram user id proven via initData HMAC. Every route
 // reads it from context — never from client-supplied body/query.
@@ -112,7 +124,10 @@ api.post("/tenants", async (c) => {
 });
 
 api.get("/bots", async (c) => {
-  const bots = await listBots(c.get("ownerId"));
+  const ownerId = c.get("ownerId");
+  const bots = await listBots(ownerId);
+  // First call on app open — a reasonable "Mini App opened" proxy.
+  trackMini(ownerId, "opened");
   return c.json(bots.map(toPublicBot));
 });
 
@@ -120,7 +135,9 @@ api.post("/bots", async (c) => {
   const { token } = await c.req.json<{ token: string }>();
   if (!token) return c.json({ error: "token required" }, 400);
   try {
-    const botRecord = await createBot(token, c.get("ownerId"));
+    const ownerId = c.get("ownerId");
+    const botRecord = await createBot(token, ownerId);
+    trackMini(ownerId, "bot.created", botRecord.id);
     return c.json(toPublicBot(botRecord), 201);
   } catch (err) {
     return c.json({ error: err instanceof Error ? err.message : "Unknown error" }, 400);
@@ -156,6 +173,7 @@ api.patch("/bots/:id", async (c) => {
       dailyUserAiReplyLimit,
       dailyCapReachedMessage,
     });
+    trackMini(c.get("ownerId"), "bot.updated", id);
     return c.json(toPublicBot(updated));
   } catch (err) {
     return c.json({ error: err instanceof Error ? err.message : "Unknown error" }, 404);
@@ -168,6 +186,7 @@ api.delete("/bots/:id", async (c) => {
   if (denied) return denied;
   try {
     await deleteBot(id);
+    trackMini(c.get("ownerId"), "bot.deleted", id);
     return c.json({ success: true });
   } catch (err) {
     return c.json({ error: err instanceof Error ? err.message : "Unknown error" }, 404);
@@ -179,6 +198,7 @@ api.get("/bots/:id/analytics", async (c) => {
   const denied = await requireBotOwner(c, id);
   if (denied) return denied;
   const stats = await getBotStats(id);
+  trackMini(c.get("ownerId"), "analytics.viewed", id);
   return c.json(stats);
 });
 
@@ -205,7 +225,9 @@ api.get("/bots/:id/permissions", async (c) => {
 });
 
 api.get("/owners/billing", async (c) => {
-  const summary = await getBillingSummary(c.get("ownerId"));
+  const ownerId = c.get("ownerId");
+  const summary = await getBillingSummary(ownerId);
+  trackMini(ownerId, "billing.viewed");
   return c.json({ ...summary, botUsername: getOnboardingBotUsername() });
 });
 
@@ -262,6 +284,7 @@ api.post("/documents", async (c) => {
       tenantId: botRow.tenantId,
       botId,
     });
+    trackMini(ownerId, "doc.uploaded", botId);
     return c.json({ documentId }, 201);
   } catch (err) {
     logger.error({ err, botId }, "miniapp document upload failed");
@@ -276,6 +299,7 @@ api.delete("/documents/:id", async (c) => {
   if (owner !== c.get("ownerId")) return c.json({ error: "forbidden" }, 403);
   try {
     await deleteDocument(id);
+    trackMini(c.get("ownerId"), "doc.deleted");
     return c.json({ success: true });
   } catch (err) {
     return c.json({ error: err instanceof Error ? err.message : "Unknown error" }, 404);
