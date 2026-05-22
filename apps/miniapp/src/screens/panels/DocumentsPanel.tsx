@@ -69,10 +69,11 @@ export function DocumentsPanel({ botId }: { botId: string }) {
       await del.mutateAsync(deleteTarget.id);
       haptic.success();
       toast.success("Document deleted");
-      setDeleteTarget(null);
     } catch (err) {
       haptic.error();
       toast.error(err instanceof Error ? err.message : "Delete failed");
+    } finally {
+      setDeleteTarget(null);
     }
   };
 

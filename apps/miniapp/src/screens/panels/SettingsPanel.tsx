@@ -109,11 +109,12 @@ export function SettingsPanel({ bot }: { bot: PublicBot }) {
       await remove.mutateAsync(bot.id);
       haptic.success();
       toast.success("Bot deleted");
-      setDeleteOpen(false);
       navigate("/", { replace: true });
     } catch (err) {
       haptic.error();
       toast.error(err instanceof Error ? err.message : "Delete failed");
+    } finally {
+      setDeleteOpen(false);
     }
   };
 
