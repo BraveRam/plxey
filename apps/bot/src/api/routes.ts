@@ -1,5 +1,6 @@
 import { Hono, type Context } from "hono";
 import { cors } from "hono/cors";
+import { Bot } from "grammy";
 import { eq, and, desc } from "drizzle-orm";
 import { db, documents, tenants, tenantBots, businessConnections } from "@tg-business/db";
 import {
@@ -137,6 +138,25 @@ api.post("/bots", async (c) => {
   try {
     const ownerId = c.get("ownerId");
     const botRecord = await createBot(token, ownerId);
+
+    // Register the webhook with Telegram so the new bot actually receives
+    // updates. Mirrors the onboarding bot's create flow; the BotRegistry
+    // lazy-loads the bot on its first incoming update. Without this, a
+    // Mini App-created bot is dead (no updates ever delivered).
+    const publicUrl = process.env.PUBLIC_URL;
+    if (publicUrl) {
+      try {
+        const tmp = new Bot(token);
+        await tmp.api.setWebhook(`${publicUrl}/webhook/tenant/${botRecord.id}`, {
+          drop_pending_updates: true,
+          secret_token: botRecord.webhookSecret,
+        });
+        logger.info({ botId: botRecord.id }, "miniapp: tenant webhook set");
+      } catch (err) {
+        logger.error({ err, botId: botRecord.id }, "miniapp: failed to set tenant webhook");
+      }
+    }
+
     trackMini(ownerId, "bot.created", botRecord.id);
     return c.json(toPublicBot(botRecord), 201);
   } catch (err) {
