@@ -8,18 +8,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogFooter,
-  DialogTitle,
-  DialogDescription,
-  DialogTrigger,
-  DialogClose,
-} from "@/components/ui/dialog";
 import { useUpdateBot, useDeleteBot } from "@/hooks/api";
-import { haptic } from "@/lib/telegram";
+import { haptic, confirm } from "@/lib/telegram";
 import type { PublicBot } from "@/types";
 
 export function SettingsPanel({ bot }: { bot: PublicBot }) {
@@ -90,6 +80,10 @@ export function SettingsPanel({ bot }: { bot: PublicBot }) {
   };
 
   const doDelete = async () => {
+    const ok = await confirm(
+      "Delete this bot and all its knowledge documents? This can't be undone.",
+    );
+    if (!ok) return;
     try {
       await remove.mutateAsync(bot.id);
       haptic.success();
@@ -180,30 +174,14 @@ export function SettingsPanel({ bot }: { bot: PublicBot }) {
         <Button variant="outline" className="flex-1" onClick={togglePause}>
           {bot.status === "active" ? "Pause bot" : "Resume bot"}
         </Button>
-        <Dialog>
-          <DialogTrigger asChild>
-            <Button variant="destructive" className="flex-1">
-              <Trash2 /> Delete
-            </Button>
-          </DialogTrigger>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Delete this bot?</DialogTitle>
-              <DialogDescription>
-                This removes the bot and all its knowledge documents. This
-                can't be undone.
-              </DialogDescription>
-            </DialogHeader>
-            <DialogFooter>
-              <DialogClose asChild>
-                <Button variant="outline">Cancel</Button>
-              </DialogClose>
-              <Button variant="destructive" disabled={remove.isPending} onClick={doDelete}>
-                {remove.isPending ? "Deleting…" : "Delete"}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+        <Button
+          variant="destructive"
+          className="flex-1"
+          disabled={remove.isPending}
+          onClick={doDelete}
+        >
+          <Trash2 /> {remove.isPending ? "Deleting…" : "Delete"}
+        </Button>
       </div>
     </div>
   );

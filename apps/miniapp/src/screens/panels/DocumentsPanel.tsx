@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useDocuments, useUploadDocument, useDeleteDocument } from "@/hooks/api";
-import { haptic } from "@/lib/telegram";
+import { haptic, confirm } from "@/lib/telegram";
 import type { DocumentItem } from "@/types";
 
 function DocStatus({ status }: { status: string }) {
@@ -50,9 +50,12 @@ export function DocumentsPanel({ botId }: { botId: string }) {
   };
 
   const onDelete = async (doc: DocumentItem) => {
+    const ok = await confirm(`Delete "${doc.fileName}" and its data?`);
+    if (!ok) return;
     try {
       await del.mutateAsync(doc.id);
-      haptic.tap();
+      haptic.success();
+      toast.success("Document deleted");
     } catch (err) {
       haptic.error();
       toast.error(err instanceof Error ? err.message : "Delete failed");

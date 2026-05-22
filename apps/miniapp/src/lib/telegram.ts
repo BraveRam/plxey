@@ -66,6 +66,13 @@ export function showBackButton(onClick: () => void): () => void {
   };
 }
 
+/** Native Telegram confirm dialog. Resolves true if the user confirms. */
+export function confirm(message: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    WebApp.showConfirm(message, (ok) => resolve(ok));
+  });
+}
+
 export const haptic = {
   success: () => WebApp.HapticFeedback?.notificationOccurred("success"),
   error: () => WebApp.HapticFeedback?.notificationOccurred("error"),

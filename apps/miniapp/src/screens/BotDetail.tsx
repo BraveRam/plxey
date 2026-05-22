@@ -1,13 +1,22 @@
+import { lazy, Suspense } from "react";
 import { useParams } from "react-router-dom";
 import { Screen } from "@/components/Screen";
 import { Card } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { Skeleton } from "@/components/ui/skeleton";
 import { useBack } from "@/hooks/useBack";
 import { useBot, useBots } from "@/hooks/api";
 import { SettingsPanel } from "@/screens/panels/SettingsPanel";
 import { DocumentsPanel } from "@/screens/panels/DocumentsPanel";
-import { AnalyticsPanel } from "@/screens/panels/AnalyticsPanel";
 import { PermissionsPanel } from "@/screens/panels/PermissionsPanel";
+
+// Lazy — pulls recharts into its own chunk, loaded only when the Stats
+// tab is opened, keeping the initial bundle light.
+const AnalyticsPanel = lazy(() =>
+  import("@/screens/panels/AnalyticsPanel").then((m) => ({
+    default: m.AnalyticsPanel,
+  })),
+);
 
 export function BotDetail() {
   useBack();
@@ -45,7 +54,9 @@ export function BotDetail() {
             <DocumentsPanel botId={bot.id} />
           </TabsContent>
           <TabsContent value="analytics">
-            <AnalyticsPanel botId={bot.id} />
+            <Suspense fallback={<Skeleton className="h-64 w-full" />}>
+              <AnalyticsPanel botId={bot.id} />
+            </Suspense>
           </TabsContent>
           <TabsContent value="perms">
             <PermissionsPanel botId={bot.id} />
