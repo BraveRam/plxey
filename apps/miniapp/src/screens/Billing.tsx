@@ -1,5 +1,6 @@
 import { CreditCard } from "lucide-react";
 import { Screen } from "@/components/Screen";
+import { GlowIcon } from "@/components/GlowIcon";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -63,6 +64,9 @@ export function Billing() {
         <Skeleton className="h-64 w-full" />
       ) : (
         <>
+          <div className="flex justify-center py-2">
+            <GlowIcon icon={CreditCard} size={84} />
+          </div>
           <Card>
             <CardHeader className="flex-row items-center justify-between">
               <CardTitle className="text-xl">{planLabel(data.plan)}</CardTitle>

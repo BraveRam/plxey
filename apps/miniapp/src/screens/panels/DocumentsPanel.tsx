@@ -1,6 +1,7 @@
 import { useRef } from "react";
 import { toast } from "sonner";
-import { FileText, Trash2, Upload, CheckCircle2, Clock, XCircle, Loader2 } from "lucide-react";
+import { FileText, Trash2, Upload, CheckCircle2, Clock, XCircle, Loader2, FolderOpen } from "lucide-react";
+import { GlowIcon } from "@/components/GlowIcon";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -118,9 +119,12 @@ export function DocumentsPanel({ botId }: { botId: string }) {
           ))}
         </div>
       ) : (
-        <Card className="p-6 text-center text-sm text-muted-foreground">
-          No documents yet. Upload PDFs, Word, Markdown, text, or HTML to build
-          the bot's knowledge base.
+        <Card className="flex flex-col items-center gap-4 p-8 text-center">
+          <GlowIcon icon={FolderOpen} size={84} />
+          <p className="text-sm text-muted-foreground">
+            No documents yet. Upload PDFs, Word, Markdown, text, or HTML to
+            build the bot's knowledge base.
+          </p>
         </Card>
       )}
     </div>

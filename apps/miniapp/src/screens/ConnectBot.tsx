@@ -1,8 +1,9 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
-import { KeyRound } from "lucide-react";
+import { KeyRound, Bot } from "lucide-react";
 import { Screen } from "@/components/Screen";
+import { GlowIcon } from "@/components/GlowIcon";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -33,6 +34,9 @@ export function ConnectBot() {
 
   return (
     <Screen title="Connect a bot" subtitle="Paste the token from @BotFather">
+      <div className="flex justify-center py-4">
+        <GlowIcon icon={Bot} size={96} />
+      </div>
       <Card>
         <CardContent className="space-y-4 pt-4">
           <div className="flex items-start gap-3 rounded-lg bg-muted p-3 text-sm text-muted-foreground">

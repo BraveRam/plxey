@@ -1,6 +1,7 @@
 import { Link, useNavigate } from "react-router-dom";
-import { ChevronRight, Plus, CreditCard } from "lucide-react";
+import { ChevronRight, Plus, CreditCard, Bot } from "lucide-react";
 import { Screen } from "@/components/Screen";
+import { GlowIcon } from "@/components/GlowIcon";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -75,10 +76,10 @@ export function BotList() {
           </ListGroup>
         </div>
       ) : (
-        <Card className="flex flex-col items-center gap-3 p-8 text-center">
-          <Avatar name="bot" size={56} />
+        <Card className="flex flex-col items-center gap-4 p-10 text-center">
+          <GlowIcon icon={Bot} size={96} />
           <div>
-            <p className="font-semibold">No bots yet</p>
+            <p className="text-lg font-semibold">No bots yet</p>
             <p className="text-sm text-muted-foreground">
               Connect a bot to start answering customers.
             </p>
