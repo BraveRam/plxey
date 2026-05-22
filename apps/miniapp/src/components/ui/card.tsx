@@ -5,7 +5,8 @@ function Card({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
   return (
     <div
       className={cn(
-        "rounded-xl border bg-card text-card-foreground shadow-sm",
+        // Flat grouped surface — Telegram-native settings feel, no shadow.
+        "rounded-xl bg-card text-card-foreground",
         className,
       )}
       {...props}
