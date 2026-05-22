@@ -48,12 +48,14 @@ export function verifyInitData(
   const hash = params.get("hash");
   if (!hash) return { ok: false, reason: "missing hash" };
 
-  // Build the data-check-string: every field except `hash` (and the
-  // newer Ed25519 `signature` field, which is not part of the HMAC
-  // check), sorted alphabetically, joined as `key=value` by `\n`.
+  // Build the data-check-string: every field except `hash`, sorted
+  // alphabetically, joined as `key=value` by `\n`. NOTE: the `signature`
+  // field (Ed25519, for third-party validation) IS kept here — Telegram
+  // computes the HMAC `hash` over the data-check-string that includes it,
+  // so excluding it produces a mismatched hash and a false 401.
   const pairs: string[] = [];
   for (const [key, value] of params.entries()) {
-    if (key === "hash" || key === "signature") continue;
+    if (key === "hash") continue;
     pairs.push(`${key}=${value}`);
   }
   pairs.sort();

@@ -44,6 +44,17 @@ describe("verifyInitData", () => {
     }
   });
 
+  test("accepts a payload that includes a signature field", () => {
+    // Newer Telegram clients add an Ed25519 `signature` field. It must be
+    // part of the data-check-string for the HMAC hash; verify must not
+    // drop it.
+    const fields = { ...freshFields(33), signature: "abc123_signature-value" };
+    const initData = signInitData(fields);
+    const result = verifyInitData(initData, BOT_TOKEN);
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.user.id).toBe(33);
+  });
+
   test("rejects a tampered hash", () => {
     const initData = signInitData(freshFields());
     const tampered = initData.replace(/hash=[0-9a-f]+/, "hash=deadbeef");
