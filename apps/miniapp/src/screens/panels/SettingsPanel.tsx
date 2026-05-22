@@ -69,6 +69,12 @@ export function SettingsPanel({ bot }: { bot: PublicBot }) {
 
   const togglePause = async () => {
     const next = bot.status === "active" ? "paused" : "active";
+    const ok = await confirm(
+      next === "paused"
+        ? "Pause this bot? It will stop answering customers until resumed."
+        : "Resume this bot so it answers customers again?",
+    );
+    if (!ok) return;
     try {
       await update.mutateAsync({ id: bot.id, patch: { status: next } });
       haptic.tap();
