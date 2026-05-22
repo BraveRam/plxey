@@ -1,4 +1,4 @@
-import { Bot, type Context, InlineKeyboard, session, type SessionFlavor } from "grammy";
+import { Bot, type Api, type Context, InlineKeyboard, session, type SessionFlavor } from "grammy";
 import { type Conversation, type ConversationFlavor, conversations, createConversation } from "@grammyjs/conversations";
 import { limit } from "@grammyjs/ratelimiter";
 import { logger } from "../lib/logger";
@@ -42,7 +42,20 @@ import {
   onboardingBotStatusLine,
   onboardingDeleteFailed,
   onboardingWelcome,
+  ADMIN_UNAUTHORIZED,
+  BROADCAST_PROMPT,
+  BROADCAST_NEED_MESSAGE,
+  BROADCAST_CANCELLED,
+  BROADCAST_NO_AUDIENCE,
+  BROADCAST_SENDING,
+  broadcastConfirm,
+  broadcastDone,
 } from "../lib/text";
+import { isAdmin } from "./admin-commands";
+import {
+  broadcastAudienceSize,
+  runBroadcast,
+} from "../lib/broadcast";
 
 type BaseCtx = Context & SessionFlavor<Record<string, never>>;
 type OnCtx = BaseCtx & ConversationFlavor<BaseCtx>;
@@ -396,6 +409,73 @@ async function createBotConversation(conversation: Conversation<BaseCtx, BaseCtx
   }
 }
 
+/**
+ * Admin-only broadcast conversation. Prompts for a message (any type),
+ * confirms the audience size, then copies it to every non-banned user.
+ * The send loop runs inside `conversation.external` so a replay never
+ * re-broadcasts. `api` is captured so the loop can run outside the
+ * replay-tracked ctx.
+ */
+function makeBroadcastConversation(api: Api) {
+  return async function broadcastConversation(
+    conversation: Conversation<BaseCtx, BaseCtx>,
+    ctx: BaseCtx,
+  ): Promise<void> {
+    await ctx.reply(BROADCAST_PROMPT, { reply_markup: cancelKb });
+
+    // Wait for the message to broadcast (or Cancel).
+    let fromChatId: number;
+    let messageId: number;
+    while (true) {
+      const response = await conversation.wait();
+      if (response.callbackQuery?.data === "cancel") {
+        await response.answerCallbackQuery();
+        await ctx.reply(BROADCAST_CANCELLED);
+        return;
+      }
+      if (response.callbackQuery) {
+        await response.answerCallbackQuery();
+        continue;
+      }
+      const msg = response.message;
+      if (!msg) {
+        await ctx.reply(BROADCAST_NEED_MESSAGE, { reply_markup: cancelKb });
+        continue;
+      }
+      fromChatId = msg.chat.id;
+      messageId = msg.message_id;
+      break;
+    }
+
+    // Confirm — mass send is irreversible.
+    const count = await conversation.external(() => broadcastAudienceSize());
+    if (count === 0) {
+      await ctx.reply(BROADCAST_NO_AUDIENCE);
+      return;
+    }
+    const confirmKb = new InlineKeyboard()
+      .text("Cancel", "cancel")
+      .text("📣 Send", "broadcast_send");
+    await ctx.reply(broadcastConfirm(count), { reply_markup: confirmKb });
+
+    const confirm = await conversation.wait();
+    if (confirm.callbackQuery?.data !== "broadcast_send") {
+      if (confirm.callbackQuery) {
+        await confirm.answerCallbackQuery().catch(() => {});
+      }
+      await ctx.reply(BROADCAST_CANCELLED);
+      return;
+    }
+    await confirm.answerCallbackQuery();
+
+    await ctx.reply(BROADCAST_SENDING);
+    const result = await conversation.external(() =>
+      runBroadcast(api, fromChatId, messageId),
+    );
+    await ctx.reply(broadcastDone(result));
+  };
+}
+
 export async function createOnboardingBot(): Promise<Bot> {
   const token = process.env.BOT_TOKEN;
   if (!token) throw new Error("BOT_TOKEN is required");
@@ -448,6 +528,7 @@ export async function createOnboardingBot(): Promise<Bot> {
   );
   bot.use(createConversation(createBotConversation, "createBot"));
   bot.use(createConversation(deleteBotConversation, "deleteBot"));
+  bot.use(createConversation(makeBroadcastConversation(bot.api), "broadcast"));
 
   // Mount admin commands + billing surface BEFORE the catch-all callback
   // handler at the bottom — otherwise the catch-all swallows /billing
@@ -476,6 +557,15 @@ export async function createOnboardingBot(): Promise<Bot> {
     });
     logger.debug({ userId }, "onboarding: /start");
     if (userId) track(ownerDistinctId(userId), "onboarding.start.opened");
+  });
+
+  bot.command("broadcast", async (ctx) => {
+    if (!isAdmin(ctx as unknown as Context)) {
+      await ctx.reply(ADMIN_UNAUTHORIZED);
+      return;
+    }
+    track(ownerDistinctId(String(ctx.from?.id ?? "")), "admin.broadcast.started");
+    await ctx.conversation.enter("broadcast");
   });
 
   bot.command("help", async (ctx) => {

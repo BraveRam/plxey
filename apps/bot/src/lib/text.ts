@@ -954,3 +954,27 @@ export const ADMIN_BAN_APPLIED =
 export const ADMIN_UNBAN_APPLIED = "Owner unbanned.";
 export const ADMIN_OWNER_NOT_FOUND = "Owner not found.";
 export const ADMIN_UNAUTHORIZED = "Not authorized.";
+
+// =============================================================================
+// Broadcast (admin → all users)
+// =============================================================================
+
+export const BROADCAST_PROMPT =
+  "📣 Send the message to broadcast. It can be any type — text, photo, video, document — and will be copied to all users exactly as you send it.";
+export const BROADCAST_NEED_MESSAGE =
+  "Send a message to broadcast, or press Cancel.";
+export const BROADCAST_CANCELLED = "Broadcast cancelled.";
+export const BROADCAST_NO_AUDIENCE = "No users to broadcast to yet.";
+
+export function broadcastConfirm(count: number): string {
+  return `Broadcast this message to ${count} user${count === 1 ? "" : "s"}?`;
+}
+
+export const BROADCAST_SENDING = "📤 Broadcasting… this may take a moment.";
+
+export function broadcastDone(args: { sent: number; failed: number }): string {
+  const base = `✅ Broadcast sent to ${args.sent} user${args.sent === 1 ? "" : "s"}.`;
+  return args.failed > 0
+    ? `${base} ${args.failed} could not be reached (blocked or deleted).`
+    : base;
+}

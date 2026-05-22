@@ -1178,6 +1178,7 @@ Plan-cap enforcement lives in:
 | `/grant_comp <ownerId> <pro\|business>` | Create complimentary subscription (year-2099 `currentPeriodEnd`, `is_complimentary=true`). |
 | `/ban <ownerId>` | Flip `is_banned=true`, fire `owner/banned` (handler cancels subs + force-pauses bots). |
 | `/unban <ownerId>` | Flip `is_banned=false`. No auto-resubscribe. |
+| `/broadcast` | Admin-gated conversation (`makeBroadcastConversation`, `onboarding.ts`). Prompts for any message + Cancel, confirms the audience size, then `copyMessage`s it to every non-banned `owners` row (`lib/broadcast.ts`, throttled ~25/s, per-recipient failures skipped). The send loop runs in `conversation.external` so a replay never re-broadcasts. Not listed in the public slash menu. |
 
 ### Inngest functions
 

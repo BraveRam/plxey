@@ -55,7 +55,7 @@ type SubscriptionRow = typeof subscriptions.$inferSelect;
  * If the env var is not configured, no caller is admin — which means the
  * admin surface is effectively disabled. Safer default than allow-all.
  */
-function isAdmin(ctx: Context): boolean {
+export function isAdmin(ctx: Context): boolean {
   const allowedId = process.env.ADMIN_TELEGRAM_USER_ID;
   if (!allowedId) return false;
   const fromId = ctx.from?.id;
