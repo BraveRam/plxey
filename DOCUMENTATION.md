@@ -120,6 +120,16 @@ tg-business/
 - AI Gateway: `embedMany` for batch chunk embedding.
 - Telegram Bot API (raw `fetch`): owner notification on completion.
 
+### apps/miniapp (Vite + React, deployed to Vercel)
+
+Owner-facing Telegram Mini App, launched from the onboarding bot's chat menu button (`setChatMenuButton` web_app, wired in `index.ts` from `MINIAPP_ORIGIN`). Static SPA — **not** part of the bot/rag Docker images; it deploys separately to Vercel (Root Directory `apps/miniapp`, `bun run build` → `dist`, `vercel.json` SPA rewrite). Because it lives on a different origin from the bot API (Koyeb), the API has CORS + initData auth.
+
+- **Stack**: React 19, Vite, TypeScript, Tailwind v4, shadcn/ui (vendored in `src/components/ui`), TanStack Query, react-router, `@twa-dev/sdk`, sonner.
+- **Telegram bridge** (`src/lib/telegram.ts`): `WebApp.ready()/expand()`, maps `themeParams` onto shadcn CSS variables (light/dark follows `colorScheme`), exposes signed `initData`, native BackButton, haptics.
+- **API client** (`src/lib/api.ts`): base `VITE_API_BASE` (= bot `PUBLIC_URL`); sends `Authorization: tma <initData>` on every request.
+- **Screens**: BotList, ConnectBot (paste BotFather token → `POST /api/bots`), BotDetail (tabs: Settings / Knowledge / Stats / Access), Billing.
+- **Env**: `VITE_API_BASE`. The bot side needs `MINIAPP_ORIGIN` for CORS + the menu button.
+
 ---
 
 ## Bot Middleware Chains
@@ -775,46 +785,54 @@ Read-only screen reachable from the tenant-bot management menu (row 4). Surfaces
 
 ## REST API (`/api/*`)
 
-Mounted at `/api` in `apps/bot/src/index.ts`. All routes pass through `apiLimiter` middleware first.
+Mounted at `/api` in `apps/bot/src/index.ts`. Every route passes through, in order: CORS (`MINIAPP_ORIGIN` allowlist) → per-IP `apiLimiter` → **initData auth** (sets the verified `ownerId`; rejects banned owners). The owner is always the verified Telegram user — never a request param. Bot payloads are `PublicBotResult` (no `botTokenEncrypted` / `webhookSecret`). All routes are consumed by the owner Mini App (`apps/miniapp`). See [Authorization for the REST API](#authorization-for-the-rest-api).
 
 ### `POST /api/tenants`
 
-- Body: `{ telegramOwnerId: string }`
-- Returns: tenant row (upsert; creates if missing).
-- Consumed by: mini-app (initial session establishment).
+- Body: none (owner from initData). Returns the owner's tenant row (upsert).
 
-### `GET /api/bots?userId=<telegramOwnerId>`
+### `GET /api/bots`
 
-- Returns: array of `BotResult`.
-- Consumed by: mini-app dashboard; onboarding bot via `listBots`.
+- Returns: array of `PublicBotResult` for the verified owner.
 
 ### `POST /api/bots`
 
-- Body: `{ token: string, telegramOwnerId: string }`
-- Returns: `BotResult` (201).
-- Side effects: Telegram `getMe`, upsert tenant, encrypt token, insert `tenant_bots` with generated `webhookSecret`.
-- Consumed by: mini-app; onboarding bot via `createBot`.
+- Body: `{ token: string }` (owner from initData).
+- Returns: `PublicBotResult` (201).
+- Side effects: Telegram `getMe`, upsert tenant, encrypt token, insert `tenant_bots`.
 
 ### `PATCH /api/bots/:id`
 
-- Body: `{ status?, systemPrompt?, welcomeMessage?, autoReadBusinessMessages? }`
-- Updates only provided fields.
-- Consumed by: mini-app; tenant bot conversations (edit prompt/welcome, toggle auto-read, pause/resume) via `updateBot`.
+- Owner-checked (403 if not owner).
+- Body: `{ status?, systemPrompt?, welcomeMessage?, autoReadBusinessMessages?, dailyUserAiReplyLimit?, dailyCapReachedMessage? }`. Updates only provided fields.
 
 ### `DELETE /api/bots/:id`
 
-- Side effects: decrypt token, Telegram `setWebhook("")`, delete `tenant_bots` row (cascade).
-- Consumed by: mini-app; onboarding `deleteBotConversation`.
+- Owner-checked. Side effects: decrypt token, Telegram `setWebhook("")`, delete `tenant_bots` (cascade).
+
+### `GET /api/bots/:id/analytics`
+
+- Owner-checked. Returns `BotStats` (today / 7d / 30d received·answered·customers + `lastMessageAt`) via `getBotStats` (Redis-cached 60s).
+
+### `GET /api/bots/:id/permissions`
+
+- Owner-checked. Returns `{ connected, isEnabled, rights, lastSyncedAt }` from the bot's `business_connections` row.
+
+### `GET /api/owners/billing`
+
+- Returns `{ plan, status, trialEndsAt, subscriptionRenewsAt, usage: { bots, docs, messages }, caps }` for the verified owner (`getBillingSummary`).
 
 ### `GET /api/documents?botId=<id>`
 
-- Returns: array of `DocumentResult`.
-- Consumed by: mini-app; tenant bot `documentMgmt`.
+- Owner-checked. Returns array of `DocumentResult`.
+
+### `POST /api/documents`
+
+- Owner-checked. Multipart body `{ botId, file }`. Enforces the same quota / MIME / size / per-bot-cap checks as the bot upload path, then `ingestDocument` (B2 + RAG `/ingest`). Returns `{ documentId }` (201).
 
 ### `DELETE /api/documents/:id`
 
-- Side effects: B2 delete (warn-log on failure, doesn't block DB delete) + delete `documents` row.
-- Consumed by: mini-app; tenant bot `documentMgmt`.
+- Owner-checked. Side effects: B2 delete (warn-log on failure) + delete `documents` row.
 
 ---
 
@@ -868,7 +886,11 @@ See [`@tg-business/crypto`](#tg-businesscrypto). AES-GCM, 12-byte random IV per 
 
 ### Authorization for the REST API
 
-`POST /api/tenants` requires `telegramOwnerId` in body. `GET /api/bots` requires `?userId=` query param. There is **no session, JWT, HMAC, or Telegram Mini App `initData` verification** — any caller who knows a valid Telegram user ID can list/create/modify/delete that user's bots. The per-IP rate limit is the only abuse control. **Known gap.**
+All `/api/*` routes require **Telegram Mini App `initData` HMAC verification** (`lib/telegram-auth.ts`, `verifyInitData`). The Mini App sends `Authorization: tma <initData>`; a Hono middleware in `routes.ts` verifies the HMAC against `BOT_TOKEN` (the onboarding bot that launches the WebApp signs the data), enforces an `auth_date` freshness window (24h), and stashes the proven Telegram user id as `c.get("ownerId")`. The verified id is the sole source of owner identity — client-supplied `userId`/`telegramOwnerId` is ignored.
+
+Every id-scoped route additionally asserts ownership before mutating: `requireBotOwner` checks `ownerForBotId(id) === ownerId` (403 otherwise), and document routes check `ownerForDocId`. Banned owners are rejected (403) in the auth middleware. Bot responses are stripped of secrets via `toPublicBot` (`lib/api.ts`) — `botTokenEncrypted` and `webhookSecret` never leave the server.
+
+CORS (`hono/cors`) allowlists only `MINIAPP_ORIGIN` (no `*`). The per-IP rate limit still applies underneath.
 
 ### Telegram BusinessBotRights gating
 

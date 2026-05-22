@@ -1,12 +1,35 @@
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
+import { cors } from "hono/cors";
 import { eq } from "drizzle-orm";
-import { db, documents, tenants } from "@tg-business/db";
-import { getOrCreateTenant, listBots, createBot, updateBot, deleteBot, listDocuments, deleteDocument } from "../lib/api";
-import { isBotOwnerBanned, isOwnerBanned } from "../lib/banned";
+import { db, documents, tenants, tenantBots, businessConnections } from "@tg-business/db";
+import {
+  getOrCreateTenant,
+  listBots,
+  createBot,
+  updateBot,
+  deleteBot,
+  listDocuments,
+  deleteDocument,
+  toPublicBot,
+  ownerForBotId,
+} from "../lib/api";
+import { isOwnerBanned } from "../lib/banned";
 import { apiLimiter } from "../lib/redis";
 import { clientIp } from "../lib/client-ip";
+import { verifyInitData } from "../lib/telegram-auth";
+import { checkQuota } from "../lib/owners";
+import { detectMimeType } from "../bots/document-types";
+import { checkDocumentLimits } from "../bots/document-limits";
+import { ingestDocument } from "../lib/doc-ingest";
+import { getBotStats } from "../lib/analytics-stats";
+import { getBillingSummary } from "../lib/billing-read";
+import { logger } from "../lib/logger";
 
-export const api = new Hono();
+// `ownerId` is the Telegram user id proven via initData HMAC. Every route
+// reads it from context — never from client-supplied body/query.
+type ApiVariables = { ownerId: string };
+
+export const api = new Hono<{ Variables: ApiVariables }>();
 
 async function ownerForDocId(docId: string): Promise<string | null> {
   const doc = await db.query.documents.findFirst({
@@ -21,6 +44,19 @@ async function ownerForDocId(docId: string): Promise<string | null> {
   return tenant?.telegramOwnerId ?? null;
 }
 
+// CORS first so the browser preflight (OPTIONS) succeeds before any auth
+// or rate-limit logic runs. Allowlist only the Mini App origin; never `*`
+// (credentials/headers carry the signed initData).
+api.use(
+  "*",
+  cors({
+    origin: process.env.MINIAPP_ORIGIN ?? "",
+    allowMethods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+    allowHeaders: ["Authorization", "Content-Type"],
+    maxAge: 86400,
+  }),
+);
+
 // Per-source-IP rate limit on every /api/* route. Fail open on Redis
 // errors so a transient Upstash blip doesn't take the admin surface
 // offline.
@@ -33,14 +69,41 @@ api.use("*", async (c, next) => {
   await next();
 });
 
-api.post("/tenants", async (c) => {
-  const { telegramOwnerId } = await c.req.json<{ telegramOwnerId: string }>();
-  if (!telegramOwnerId) return c.json({ error: "telegramOwnerId required" }, 400);
-  if (await isOwnerBanned(telegramOwnerId)) {
+// Telegram Mini App auth. Requires `Authorization: tma <initData>`,
+// verifies the HMAC against BOT_TOKEN, and stashes the proven owner id.
+// The verified id supersedes any client-supplied userId/telegramOwnerId.
+api.use("*", async (c, next) => {
+  const auth = c.req.header("Authorization") ?? "";
+  const initData = auth.startsWith("tma ") ? auth.slice(4) : "";
+  const botToken = process.env.BOT_TOKEN ?? "";
+  const result = verifyInitData(initData, botToken);
+  if (!result.ok) {
+    return c.json({ error: "unauthorized" }, 401);
+  }
+  const ownerId = String(result.user.id);
+  if (await isOwnerBanned(ownerId)) {
     return c.json({ error: "banned" }, 403);
   }
+  c.set("ownerId", ownerId);
+  await next();
+});
+
+// Assert the verified owner owns `botId`. Returns a Response to send on
+// failure, or null when the caller is authorized.
+async function requireBotOwner(
+  c: Context<{ Variables: ApiVariables }>,
+  botId: string,
+): Promise<Response | null> {
+  const owner = await ownerForBotId(botId);
+  if (owner === null) return c.json({ error: "not found" }, 404);
+  if (owner !== c.get("ownerId")) return c.json({ error: "forbidden" }, 403);
+  return null;
+}
+
+api.post("/tenants", async (c) => {
+  const ownerId = c.get("ownerId");
   try {
-    const tenant = await getOrCreateTenant(telegramOwnerId);
+    const tenant = await getOrCreateTenant(ownerId);
     return c.json(tenant);
   } catch (err) {
     return c.json({ error: err instanceof Error ? err.message : "Unknown error" }, 500);
@@ -48,21 +111,16 @@ api.post("/tenants", async (c) => {
 });
 
 api.get("/bots", async (c) => {
-  const userId = c.req.query("userId");
-  if (!userId) return c.json({ error: "userId required" }, 400);
-  const bots = await listBots(userId);
-  return c.json(bots);
+  const bots = await listBots(c.get("ownerId"));
+  return c.json(bots.map(toPublicBot));
 });
 
 api.post("/bots", async (c) => {
-  const { token, telegramOwnerId } = await c.req.json<{ token: string; telegramOwnerId: string }>();
-  if (!token || !telegramOwnerId) return c.json({ error: "token and telegramOwnerId required" }, 400);
-  if (await isOwnerBanned(telegramOwnerId)) {
-    return c.json({ error: "banned" }, 403);
-  }
+  const { token } = await c.req.json<{ token: string }>();
+  if (!token) return c.json({ error: "token required" }, 400);
   try {
-    const botRecord = await createBot(token, telegramOwnerId);
-    return c.json(botRecord, 201);
+    const botRecord = await createBot(token, c.get("ownerId"));
+    return c.json(toPublicBot(botRecord), 201);
   } catch (err) {
     return c.json({ error: err instanceof Error ? err.message : "Unknown error" }, 400);
   }
@@ -70,13 +128,34 @@ api.post("/bots", async (c) => {
 
 api.patch("/bots/:id", async (c) => {
   const id = c.req.param("id");
-  if (await isBotOwnerBanned(id)) {
-    return c.json({ error: "banned" }, 403);
-  }
-  const { status, systemPrompt, welcomeMessage, autoReadBusinessMessages } = await c.req.json<{ status?: string; systemPrompt?: string; welcomeMessage?: string | null; autoReadBusinessMessages?: boolean }>();
+  const denied = await requireBotOwner(c, id);
+  if (denied) return denied;
+
+  const {
+    status,
+    systemPrompt,
+    welcomeMessage,
+    autoReadBusinessMessages,
+    dailyUserAiReplyLimit,
+    dailyCapReachedMessage,
+  } = await c.req.json<{
+    status?: string;
+    systemPrompt?: string;
+    welcomeMessage?: string | null;
+    autoReadBusinessMessages?: boolean;
+    dailyUserAiReplyLimit?: number | null;
+    dailyCapReachedMessage?: string | null;
+  }>();
   try {
-    const updated = await updateBot(id, { status, systemPrompt, welcomeMessage, autoReadBusinessMessages });
-    return c.json(updated);
+    const updated = await updateBot(id, {
+      status,
+      systemPrompt,
+      welcomeMessage,
+      autoReadBusinessMessages,
+      dailyUserAiReplyLimit,
+      dailyCapReachedMessage,
+    });
+    return c.json(toPublicBot(updated));
   } catch (err) {
     return c.json({ error: err instanceof Error ? err.message : "Unknown error" }, 404);
   }
@@ -84,9 +163,8 @@ api.patch("/bots/:id", async (c) => {
 
 api.delete("/bots/:id", async (c) => {
   const id = c.req.param("id");
-  if (await isBotOwnerBanned(id)) {
-    return c.json({ error: "banned" }, 403);
-  }
+  const denied = await requireBotOwner(c, id);
+  if (denied) return denied;
   try {
     await deleteBot(id);
     return c.json({ success: true });
@@ -95,19 +173,100 @@ api.delete("/bots/:id", async (c) => {
   }
 });
 
+api.get("/bots/:id/analytics", async (c) => {
+  const id = c.req.param("id");
+  const denied = await requireBotOwner(c, id);
+  if (denied) return denied;
+  const stats = await getBotStats(id);
+  return c.json(stats);
+});
+
+api.get("/bots/:id/permissions", async (c) => {
+  const id = c.req.param("id");
+  const denied = await requireBotOwner(c, id);
+  if (denied) return denied;
+  const conn = await db.query.businessConnections.findFirst({
+    where: eq(businessConnections.tenantBotId, id),
+    columns: { rights: true, isEnabled: true, lastSyncedAt: true },
+  });
+  return c.json({
+    connected: !!conn,
+    isEnabled: conn?.isEnabled ?? false,
+    rights: conn?.rights ?? null,
+    lastSyncedAt: conn?.lastSyncedAt?.toISOString() ?? null,
+  });
+});
+
+api.get("/owners/billing", async (c) => {
+  const summary = await getBillingSummary(c.get("ownerId"));
+  return c.json(summary);
+});
+
 api.get("/documents", async (c) => {
   const botId = c.req.query("botId");
   if (!botId) return c.json({ error: "botId required" }, 400);
+  const denied = await requireBotOwner(c, botId);
+  if (denied) return denied;
   const docs = await listDocuments(botId);
   return c.json(docs);
 });
 
+api.post("/documents", async (c) => {
+  const ownerId = c.get("ownerId");
+  const body = await c.req.parseBody();
+  const botId = typeof body.botId === "string" ? body.botId : "";
+  const file = body.file;
+  if (!botId) return c.json({ error: "botId required" }, 400);
+  if (!(file instanceof File)) return c.json({ error: "file required" }, 400);
+
+  const denied = await requireBotOwner(c, botId);
+  if (denied) return denied;
+
+  // Plan-cap quota gate (mirrors the bot upload path).
+  const quota = await checkQuota(ownerId, "doc", { botId });
+  if (!quota.ok) {
+    return c.json({ error: "quota", reason: quota.reason }, 403);
+  }
+
+  const detectedMime = detectMimeType(file.name, file.type);
+  if (!detectedMime) return c.json({ error: "unsupported file type" }, 400);
+
+  const existing = await listDocuments(botId);
+  const limitCheck = checkDocumentLimits({
+    fileSize: file.size,
+    currentDocCount: existing.length,
+  });
+  if (!limitCheck.ok) {
+    return c.json({ error: limitCheck.reason, limit: limitCheck.limit }, 400);
+  }
+
+  const botRow = await db.query.tenantBots.findFirst({
+    where: eq(tenantBots.id, botId),
+    columns: { tenantId: true },
+  });
+  if (!botRow) return c.json({ error: "not found" }, 404);
+
+  try {
+    const buffer = Buffer.from(await file.arrayBuffer());
+    const { documentId } = await ingestDocument({
+      buffer,
+      fileName: file.name || "untitled",
+      mimeType: detectedMime,
+      tenantId: botRow.tenantId,
+      botId,
+    });
+    return c.json({ documentId }, 201);
+  } catch (err) {
+    logger.error({ err, botId }, "miniapp document upload failed");
+    return c.json({ error: err instanceof Error ? err.message : "Unknown error" }, 500);
+  }
+});
+
 api.delete("/documents/:id", async (c) => {
   const id = c.req.param("id");
-  const ownerId = await ownerForDocId(id);
-  if (ownerId !== null && (await isOwnerBanned(ownerId))) {
-    return c.json({ error: "banned" }, 403);
-  }
+  const owner = await ownerForDocId(id);
+  if (owner === null) return c.json({ error: "not found" }, 404);
+  if (owner !== c.get("ownerId")) return c.json({ error: "forbidden" }, 403);
   try {
     await deleteDocument(id);
     return c.json({ success: true });

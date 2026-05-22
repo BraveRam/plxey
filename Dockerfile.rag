@@ -16,6 +16,10 @@ COPY packages/crypto/package.json ./packages/crypto/
 COPY packages/storage/package.json ./packages/storage/
 COPY apps/bot/package.json ./apps/bot/
 COPY apps/rag/package.json ./apps/rag/
+# miniapp is deployed separately (Vercel), but its package.json must be
+# present so `bun install --frozen-lockfile` can resolve the full
+# workspace graph the lockfile describes.
+COPY apps/miniapp/package.json ./apps/miniapp/
 
 # Install all workspaces (production-only — drops devDependencies like
 # drizzle-kit, types, pino-pretty). Bun will create the symlink graph

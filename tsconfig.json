@@ -25,5 +25,8 @@
     "noUnusedLocals": false,
     "noUnusedParameters": false,
     "noPropertyAccessFromIndexSignature": false
-  }
+  },
+  // apps/miniapp is a browser Vite app with its own tsconfig (DOM libs,
+  // `@/*` path alias). It is type-checked by its own `bun run build`.
+  "exclude": ["apps/miniapp"]
 }

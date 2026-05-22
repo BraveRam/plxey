@@ -144,6 +144,27 @@ async function start() {
     logger.warn("PUBLIC_URL not set — webhooks not registered");
   }
 
+  // Point the onboarding bot's chat menu button at the Mini App so every
+  // owner gets a one-tap "Manage" launcher. Idempotent; skipped when the
+  // Mini App origin isn't configured.
+  const miniappOrigin = process.env.MINIAPP_ORIGIN;
+  if (miniappOrigin) {
+    try {
+      await onboardingBot.api.setChatMenuButton({
+        menu_button: {
+          type: "web_app",
+          text: "Manage",
+          web_app: { url: miniappOrigin },
+        },
+      });
+      logger.info({ url: miniappOrigin }, "onboarding menu button set to Mini App");
+    } catch (err) {
+      logger.error({ err }, "failed to set onboarding menu button");
+    }
+  } else {
+    logger.warn("MINIAPP_ORIGIN not set — Mini App menu button not registered");
+  }
+
   // Drain the PostHog event buffer on SIGINT/SIGTERM so a rolling
   // deploy or Ctrl-C doesn't drop in-flight events. Bounded to 2s
   // inside `flush` so a hung PostHog client can't block shutdown.

@@ -45,6 +45,57 @@ export interface DocumentResult {
   createdAt: Date;
 }
 
+/**
+ * Client-safe view of a bot. Omits `botTokenEncrypted` and
+ * `webhookSecret` — these must never reach the Mini App or any other
+ * external caller.
+ */
+export interface PublicBotResult {
+  id: string;
+  tenantId: string;
+  botUsername: string | null;
+  status: string;
+  systemPrompt: string;
+  welcomeMessage: string | null;
+  autoReadBusinessMessages: boolean;
+  dailyUserAiReplyLimit: number | null;
+  dailyCapReachedMessage: string | null;
+  createdAt: Date;
+}
+
+export function toPublicBot(bot: BotResult): PublicBotResult {
+  return {
+    id: bot.id,
+    tenantId: bot.tenantId,
+    botUsername: bot.botUsername,
+    status: bot.status,
+    systemPrompt: bot.systemPrompt,
+    welcomeMessage: bot.welcomeMessage,
+    autoReadBusinessMessages: bot.autoReadBusinessMessages,
+    dailyUserAiReplyLimit: bot.dailyUserAiReplyLimit,
+    dailyCapReachedMessage: bot.dailyCapReachedMessage,
+    createdAt: bot.createdAt,
+  };
+}
+
+/**
+ * Resolve the Telegram owner id that owns a given tenant bot, or null if
+ * the bot doesn't exist. Used by routes to enforce that the verified
+ * caller owns the resource before mutating it.
+ */
+export async function ownerForBotId(botId: string): Promise<string | null> {
+  const bot = await db.query.tenantBots.findFirst({
+    where: eq(tenantBots.id, botId),
+    columns: { tenantId: true },
+  });
+  if (!bot) return null;
+  const tenant = await db.query.tenants.findFirst({
+    where: eq(tenants.id, bot.tenantId),
+    columns: { telegramOwnerId: true },
+  });
+  return tenant?.telegramOwnerId ?? null;
+}
+
 export async function getOrCreateTenant(telegramOwnerId: string): Promise<TenantResult> {
   if (!telegramOwnerId) throw new Error("telegramOwnerId required");
 

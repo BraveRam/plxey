@@ -21,6 +21,8 @@ bun test apps/bot/tests/registry.test.ts   # run one test file
 bun test -t "name"        # filter by test name
 bun run bot               # start bot server on :3000 (set LOG_LEVEL=debug for pino-pretty verbose)
 bun run rag               # start RAG worker on :3001 (set INNGEST_DEV=1 for local Inngest dev)
+cd apps/miniapp && bun run dev    # owner Mini App (Vite) on :5173
+cd apps/miniapp && bun run build  # type-check + production build (also the Vercel build)
 bun run db:push           # bunx drizzle-kit push — sync schema to Neon
 bunx drizzle-kit generate # generate a versioned migration in drizzle/
 ```
@@ -29,18 +31,20 @@ There is no separate lint/typecheck script — TypeScript is checked implicitly 
 
 ## Architecture
 
-Bun workspace monorepo. Two deployable apps plus three shared packages.
+Bun workspace monorepo. Three deployable apps plus three shared packages.
 
 ### Apps
 
 - **`apps/bot`** (Hono on :3000) — single entry `apps/bot/src/index.ts` mounts:
   - Telegram webhooks (multiple bots, one per tenant) dispatched by `bots/registry.ts` (`BotRegistry`: lazy-loads tenant bots from DB, caches them, decrypts tokens via `@tg-business/crypto`)
   - Onboarding bot in `bots/onboarding.ts` (uses `@grammyjs/conversations`)
-  - REST API at `/api/*` in `api/routes.ts` — tenants, bots, documents (consumed by the Mini App, and by the bot itself via `api/client.ts`)
+  - REST API at `/api/*` in `api/routes.ts` — bots, documents, billing, analytics, permissions (consumed by the owner Mini App; auth via Telegram `initData` HMAC in `lib/telegram-auth.ts`). The bot's own conversations call the data layer (`lib/api.ts`) directly in-process, not over HTTP.
   - AI chat in `services/ai.ts` (Vercel AI SDK + AI Gateway). Two tools: `get_information` (RAG via `services/retrieval.ts`, pgvector cosine similarity) and `send_admin_message`.
 
 - **`apps/rag`** (Hono on :3001) — Inngest-driven PDF pipeline in `src/ingest.ts`:
   download from B2 → `pdf-parse` → `chunker.ts` recursive splitter → embed via AI Gateway → insert into pgvector. Bot triggers it by sending an Inngest event over HTTP.
+
+- **`apps/miniapp`** (Vite + React + Tailwind/shadcn) — owner-facing Telegram Mini App, deployed to **Vercel** (not Dockerized). Launched from the onboarding bot's chat menu button. Calls the bot's `/api/*` cross-origin with `Authorization: tma <initData>`. Has its own `tsconfig.json` (DOM libs, `@/*` alias) and is excluded from the root `tsconfig.json`. Auth/CORS for it live in `apps/bot/src/api/routes.ts` + `lib/telegram-auth.ts`.
 
 ### Packages
 

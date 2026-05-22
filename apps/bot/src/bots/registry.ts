@@ -21,8 +21,8 @@ import {
   messages,
 } from "@tg-business/db";
 import { decrypt } from "@tg-business/crypto";
-import { uploadFile, b2BucketId } from "@tg-business/storage";
 import { askAI } from "../services/ai";
+import { ingestDocument } from "../lib/doc-ingest";
 import { updateBot, listDocuments, deleteDocument } from "../lib/api";
 import {
   checkQuota,
@@ -1114,44 +1114,13 @@ function makeDocumentManagementConversation(
           const res = await fetch(fileUrl);
           const fileBuffer = Buffer.from(await res.arrayBuffer());
 
-          const ext = doc.file_name?.split(".").pop()?.toLowerCase();
-          const b2Path = `tenants/${tenantId}/docs/${crypto.randomUUID()}${ext ? `.${ext}` : ""}`;
-          const { fileId, fileName: b2FileName } = await uploadFile(
-            b2BucketId(),
-            b2Path,
-            fileBuffer,
-            detectedMime,
-          );
-
-          const ingestRes = await fetch(`${workUrl}/ingest`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              b2FileId: fileId,
-              b2FileName,
-              tenantId,
-              botId,
-              fileName: doc.file_name ?? "untitled",
-              mimeType: detectedMime,
-            }),
+          await ingestDocument({
+            buffer: fileBuffer,
+            fileName: doc.file_name ?? "untitled",
+            mimeType: detectedMime,
+            tenantId,
+            botId,
           });
-
-          if (!ingestRes.ok) {
-            const errBody = await ingestRes.json().catch(() => ({}));
-            throw new Error(
-              (errBody as { error?: string }).error ?? "ingest failed",
-            );
-          }
-
-          const ingestBody = (await ingestRes.json()) as { documentId: string };
-          logger.info(
-            {
-              documentId: ingestBody.documentId,
-              fileName: doc.file_name,
-              mimeType: detectedMime,
-            },
-            "document queued for processing",
-          );
         });
         queued = true;
       } catch (err) {
