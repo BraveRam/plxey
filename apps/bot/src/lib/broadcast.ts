@@ -8,7 +8,7 @@
  * without the "forwarded from" header.
  */
 
-import type { Api } from "grammy";
+import { type Api, GrammyError } from "grammy";
 import { eq } from "drizzle-orm";
 import { db, owners } from "@tg-business/db";
 import { logger } from "./logger";
@@ -62,8 +62,23 @@ export async function runBroadcast(
       await api.copyMessage(chatId, fromChatId, messageId);
       sent += 1;
     } catch (err) {
-      failed += 1;
-      logger.debug({ err, chatId }, "broadcast: copyMessage failed (skipped)");
+      // Honor Telegram flood control: on 429, wait the server-instructed
+      // retry_after, then retry this recipient once. Other errors
+      // (user blocked the bot / deleted account → 403) are skipped.
+      if (err instanceof GrammyError && err.error_code === 429) {
+        const retryAfter = err.parameters?.retry_after ?? 1;
+        await sleep((retryAfter + 1) * 1000);
+        try {
+          await api.copyMessage(chatId, fromChatId, messageId);
+          sent += 1;
+        } catch (retryErr) {
+          failed += 1;
+          logger.debug({ err: retryErr, chatId }, "broadcast: retry failed");
+        }
+      } else {
+        failed += 1;
+        logger.debug({ err, chatId }, "broadcast: copyMessage failed (skipped)");
+      }
     }
     await sleep(PER_MESSAGE_DELAY_MS);
   }

@@ -462,11 +462,16 @@ function makeBroadcastConversation(api: Api) {
     if (confirm.callbackQuery?.data !== "broadcast_send") {
       if (confirm.callbackQuery) {
         await confirm.answerCallbackQuery().catch(() => {});
+        // Remove the confirm message (with its buttons) on cancel too.
+        await confirm.deleteMessage().catch(() => {});
       }
       await ctx.reply(BROADCAST_CANCELLED);
       return;
     }
     await confirm.answerCallbackQuery();
+    // Delete the confirm prompt (the message the admin pressed Send on)
+    // so the inline buttons don't linger in the chat.
+    await confirm.deleteMessage().catch(() => {});
 
     await ctx.reply(BROADCAST_SENDING);
     const result = await conversation.external(() =>
