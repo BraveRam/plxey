@@ -225,7 +225,7 @@ export function SettingsPanel({ bot }: { bot: PublicBot }) {
           if (!open) setDeleteConfirm("");
         }}
       >
-        <DialogContent>
+        <DialogContent className="space-y-4">
           <DialogHeader>
             <DialogTitle>Delete bot?</DialogTitle>
             <DialogDescription>
