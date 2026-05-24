@@ -3,16 +3,23 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@/lib/utils";
 
 const badgeVariants = cva(
-  "inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-medium transition-colors",
+  "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold tracking-tight " +
+    "ring-1 ring-inset transition-colors",
   {
     variants: {
       variant: {
-        default: "border-transparent bg-primary/10 text-primary",
-        secondary: "border-transparent bg-secondary text-secondary-foreground",
-        success: "border-transparent bg-emerald-500/15 text-emerald-600 dark:text-emerald-400",
-        warning: "border-transparent bg-amber-500/15 text-amber-600 dark:text-amber-400",
-        destructive: "border-transparent bg-destructive/15 text-destructive",
-        outline: "text-foreground",
+        default:
+          "bg-primary/12 text-primary ring-primary/20",
+        secondary:
+          "bg-foreground/[0.06] text-foreground ring-foreground/[0.08]",
+        success:
+          "bg-emerald-500/12 text-emerald-600 ring-emerald-500/25 dark:text-emerald-300",
+        warning:
+          "bg-amber-500/12 text-amber-600 ring-amber-500/25 dark:text-amber-300",
+        destructive:
+          "bg-destructive/12 text-destructive ring-destructive/25",
+        outline:
+          "bg-transparent text-foreground ring-foreground/[0.12]",
       },
     },
     defaultVariants: { variant: "default" },
@@ -21,10 +28,26 @@ const badgeVariants = cva(
 
 export interface BadgeProps
   extends React.HTMLAttributes<HTMLDivElement>,
-    VariantProps<typeof badgeVariants> {}
+    VariantProps<typeof badgeVariants> {
+  /** Optional pulse dot prefix; matches the variant's accent. */
+  dot?: boolean;
+}
 
-function Badge({ className, variant, ...props }: BadgeProps) {
-  return <div className={cn(badgeVariants({ variant }), className)} {...props} />;
+function Badge({ className, variant, dot, children, ...props }: BadgeProps) {
+  return (
+    <div className={cn(badgeVariants({ variant }), className)} {...props}>
+      {dot ? (
+        <span
+          aria-hidden
+          className={cn(
+            "size-1.5 rounded-full bg-current",
+            "shadow-[0_0_0_3px_color-mix(in_oklch,currentColor_30%,transparent)]",
+          )}
+        />
+      ) : null}
+      {children}
+    </div>
+  );
 }
 
 export { Badge, badgeVariants };

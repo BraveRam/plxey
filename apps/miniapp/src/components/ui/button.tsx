@@ -4,26 +4,35 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@/lib/utils";
 
 const buttonVariants = cva(
-  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-all disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 active:scale-[0.98]",
+  // Pill by default. Custom cubic-bezier on transform/opacity only.
+  "group relative inline-flex select-none items-center justify-center gap-2 whitespace-nowrap " +
+    "rounded-full text-[15px] font-semibold tracking-tight " +
+    "transition-[transform,background-color,box-shadow,opacity] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] " +
+    "active:scale-[0.97] focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40 " +
+    "disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-[18px] [&_svg]:shrink-0",
   {
     variants: {
       variant: {
         default:
-          "bg-primary text-primary-foreground shadow-sm hover:opacity-90",
-        destructive:
-          "bg-destructive text-destructive-foreground shadow-sm hover:opacity-90",
+          "bg-foreground text-background shadow-[var(--ds-island-shadow)]",
+        primary:
+          "bg-primary text-primary-foreground shadow-[var(--ds-island-shadow)]",
         outline:
-          "border bg-background shadow-sm hover:bg-accent hover:text-accent-foreground",
+          "bg-background/60 text-foreground backdrop-blur-md shadow-[var(--ds-soft-shadow)] " +
+          "ring-1 ring-inset ring-foreground/12",
+        ghost:
+          "bg-transparent text-foreground hover:bg-foreground/[0.06]",
+        destructive:
+          "bg-destructive text-destructive-foreground shadow-[var(--ds-island-shadow)]",
         secondary:
-          "bg-secondary text-secondary-foreground shadow-sm hover:opacity-90",
-        ghost: "hover:bg-accent hover:text-accent-foreground",
+          "bg-foreground/[0.06] text-foreground ring-1 ring-inset ring-foreground/10",
         link: "text-primary underline-offset-4 hover:underline",
       },
       size: {
-        default: "h-10 px-4 py-2",
-        sm: "h-9 rounded-md px-3",
-        lg: "h-12 rounded-lg px-6 text-base",
-        icon: "size-10",
+        sm: "h-9 px-4 text-sm",
+        default: "h-11 px-5",
+        lg: "h-14 px-6 text-[16px]",
+        icon: "size-11",
       },
     },
     defaultVariants: { variant: "default", size: "default" },
@@ -36,11 +45,45 @@ export interface ButtonProps
   asChild?: boolean;
 }
 
-function Button({ className, variant, size, asChild = false, ...props }: ButtonProps) {
+function Button({
+  className,
+  variant,
+  size,
+  asChild = false,
+  ...props
+}: ButtonProps) {
   const Comp = asChild ? Slot : "button";
   return (
     <Comp className={cn(buttonVariants({ variant, size, className }))} {...props} />
   );
 }
 
-export { Button, buttonVariants };
+/**
+ * "Button-in-button" trailing icon — the icon sits in its own circular
+ * tray flush with the right inner padding, never naked next to the text.
+ * Place inside `<Button>` as the last child.
+ */
+function ButtonTrailingIcon({
+  children,
+  className,
+}: {
+  children: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <span
+      className={cn(
+        "ml-1 -mr-1.5 grid size-8 place-items-center rounded-full",
+        "bg-white/15 text-inherit",
+        "transition-transform duration-300 ease-[cubic-bezier(0.32,0.72,0,1)]",
+        "group-hover:translate-x-0.5 group-hover:-translate-y-[1px] group-hover:scale-105",
+        "group-active:scale-95 [&_svg]:size-[16px]",
+        className,
+      )}
+    >
+      {children}
+    </span>
+  );
+}
+
+export { Button, ButtonTrailingIcon, buttonVariants };

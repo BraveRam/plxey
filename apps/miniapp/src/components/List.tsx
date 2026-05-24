@@ -1,17 +1,21 @@
 import type { ReactNode } from "react";
-import { ChevronRight } from "lucide-react";
+import { ArrowUpRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-/** Small muted label above a grouped list, Telegram-settings style. */
+/** Small muted label above a grouped list. Editorial style. */
 export function SectionLabel({ children }: { children: ReactNode }) {
   return (
-    <p className="px-4 pb-2 pt-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+    <p className="px-2 pb-2.5 text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground/80">
       {children}
     </p>
   );
 }
 
-/** Rounded grouped card; rows inside are separated by inset hairlines. */
+/**
+ * Floating grouped surface. Rows are stitched together with hairline
+ * dividers that fade at the inset edges. Wrap in `<Bezel>` for the full
+ * double-bezel treatment when needed.
+ */
 export function ListGroup({
   children,
   className,
@@ -20,7 +24,13 @@ export function ListGroup({
   className?: string;
 }) {
   return (
-    <div className={cn("overflow-hidden rounded-xl bg-card", className)}>
+    <div
+      className={cn(
+        "relative overflow-hidden rounded-[var(--radius)] bg-card",
+        "shadow-[var(--ds-soft-shadow)] ring-1 ring-foreground/[0.05]",
+        className,
+      )}
+    >
       {children}
     </div>
   );
@@ -29,8 +39,10 @@ export function ListGroup({
 interface ListRowProps {
   icon?: ReactNode;
   label: ReactNode;
+  /** Optional second line under the label. */
+  description?: ReactNode;
   trailing?: ReactNode;
-  /** Show a chevron and apply pressable styling. */
+  /** Show a trailing arrow + pressable styling. */
   onClick?: () => void;
   chevron?: boolean;
   destructive?: boolean;
@@ -39,6 +51,7 @@ interface ListRowProps {
 export function ListRow({
   icon,
   label,
+  description,
   trailing,
   onClick,
   chevron,
@@ -58,35 +71,59 @@ export function ListRow({
           : undefined
       }
       className={cn(
-        "flex items-center gap-3 px-4 py-3",
-        // Inset divider between rows (skipped on the last via :last-child).
-        "border-b border-border/60 last:border-b-0",
-        interactive && "cursor-pointer transition-colors active:bg-accent",
+        "group flex items-center gap-3.5 px-5 py-4",
+        // Inset hairline between rows, hidden on last child.
+        "after:pointer-events-none after:absolute after:inset-x-5 after:bottom-0 after:h-px",
+        "after:bg-foreground/[0.06] last:after:hidden",
+        "relative",
+        interactive &&
+          "ds-press cursor-pointer hover:bg-foreground/[0.025] active:bg-foreground/[0.05]",
       )}
     >
       {icon ? (
         <span
           className={cn(
-            "flex size-7 shrink-0 items-center justify-center [&_svg]:size-[22px]",
-            destructive ? "text-destructive" : "text-muted-foreground",
+            "grid size-9 shrink-0 place-items-center rounded-[12px]",
+            "bg-foreground/[0.05] ring-1 ring-inset ring-foreground/[0.06]",
+            "[&_svg]:size-[18px]",
+            destructive ? "text-destructive" : "text-foreground/80",
           )}
         >
           {icon}
         </span>
       ) : null}
-      <span
-        className={cn(
-          "min-w-0 flex-1 truncate text-[15px]",
-          destructive && "text-destructive",
-        )}
-      >
-        {label}
-      </span>
+      <div className="min-w-0 flex-1">
+        <p
+          className={cn(
+            "truncate text-[15.5px] font-medium leading-tight tracking-tight",
+            destructive && "text-destructive",
+          )}
+        >
+          {label}
+        </p>
+        {description ? (
+          <p className="mt-0.5 truncate text-[13px] text-muted-foreground">
+            {description}
+          </p>
+        ) : null}
+      </div>
       {trailing ? (
-        <span className="shrink-0 text-sm text-muted-foreground">{trailing}</span>
+        <span className="shrink-0 text-[13.5px] tabular-nums text-muted-foreground">
+          {trailing}
+        </span>
       ) : null}
       {chevron ? (
-        <ChevronRight className="size-5 shrink-0 text-muted-foreground/60" />
+        <span
+          aria-hidden
+          className={cn(
+            "grid size-7 shrink-0 place-items-center rounded-full",
+            "bg-foreground/[0.05] text-foreground/70",
+            "transition-transform duration-300 ease-[cubic-bezier(0.32,0.72,0,1)]",
+            "group-hover:translate-x-0.5 group-hover:-translate-y-[1px] group-hover:scale-105",
+          )}
+        >
+          <ArrowUpRight className="size-[14px]" strokeWidth={2.25} />
+        </span>
       ) : null}
     </div>
   );

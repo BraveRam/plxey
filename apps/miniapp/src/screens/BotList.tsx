@@ -1,19 +1,30 @@
 import { Link, useNavigate } from "react-router-dom";
-import { ChevronRight, Plus, CreditCard, Bot } from "lucide-react";
+import { Plus, Sparkles, CreditCard, Bot } from "lucide-react";
 import { Screen } from "@/components/Screen";
 import { GlowIcon } from "@/components/GlowIcon";
-import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
+import { Bezel } from "@/components/Bezel";
+import { Reveal } from "@/components/Reveal";
+import { Avatar } from "@/components/Avatar";
+import { Button, ButtonTrailingIcon } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Avatar } from "@/components/Avatar";
-import { ListGroup, SectionLabel } from "@/components/List";
+import { ListGroup, ListRow, SectionLabel } from "@/components/List";
 import { useBots } from "@/hooks/api";
 import { haptic } from "@/lib/telegram";
 
 function StatusBadge({ status }: { status: string }) {
-  if (status === "active") return <Badge variant="success">Active</Badge>;
-  if (status === "paused") return <Badge variant="warning">Paused</Badge>;
+  if (status === "active")
+    return (
+      <Badge variant="success" dot>
+        Live
+      </Badge>
+    );
+  if (status === "paused")
+    return (
+      <Badge variant="warning" dot>
+        Paused
+      </Badge>
+    );
   return <Badge variant="secondary">{status}</Badge>;
 }
 
@@ -23,75 +34,113 @@ export function BotList() {
 
   return (
     <Screen
+      eyebrow={<>Control panel</>}
       title="Your bots"
-      subtitle="Manage prompts, knowledge, and settings"
+      subtitle="Prompts, knowledge, and access — all in one place."
       action={
-        <Button asChild variant="ghost" size="icon" aria-label="Billing">
-          <Link to="/billing">
+        <Button
+          asChild
+          variant="secondary"
+          size="icon"
+          aria-label="Billing"
+          className="rounded-full"
+        >
+          <Link to="/billing" onClick={() => haptic.tap()}>
             <CreditCard />
           </Link>
         </Button>
       }
     >
       {isLoading ? (
-        <Skeleton className="h-40 w-full rounded-xl" />
+        <Bezel innerClassName="p-0">
+          <div className="space-y-2 p-4">
+            <Skeleton className="h-16 w-full rounded-2xl" />
+            <Skeleton className="h-16 w-full rounded-2xl" />
+          </div>
+        </Bezel>
       ) : isError ? (
-        <Card className="p-4 text-sm text-muted-foreground">
-          Couldn't load your bots. Pull to retry.
-        </Card>
+        <Bezel>
+          <p className="text-sm text-muted-foreground">
+            Couldn't load your bots. Pull to retry.
+          </p>
+        </Bezel>
       ) : bots && bots.length > 0 ? (
-        <div>
-          <SectionLabel>Bots</SectionLabel>
+        <Reveal>
+          <SectionLabel>
+            {bots.length} {bots.length === 1 ? "bot" : "bots"}
+          </SectionLabel>
           <ListGroup>
-            {bots.map((bot) => {
+            {bots.map((bot, i) => {
               const name = bot.botUsername ?? "Bot";
               return (
-                <div
-                  key={bot.id}
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => {
-                    haptic.tap();
-                    navigate(`/bot/${bot.id}`);
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" || e.key === " ")
+                <Reveal key={bot.id} delay={i + 1}>
+                  <ListRow
+                    icon={<Avatar name={name} size={40} />}
+                    label={bot.botUsername ? `@${bot.botUsername}` : "Bot"}
+                    description={
+                      bot.status === "active" ? "Active" : "Paused"
+                    }
+                    trailing={<StatusBadge status={bot.status} />}
+                    chevron
+                    onClick={() => {
+                      haptic.tap();
                       navigate(`/bot/${bot.id}`);
-                  }}
-                  className="flex cursor-pointer items-center gap-3 border-b border-border/60 px-3 py-2.5 transition-colors last:border-b-0 active:bg-accent"
-                >
-                  <Avatar name={name} size={44} />
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate font-medium">
-                      {bot.botUsername ? `@${bot.botUsername}` : "Bot"}
-                    </p>
-                    <div className="mt-0.5">
-                      <StatusBadge status={bot.status} />
-                    </div>
-                  </div>
-                  <ChevronRight className="size-5 shrink-0 text-muted-foreground/60" />
-                </div>
+                    }}
+                  />
+                </Reveal>
               );
             })}
           </ListGroup>
-        </div>
+        </Reveal>
       ) : (
-        <Card className="flex flex-col items-center gap-4 p-10 text-center">
-          <GlowIcon icon={Bot} size={96} />
-          <div>
-            <p className="text-lg font-semibold">No bots yet</p>
-            <p className="text-sm text-muted-foreground">
-              Connect a bot to start answering customers.
-            </p>
-          </div>
-        </Card>
+        <Reveal>
+          <Bezel innerClassName="px-6 py-10">
+            <div className="flex flex-col items-center gap-5 text-center">
+              <GlowIcon icon={Bot} size={88} />
+              <div className="space-y-2">
+                <h2 className="font-display text-[22px] font-semibold tracking-tight">
+                  No bots yet
+                </h2>
+                <p className="max-w-[26ch] text-[14px] leading-snug text-muted-foreground">
+                  Connect a bot to start answering customers automatically —
+                  on autopilot, around the clock.
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center justify-center gap-2 pt-1 text-[12px] text-muted-foreground">
+                <span className="inline-flex items-center gap-1.5">
+                  <Sparkles className="size-3.5" /> AI replies
+                </span>
+                <span aria-hidden className="opacity-30">
+                  ·
+                </span>
+                <span>Document knowledge</span>
+                <span aria-hidden className="opacity-30">
+                  ·
+                </span>
+                <span>Stats included</span>
+              </div>
+            </div>
+          </Bezel>
+        </Reveal>
       )}
 
-      <Button asChild size="lg" className="fixed inset-x-4 bottom-5 mx-auto max-w-md">
-        <Link to="/connect">
-          <Plus /> Connect a bot
-        </Link>
-      </Button>
+      {/* Floating CTA island — sits above the safe-area inset */}
+      <div className="pointer-events-none fixed inset-x-0 bottom-0 z-20 mx-auto flex max-w-md justify-center px-5 pb-5">
+        <Button
+          asChild
+          size="lg"
+          variant="primary"
+          className="pointer-events-auto w-full"
+        >
+          <Link to="/connect" onClick={() => haptic.tap()}>
+            <Plus className="size-[18px]" />
+            Connect a bot
+            <ButtonTrailingIcon>
+              <span className="font-bold">↗</span>
+            </ButtonTrailingIcon>
+          </Link>
+        </Button>
+      </div>
     </Screen>
   );
 }
