@@ -50,8 +50,8 @@ Subscriptions are managed by us via the Bot API methods `createInvoiceLink`, `ed
 | Plan | Stars / month | Max bots | Max docs / bot | Max messages / period |
 |---|---|---|---|---|
 | Trial (7 days, one-shot) | 0 | 1 | 3 | 500 (over the full 7d as one bucket) |
-| Pro | 500 ⭐ (~$10) | 3 | 10 | 5,000 |
-| Business | 2,000 ⭐ (~$40) | 10 | 50 | 50,000 |
+| Pro | 300 ⭐ | 3 | 10 | 5,000 |
+| Business | 700 ⭐ | 10 | 50 | 50,000 |
 
 - Plans are stars-only for v1. Schema uses an integer `starsPerPeriod` column rather than a neutral `amount` + `currency` pair.
 - `subscription_period` is fixed at `2592000` seconds (30 days) — the only value Telegram supports for Stars subscriptions.
@@ -289,19 +289,33 @@ The upgrade confirmation screen makes this explicit to the owner:
 
 ## Downgrade (Business → Pro)
 
-Telegram has no native swap-to-lower-tier mechanism. We do NOT expose a downgrade button in v1.
+**Strategy: service overlap, mirrors the Upgrade flow in reverse.** Telegram still has no native swap-to-lower-tier mechanism, but we surface the downsell on the cancel-confirm prompt to catch churners who would otherwise drop off entirely.
 
-Owner downgrade flow is fully manual:
+```
+Day 0 (cancel tap, current plan = Business):
+  Cancel-confirm prompt shows three buttons:
+    [ Switch to Pro instead · 300⭐/mo ]
+    [ Yes, cancel ]
+    [ Keep subscription ]
+```
 
-1. Owner cancels Business via the Cancel button.
-2. Business benefits run until `currentPeriodEnd`.
-3. After lapse, owner subscribes to Pro fresh.
+When the owner taps **Switch to Pro instead** (`bots/billing.ts:handleDowngradeToPro`):
+1. `editUserStarSubscription(business_charge_id, is_canceled=true)` — Business auto-renew off, Business still active until its `currentPeriodEnd`.
+2. Flip the Business row to `status='canceled'` in DB.
+3. Fire `subscription/canceled` so `notify-owner` + `recomputeEffectivePlan` run.
+4. Mint a fresh Pro invoice link (`mintInvoiceLink({ ownerId, plan: 'pro' })`).
+5. Send "⭐ Pay 300 Stars" URL button.
+6. When the Pro `successful_payment` arrives, the existing payment handler inserts the Pro row.
+7. `effectivePlan` precedence (business > pro) keeps reporting **business** until Business's `currentPeriodEnd`; then Pro takes over with its own fresh 30-day clock.
 
-If owner is impatient and wants Pro before Business expires, they cancel + re-subscribe to Pro immediately. They'll have:
-- Business (canceled, tail until original end)
-- Pro (active, fresh 30d from re-subscribe)
+No double billing — Business and Pro coexist as parallel service, mirroring Upgrade.
 
-Effective plan = Business (higher) until Business expires, then Pro takes over.
+If the owner ignores the Pro invoice, they end up on the same cancel path they were on before — no penalty.
+
+Owners can still do the fully-manual variant if they prefer:
+- Cancel Business outright.
+- Wait for Business to expire.
+- Subscribe to Pro fresh from a lapsed state.
 
 ---
 
@@ -520,24 +534,32 @@ When a lapsed owner subscribes again, `subscription/started` fires:
 
 All owner-facing DMs route through Inngest `notify/owner` (one function, discriminated by `kind`). Idempotency via Redis dedup key `notify:{kind}:{ownerId}:{periodOrDate}` with 30-day TTL.
 
-| `kind` | When | Throttle |
-|---|---|---|
-| `trial_started` | When trial begins (first bot created) | once per owner |
-| `trial_ending_3d` | T-3d before trial_ends_at | once |
-| `trial_ending_1d` | T-1d before trial_ends_at | once |
-| `trial_expired` | At trial lapse | once per lapse |
-| `subscription_started` | First successful_payment | once per charge |
-| `subscription_canceled` | After owner cancels | once per cancel |
-| `subscription_resumed` | After owner resumes | once per resume |
-| `subscription_lapsed` | After lapse-sweep marks lapsed (paid sub) | once per lapse |
-| `cancel_3d_before_end` | T-3d before canceled sub lapses | once per canceled period |
-| `quota_messages_exceeded` | When `messages_this_period >= cap` | once per period |
-| `customer_msg_to_paused_bot` | Customer pinged paused-by-quota bot | once per 24h per bot via Redis `SET NX EX 86400` |
-| `admin_event_summary` | Lapse-sweep / trial-sweep batch summary | per cron tick |
+Every lifecycle DM ships with an inline keyboard built in `notify-owner.ts:buildDmKeyboard`. Callback buttons reuse the `bot.callbackQuery(CB.*)` handlers already registered in `bots/billing.ts` (same `BOT_TOKEN` = same webhook); URL buttons either point at a pre-minted Stars invoice or deep-link into the Mini App via `t.me/<bot>?startapp=billing`.
+
+| `kind` | When | Throttle | Buttons attached |
+|---|---|---|---|
+| `trial_started` | When trial begins (first bot created) | once per owner | Subscribe Pro · Subscribe Business · Open Mini App |
+| `trial_ending_3d` | T-3d before trial_ends_at | once | Subscribe Pro · Subscribe Business |
+| `trial_ending_1d` | T-1d before trial_ends_at | once | Subscribe Pro · Subscribe Business |
+| `trial_expired` | At trial lapse | once per lapse | Subscribe Pro · Subscribe Business |
+| `subscription_started` | First successful_payment | once per charge | (Pro) Upgrade to Business · Open Mini App |
+| `subscription_canceled` | After owner cancels | once per cancel | Resume subscription |
+| `subscription_resumed` | After owner resumes | once per resume | Open Mini App |
+| `subscription_lapsed` | After lapse-sweep marks lapsed (paid sub) | once per lapse | Subscribe Pro · Subscribe Business |
+| `cancel_3d_before_end` | T-3d before canceled sub lapses | once per canceled period | Resume subscription |
+| `quota_messages_exceeded` | When `messages_this_period >= cap` | once per period | (Pro only) Upgrade to Business |
+| `customer_msg_to_paused_bot` | Customer pinged paused-by-quota bot | once per 24h per bot via Redis `SET NX EX 86400` | **Pre-minted invoice URL** (or Subscribe Pro/Business fallback) |
+| `recovery_t3` | T+3d after lapse, derived from MAX(canceled/lapsed sub.currentPeriodEnd) or trialEndsAt | once per lapse anchor | Subscribe Pro · Subscribe Business |
+| `recovery_t14` | T+14d after lapse | once per lapse anchor | Subscribe Pro · Subscribe Business |
+| `admin_event_summary` | Lapse-sweep / trial-sweep batch summary | per cron tick | none |
 
 Renewal events are **silent** (no DM). Telegram sends its own receipt.
 
+`customer_msg_to_paused_bot` is the highest-intent moment in the lifecycle (a lead is actively trying to reach the owner's bot). `notify-owner` pre-mints a Pro invoice link via `bots/invoice-mint.ts:mintInvoiceLink` and surfaces it as a one-tap `⭐ Reactivate · 300⭐ Pro` URL button. Mint failure falls back to the standard Subscribe callback buttons so the DM is never buttonless.
+
 The "idle bot while paying" nudge (`bot_count = 0` for 7+ days while subscribed) is **not** sent in v1. Owner is in control.
+
+Every DM that surfaces a tier choice also prints `pricingLine()` from `lib/text.ts` — `Pro · 300⭐/mo · 3 bots · 5k msgs` / `Business · 700⭐/mo · 10 bots · 50k msgs` — derived from `PLANS` so any repricing flows through automatically.
 
 ---
 
@@ -568,10 +590,14 @@ State variants:
 | State | Top line | Action buttons |
 |---|---|---|
 | `trialing` | "🎫 Trial: 9 days left" | [Subscribe Pro] [Subscribe Business] |
-| `active` Pro | "Pro — active. Renews on {date}" | [Upgrade to Business] [Cancel subscription] [Manage Stars] |
-| `active` Business | "Business — active. Renews on {date}" | [Cancel subscription] [Manage Stars] |
-| `canceled` | "Pro — canceled. Ends on {currentPeriodEnd}" | [Resume subscription] [Manage Stars] |
+| `active` Pro | "Pro — active. Renews on {date}" | [Upgrade to Business] [Cancel subscription] |
+| `active` Business | "Business — active. Renews on {date}" | [Cancel subscription] |
+| `canceled` | "Pro — canceled. Ends on {currentPeriodEnd}" | [Resume subscription] |
 | `lapsed` | "🚫 No active plan" | [Subscribe Pro] [Subscribe Business] |
+
+The "Manage Stars in Telegram" URL button was dropped — Telegram doesn't expose a stable public stars-management deep link. Cancel and Resume are handled in-bot via `editUserStarSubscription`.
+
+Cancel-confirm prompt offers a **Business → Pro downsell** when the owner is canceling Business — see [Downgrade](#downgrade-business--pro).
 
 Usage stats are shown for all active states. Trial banner is shown only on the `/billing` screen — not on every menu screen (avoiding nag).
 

@@ -38,9 +38,7 @@ describe("PLANS", () => {
   test("pro has the exact caps from SUBSCRIPTION.md", () => {
     expect(PLANS.pro).toEqual({
       key: "pro",
-      // TEST-PHASE PRICING: 2 stars (prod target: 500). Bump back
-      // before public launch.
-      starsPerPeriod: 2,
+      starsPerPeriod: 300,
       maxBots: 3,
       maxDocsPerBot: 10,
       maxMessagesPerPeriod: 5000,
@@ -50,9 +48,7 @@ describe("PLANS", () => {
   test("business has the exact caps from SUBSCRIPTION.md", () => {
     expect(PLANS.business).toEqual({
       key: "business",
-      // TEST-PHASE PRICING: 5 stars (prod target: 2000). Bump back
-      // before public launch.
-      starsPerPeriod: 5,
+      starsPerPeriod: 700,
       maxBots: 10,
       maxDocsPerBot: 50,
       maxMessagesPerPeriod: 50000,

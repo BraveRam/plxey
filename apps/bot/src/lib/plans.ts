@@ -25,17 +25,14 @@ export const PLANS: Record<PlanKey, PlanConfig> = {
   },
   pro: {
     key: "pro",
-    // TEST-PHASE PRICING: 2 stars instead of the production 500. Reset
-    // before public launch (see SUBSCRIPTION.md "Plans & Pricing").
-    starsPerPeriod: 2,
+    starsPerPeriod: 300,
     maxBots: 3,
     maxDocsPerBot: 10,
     maxMessagesPerPeriod: 5000,
   },
   business: {
     key: "business",
-    // TEST-PHASE PRICING: 5 stars instead of the production 2000.
-    starsPerPeriod: 5,
+    starsPerPeriod: 700,
     maxBots: 10,
     maxDocsPerBot: 50,
     maxMessagesPerPeriod: 50000,

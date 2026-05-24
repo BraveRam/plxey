@@ -75,6 +75,8 @@ export type NotifyOwnerKind =
   | "cancel_3d_before_end"
   | "quota_messages_exceeded"
   | "customer_msg_to_paused_bot"
+  | "recovery_t3"
+  | "recovery_t14"
   | "admin_event_summary";
 
 export type NotifyOwnerEventData = {

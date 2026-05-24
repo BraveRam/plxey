@@ -392,3 +392,15 @@ describe("truncateMid", () => {
     expect(truncateMid("a".repeat(1000), 8).length).toBe(8);
   });
 });
+
+describe("pricingLine — derives from PLANS, not magic strings", () => {
+  test("includes Pro and Business prices verbatim from PLANS", async () => {
+    const { pricingLine } = await import("../src/lib/text");
+    const { PLANS } = await import("../src/lib/plans");
+    const out = pricingLine();
+    expect(out).toContain(`${PLANS.pro.starsPerPeriod}⭐/mo`);
+    expect(out).toContain(`${PLANS.business.starsPerPeriod}⭐/mo`);
+    expect(out).toContain(`${PLANS.pro.maxBots} bots`);
+    expect(out).toContain(`${PLANS.business.maxBots} bots`);
+  });
+});

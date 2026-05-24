@@ -128,6 +128,7 @@ Owner-facing Telegram Mini App, launched from the onboarding bot's chat menu but
 - **Telegram bridge** (`src/lib/telegram.ts`): `WebApp.ready()/expand()`, maps `themeParams` onto shadcn CSS variables (light/dark follows `colorScheme`), exposes signed `initData`, native BackButton, haptics.
 - **API client** (`src/lib/api.ts`): base `VITE_API_BASE` (= bot `PUBLIC_URL`); sends `Authorization: tma <initData>` on every request.
 - **Screens**: BotList, ConnectBot (paste BotFather token → `POST /api/bots`), BotDetail (tabs: Settings / Knowledge / Stats / Access), Billing.
+- **Deep-link routing**: `App.tsx:StartParamRouter` reads `WebApp.initDataUnsafe.start_param` on mount and routes via `START_PARAM_ROUTES`. Currently `?startapp=billing` lands on `/billing`. Notification DMs from `notify-owner.ts` embed `t.me/<onboarding-bot>?startapp=billing` URL buttons so owners can jump straight to the richer Mini App billing surface from any lifecycle DM.
 - **Env**: `VITE_API_BASE`. The bot side needs `MINIAPP_ORIGIN` for CORS + the menu button.
 
 ---
@@ -1127,8 +1128,8 @@ Telegram Stars billing is now implemented. `SUBSCRIPTION.md` remains the authori
 | Plan | Price | Bots | Docs/bot | Messages/period |
 |---|---|---|---|---|
 | Trial (7d, one-shot) | 0 ⭐ | 1 | 3 | 500 (whole 7d as one bucket) |
-| Pro | 500 ⭐/mo | 3 | 10 | 5,000 |
-| Business | 2,000 ⭐/mo | 10 | 50 | 50,000 |
+| Pro | 300 ⭐/mo | 3 | 10 | 5,000 |
+| Business | 700 ⭐/mo | 10 | 50 | 50,000 |
 
 Plan config lives in `apps/bot/src/lib/plans.ts` (`PLANS` constant). `subscription_period` is locked to `2592000` (30 days, only legal value for Telegram Stars). Trial starts on first bot creation, never resets per Telegram user.
 
@@ -1158,9 +1159,10 @@ See `packages/db/src/schema.ts` for the full DDL.
 - Plan picker with side-by-side Pro / Business invoice buttons.
 - `pre_checkout_query` validation (payload format, banned, already-subscribed-same-plan, nonce dedup).
 - `message:successful_payment` handler that records the ledger row and fires `subscription/started` or `subscription/renewed`.
-- Cancel flow with optional reason survey (`CANCEL_REASONS`).
+- Cancel flow with optional reason survey (`CANCEL_REASONS`). When the active sub is Business, the confirm prompt also offers a **Switch to Pro instead** downsell (`handleDowngradeToPro`) — cancels Business auto-renew and mints a Pro invoice; Pro takes over after Business's `currentPeriodEnd`.
 - Resume button for canceled-but-not-yet-lapsed subs.
 - Upgrade Pro → Business via service overlap (cancel Pro auto-renew + mint Business invoice).
+- Invoice link minting is centralized in `apps/bot/src/bots/invoice-mint.ts` (`mintInvoiceLink`, raw Telegram HTTP) so notification handlers without a grammy ctx (e.g. `notify-owner` pre-minting for `customer_msg_to_paused_bot`) can share the same Redis cache key shape (`invoice:{ownerId}:{plan}`).
 
 Plan-cap enforcement lives in:
 - `apps/bot/src/bots/onboarding.ts` `createBot` conversation (bot creation gate before `getMe`).
@@ -1192,7 +1194,7 @@ All Inngest functions for the bot live under `apps/bot/src/inngest/`. Served at 
 |---|---|---|
 | `cron-lapse-sweep` | hourly :00 | Lapse paid subs past 2-day grace; fire `subscription/lapsed` per unique owner. |
 | `cron-trial-sweep` | hourly :05 | Lapse trialing owners past `trial_ends_at` with no live sub. |
-| `cron-reminder-scan` | daily 10:00 UTC | Fire `notify/owner` for trial T-7d, T-1d, cancel T-3d-before-end. |
+| `cron-reminder-scan` | daily 10:00 UTC | Fire `notify/owner` for trial T-3d, trial T-1d, cancel T-3d-before-end, and post-lapse recovery T+3d / T+14d (lapse anchor derived from MAX(canceled/lapsed sub.currentPeriodEnd) or `trialEndsAt`). |
 | `cron-usage-reconcile` | weekly Sun 04:00 UTC | Recompute `bot_count`, `doc_count` from base tables. Drift insurance. |
 
 **Event-driven (10 functions):** `subscription-started`, `subscription-renewed`, `subscription-canceled`, `subscription-refunded`, `subscription-lapsed`, `owner-first-bot-created`, `owner-banned`, `bot-over-quota-message`, `bot-usage-exceeded`, `notify-owner` (single fan-out function discriminated by `kind`).

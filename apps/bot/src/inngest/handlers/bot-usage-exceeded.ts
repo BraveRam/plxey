@@ -12,9 +12,12 @@
  * `quota_messages_exceeded` row in Notifications.
  */
 
+import { eq } from "drizzle-orm";
+import { db, owners } from "@tg-business/db";
 import { inngest } from "../client";
 import type { Events } from "../events";
 import { redis } from "../../lib/redis";
+import { logger } from "../../lib/logger";
 
 export const botUsageExceeded = inngest.createFunction(
   {
@@ -46,13 +49,31 @@ export const botUsageExceeded = inngest.createFunction(
       return { skipped: "throttled" as const };
     }
 
+    // Resolve the owner's current plan so the DM can either offer the
+    // Business upgrade (Pro owners) or stay informational (Business owners).
+    const plan = await step.run("resolve-plan", async () => {
+      try {
+        const row = await db.query.owners.findFirst({
+          where: eq(owners.telegramUserId, ownerTelegramUserId),
+          columns: { currentPlan: true },
+        });
+        return row?.currentPlan ?? null;
+      } catch (err) {
+        logger.warn(
+          { err, ownerTelegramUserId },
+          "usage-exceeded: owner plan lookup failed",
+        );
+        return null;
+      }
+    });
+
     await step.run("notify", async () => {
       await inngest.send({
         name: "notify/owner",
         data: {
           kind: "quota_messages_exceeded",
           ownerTelegramUserId,
-          extras: { cap },
+          extras: { cap, ...(plan ? { plan } : {}) },
         },
       });
     });

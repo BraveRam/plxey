@@ -22,6 +22,16 @@ export function getUser() {
   return WebApp.initDataUnsafe?.user ?? null;
 }
 
+/**
+ * Telegram's `start_param` passed via `t.me/<bot>?startapp=<param>`. Used by
+ * lifecycle DMs to deep-link into a specific Mini App screen (e.g.
+ * `?startapp=billing` lands on /billing).
+ */
+export function getStartParam(): string | null {
+  const raw = WebApp.initDataUnsafe?.start_param;
+  return typeof raw === "string" && raw.length > 0 ? raw : null;
+}
+
 /** True when running inside a real Telegram client (signed initData present). */
 export function isInTelegram(): boolean {
   return Boolean(WebApp.initData && WebApp.initData.length > 0);

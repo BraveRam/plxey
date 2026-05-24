@@ -47,6 +47,11 @@ import { recomputeEffectivePlan } from "../lib/owners";
 import { redis } from "../lib/redis";
 import { cbd } from "../lib/callback-data";
 import {
+  STARS_CURRENCY,
+  SUBSCRIPTION_PERIOD_SECONDS,
+  mintInvoiceLink,
+} from "./invoice-mint";
+import {
   CANCEL_REASON_PROMPT,
   CANCEL_REASONS,
   PLAN_PICKER_HEADER,
@@ -62,16 +67,6 @@ import {
 // Constants
 // ---------------------------------------------------------------------------
 
-/** Only valid Telegram value for Stars subscriptions. 30 days. */
-const SUBSCRIPTION_PERIOD_SECONDS = 2592000;
-
-/** Stars subscription currency (ISO-style). */
-const STARS_CURRENCY = "XTR";
-
-/** Cache TTL for `(ownerId, plan) → {nonce, link}`. Catches accidental
- *  double-taps inside a 5-minute window without minting a second invoice. */
-const INVOICE_CACHE_TTL_SECONDS = 5 * 60;
-
 /** Mark a nonce as "in flight" between pre_checkout_query approval and the
  *  successful_payment update. 10 minutes is generous compared to Telegram's
  *  10-second pre-checkout window. */
@@ -80,11 +75,6 @@ const NONCE_PENDING_TTL_SECONDS = 10 * 60;
 /** After a payment lands, lock the nonce for a day so repeated retries of
  *  the same `successful_payment` (or stale invoice taps) get rejected. */
 const NONCE_USED_TTL_SECONDS = 24 * 60 * 60;
-
-const NONCE_LEN = 16;
-
-/** Deeplink for owner-side Stars management. */
-const STARS_MANAGE_URL = "https://t.me/Stars";
 
 // Callback-data IDs. Centralised so the test file and future readers can
 // grep one place.
@@ -110,7 +100,14 @@ const CB = {
    *  pushed the longest reason key to 74 bytes — Telegram silently
    *  rejected the whole sendMessage and the reason picker never showed. */
   cancelReasonPrefix: "bcr_",
+  /** Prefix for `billing_dgp_{subUuid}` (Downgrade to Pro). Shown on the
+   *  cancel-confirm prompt only when the owner's primary sub is Business.
+   *  Cancels Business auto-renew + mints a Pro invoice; Pro takes over
+   *  after Business's currentPeriodEnd. */
+  downgradeProPrefix: "billing_dgp_",
 } as const;
+
+const DOWNGRADE_PRO_RE = /^billing_dgp_(.+)$/;
 
 /** Regex for `billing_cancel_confirm_{subUuid}`. */
 const CANCEL_CONFIRM_RE = /^billing_cancel_confirm_(.+)$/;
@@ -250,6 +247,19 @@ export function attachBillingHandlers(bot: Bot<Context>): void {
       });
     }
     await handleCancelConfirm(ctx, subId);
+  });
+
+  bot.callbackQuery(DOWNGRADE_PRO_RE, async (ctx) => {
+    const subId = parseDowngradeProCallback(ctx.callbackQuery?.data);
+    if (!subId) {
+      await ctx.answerCallbackQuery().catch(() => {});
+      return;
+    }
+    const userId = ctx.from?.id;
+    if (userId !== undefined) {
+      track(ownerDistinctId(userId), "billing.downgrade.tapped");
+    }
+    await handleDowngradeToPro(ctx, subId);
   });
 
   bot.callbackQuery(/^bcr_/, async (ctx) => {
@@ -484,11 +494,9 @@ function buildActionsKeyboard(state: BillingState): InlineKeyboard {
         kb.text("Upgrade to Business", CB.upgradeBusiness).row();
       }
       kb.text("Cancel subscription", CB.cancel).row();
-      kb.url("Manage Stars in Telegram", STARS_MANAGE_URL).row();
       break;
     case "canceled":
       kb.text("Resume subscription", CB.resume).row();
-      kb.url("Manage Stars in Telegram", STARS_MANAGE_URL).row();
       break;
   }
   // Every billing screen ends with a way back to the onboarding main
@@ -568,61 +576,18 @@ async function handleSubscribeTap(
   });
 }
 
+/**
+ * Thin wrapper over `mintInvoiceLink` retained for callers that already
+ * hold a grammy `Context`. The `ctx` argument is intentionally unused —
+ * `mintInvoiceLink` hits the Telegram Bot API directly so a single code
+ * path is shared with the ctx-less notification flow.
+ */
 async function createOrReuseInvoiceLink(
-  ctx: Context,
+  _ctx: Context,
   ownerId: string,
   plan: "pro" | "business",
 ): Promise<string> {
-  const cacheKey = `invoice:${ownerId}:${plan}`;
-  const r = redis();
-
-  // Reuse a recent link so two taps inside the cache window produce one
-  // invoice / one nonce. Telegram client dedups by URL on its end.
-  try {
-    const cached = await r.get<{ nonce: string; link: string }>(cacheKey);
-    if (cached && typeof cached.link === "string" && cached.link.length > 0) {
-      return cached.link;
-    }
-  } catch (err) {
-    // Redis read failure is non-fatal — we'll just mint a fresh link.
-    logger.warn({ err, ownerId, plan }, "invoice cache read failed");
-  }
-
-  const nonce = generateNonce();
-  const payload = `sub:${ownerId}:${plan}:${nonce}`;
-  const config = PLANS[plan];
-  const planLabel = planLabelFor(plan);
-
-  // grammy's createInvoiceLink uses positional args matching the Telegram
-  // Bot API param order: title, description, payload, provider_token,
-  // currency, prices, then the rest as an `other` options bag. For Stars
-  // payments provider_token MUST be an empty string.
-  const link = await ctx.api.createInvoiceLink(
-    `${planLabel} subscription`,
-    `${planLabel} plan — ${config.maxBots} bots, ${config.maxDocsPerBot} docs/bot, ${config.maxMessagesPerPeriod.toLocaleString()} msgs/period.`,
-    payload,
-    "",
-    STARS_CURRENCY,
-    [{ label: `${planLabel} (30 days)`, amount: config.starsPerPeriod }],
-    { subscription_period: SUBSCRIPTION_PERIOD_SECONDS },
-  );
-
-  try {
-    await r.set(cacheKey, { nonce, link }, { ex: INVOICE_CACHE_TTL_SECONDS });
-  } catch (err) {
-    // Cache write failure is non-fatal — the link still works, we just
-    // lose double-tap dedup for this owner this window.
-    logger.warn({ err, ownerId, plan }, "invoice cache write failed");
-  }
-
-  return link;
-}
-
-function generateNonce(): string {
-  // 16 hex chars = 8 bytes of randomness. Plenty for an idempotency key.
-  const bytes = new Uint8Array(NONCE_LEN / 2);
-  crypto.getRandomValues(bytes);
-  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+  return mintInvoiceLink({ ownerId, plan });
 }
 
 // ---------------------------------------------------------------------------
@@ -655,8 +620,17 @@ async function handleCancelTap(ctx: Context): Promise<void> {
     planLabel: planLabelFor(primary.plan),
     endsOn: formatDate(primary.currentPeriodEnd),
   });
-  const kb = new InlineKeyboard()
-    .text("Yes, cancel", cbd(`${CB.cancelConfirmPrefix}${primary.id}`))
+  const kb = new InlineKeyboard();
+  // Business-tier downsell: offer Pro switch before the final cancel button
+  // so churners who'd settle for a cheaper tier don't drop off entirely.
+  // Pro tier has no cheaper downgrade so we skip the row.
+  if (primary.plan === "business") {
+    kb.text(
+      `Switch to Pro instead · ${PLANS.pro.starsPerPeriod}⭐/mo`,
+      cbd(`${CB.downgradeProPrefix}${primary.id}`),
+    ).row();
+  }
+  kb.text("Yes, cancel", cbd(`${CB.cancelConfirmPrefix}${primary.id}`))
     .row()
     .text("Keep subscription", CB.keepSubscription);
 
@@ -1002,11 +976,150 @@ async function handleUpgradeConfirm(ctx: Context): Promise<void> {
     return;
   }
 
-  const kb = new InlineKeyboard().url("⭐ Pay 2000 Stars", link);
+  const kb = new InlineKeyboard().url(
+    `⭐ Pay ${PLANS.business.starsPerPeriod} Stars`,
+    link,
+  );
   await ctx.reply(
     "⭐ Business — tap below to pay with Stars. Your Pro plan keeps running until its end date at no extra charge.",
     { reply_markup: kb },
   );
+}
+
+/**
+ * "Switch to Pro instead" — downgrade variant of the cancel flow, mirrors
+ * `handleUpgradeConfirm` in reverse. The owner asked to cancel Business
+ * outright; we offer to flip to Pro at the next renewal as a save-attempt.
+ *
+ *   1. Cancel Business auto-renew. Business keeps running until
+ *      currentPeriodEnd. Service overlap mirrors the upgrade path.
+ *   2. Flip Business's row to canceled in DB.
+ *   3. Mint a Pro invoice. When the Pro `successful_payment` lands,
+ *      `effectivePlan` keeps reporting business until Business's period
+ *      ends, then Pro takes over. No double billing — see
+ *      lib/plans.ts:effectivePlan precedence.
+ */
+async function handleDowngradeToPro(
+  ctx: Context,
+  subId: string,
+): Promise<void> {
+  await ctx.answerCallbackQuery().catch(() => {});
+  await ctx.deleteMessage().catch(() => {});
+  const userId = ctx.from?.id;
+  if (userId === undefined) return;
+  const ownerTelegramUserId = String(userId);
+
+  // Look up the Business sub by UUID, double-checking ownership and tier.
+  let businessSub: { telegramPaymentChargeId: string; plan: PlanKey; currentPeriodEnd: Date } | null = null;
+  try {
+    const row = await db.query.subscriptions.findFirst({
+      where: and(
+        eq(subscriptions.id, subId),
+        eq(subscriptions.ownerTelegramUserId, ownerTelegramUserId),
+      ),
+      columns: {
+        telegramPaymentChargeId: true,
+        plan: true,
+        currentPeriodEnd: true,
+      },
+    });
+    businessSub = row ?? null;
+  } catch (err) {
+    logger.warn(
+      { err, ownerTelegramUserId, subId },
+      "downgrade: subscription lookup failed",
+    );
+  }
+  if (!businessSub || businessSub.plan !== "business") {
+    // Owner already off Business — drop them back on the billing screen.
+    await renderBillingScreen(ctx, ownerTelegramUserId);
+    return;
+  }
+
+  // 1. Telegram: disable Business auto-renew. Fail-open.
+  await cancelStarSubscription({
+    ownerTelegramUserId,
+    telegramPaymentChargeId: businessSub.telegramPaymentChargeId,
+  }).catch((err) => {
+    logger.warn(
+      {
+        err,
+        ownerTelegramUserId,
+        telegramPaymentChargeId: businessSub.telegramPaymentChargeId,
+      },
+      "downgrade cancelStarSubscription(Business) threw — continuing",
+    );
+    return false;
+  });
+
+  // 2. DB: flip Business's status to canceled.
+  try {
+    await db
+      .update(subscriptions)
+      .set({ status: "canceled", canceledAt: new Date() })
+      .where(
+        and(
+          eq(subscriptions.id, subId),
+          eq(subscriptions.ownerTelegramUserId, ownerTelegramUserId),
+        ),
+      );
+  } catch (err) {
+    logger.warn(
+      { err, ownerTelegramUserId, subId },
+      "downgrade Business→Pro DB cancel update failed",
+    );
+  }
+
+  // 3. Fire subscription/canceled so notify-owner + recompute-plan run.
+  try {
+    await inngest.send({
+      name: "subscription/canceled",
+      data: {
+        ownerTelegramUserId,
+        telegramPaymentChargeId: businessSub.telegramPaymentChargeId,
+      },
+    });
+  } catch (err) {
+    logger.warn(
+      { err, ownerTelegramUserId, subId },
+      "downgrade subscription/canceled inngest send failed",
+    );
+  }
+
+  // 4. Mint the Pro invoice.
+  let link: string;
+  try {
+    link = await mintInvoiceLink({ ownerId: ownerTelegramUserId, plan: "pro" });
+  } catch (err) {
+    logger.warn(
+      { err, ownerTelegramUserId },
+      "downgrade mintInvoiceLink(pro) failed",
+    );
+    await ctx
+      .reply("Couldn't create invoice — try again from /billing.")
+      .catch(() => {});
+    return;
+  }
+
+  const kb = new InlineKeyboard().url(
+    `⭐ Pay ${PLANS.pro.starsPerPeriod} Stars`,
+    link,
+  );
+  await ctx.reply(
+    `⭐ <b>Pro</b> — tap below to pay with Stars. Your Business plan keeps running until ${formatDate(businessSub.currentPeriodEnd)} at no extra charge. After that, Pro takes over.`,
+    { parse_mode: "HTML", reply_markup: kb },
+  );
+
+  track(ownerDistinctId(ownerTelegramUserId), "billing.downgrade.confirmed", {
+    from: "business",
+    to: "pro",
+  });
+}
+
+function parseDowngradeProCallback(data: string | undefined): string | null {
+  if (!data) return null;
+  const m = DOWNGRADE_PRO_RE.exec(data);
+  return m?.[1] ?? null;
 }
 
 // ---------------------------------------------------------------------------

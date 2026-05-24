@@ -13,6 +13,8 @@
  *   (e.g. `<b>`/`<code>`). Anything not marked HTML is sent verbatim.
  */
 
+import { PLANS } from "./plans";
+
 // =============================================================================
 // Common toasts (callback query answers)
 // =============================================================================
@@ -696,17 +698,51 @@ export function adminEscalation(args: {
 // Subscriptions — trial / lifecycle DMs
 // =============================================================================
 
-export const TRIAL_STARTED_DM =
-  "🎫 Trial started — 7 days of full access. Subscribe anytime to lock in your plan.";
+/**
+ * Compact comparison line for plan tiers. Derives stars + caps from the
+ * single PLANS config so a repricing edits only one place. Used by every
+ * trial / lapsed / quota DM to give the owner enough context to pick a tier
+ * without leaving the chat.
+ */
+export function pricingLine(): string {
+  const pro = PLANS.pro;
+  const business = PLANS.business;
+  const fmt = (n: number) => formatThousands(n);
+  return (
+    `<b>Pro</b> · ${pro.starsPerPeriod}⭐/mo · ${pro.maxBots} bots · ${fmt(pro.maxMessagesPerPeriod)} msgs\n` +
+    `<b>Business</b> · ${business.starsPerPeriod}⭐/mo · ${business.maxBots} bots · ${fmt(business.maxMessagesPerPeriod)} msgs`
+  );
+}
 
-export const TRIAL_ENDING_3D_DM =
-  "🎫 Trial ends in 3 days. Subscribe to keep your bots active.";
+export function trialStartedDM(): string {
+  return (
+    "🎫 <b>Trial started</b> — 7 days of full access.\n" +
+    "If you don't subscribe before it ends, your bots pause and customers won't get replies.\n\n" +
+    pricingLine()
+  );
+}
 
-export const TRIAL_ENDING_1D_DM =
-  "🎫 Trial ends in 1 day. Subscribe to keep your bots active.";
+export function trialEnding3dDM(): string {
+  return (
+    "🎫 <b>Trial ends in 3 days.</b> Subscribe now to keep your bots answering.\n\n" +
+    pricingLine()
+  );
+}
 
-export const TRIAL_EXPIRED_DM =
-  "🎫 Your trial has ended. Subscribe to reactivate your bots.";
+export function trialEnding1dDM(): string {
+  return (
+    "🎫 <b>Trial ends tomorrow.</b> Subscribe today so your bots don't go quiet.\n\n" +
+    pricingLine()
+  );
+}
+
+export function trialExpiredDM(): string {
+  return (
+    "🎫 <b>Your trial has ended.</b> Your bots are paused — customers reaching them get no reply. " +
+    "Subscribe to reactivate instantly.\n\n" +
+    pricingLine()
+  );
+}
 
 export function subscriptionStartedDM(args: {
   planLabel: string;
@@ -714,7 +750,7 @@ export function subscriptionStartedDM(args: {
 }): string {
   return (
     `✅ <b>${args.planLabel}</b> active. Renews on ${args.renewsOn}.\n\n` +
-    "Tip: manage auto-renew anytime via Telegram → Settings → Stars."
+    "Manage your bots, docs, and usage anytime in the Mini App."
   );
 }
 
@@ -726,7 +762,10 @@ export function subscriptionCanceledDM(args: {
   planLabel: string;
   endsOn: string;
 }): string {
-  return `Cancelled. <b>${args.planLabel}</b> continues until ${args.endsOn}.`;
+  return (
+    `Cancelled. <b>${args.planLabel}</b> continues until ${args.endsOn}, then bots pause.\n\n` +
+    "Changed your mind? Tap below to resume — no charge until your current period ends."
+  );
 }
 
 export function cancelEndingSoonDM(args: {
@@ -735,7 +774,7 @@ export function cancelEndingSoonDM(args: {
 }): string {
   return (
     `Your <b>${args.planLabel}</b> ends in 3 days (${args.endsOn}). ` +
-    "Resume or change plan below."
+    "Tap below to resume before your bots pause."
   );
 }
 
@@ -745,22 +784,56 @@ export function subscriptionLapsedDM(args: {
 }): string {
   const botWord = args.bots === 1 ? "bot" : "bots";
   return (
-    `<b>${args.planLabel}</b> ended. ${args.bots} ${botWord} paused. ` +
-    "Subscribe to reactivate."
+    `<b>${args.planLabel}</b> ended. ${args.bots} ${botWord} paused — incoming customer messages get no AI reply.\n\n` +
+    "Subscribe to reactivate.\n\n" +
+    pricingLine()
   );
 }
 
 export function renewalFailedDM(bots: number): string {
   const botWord = bots === 1 ? "bot" : "bots";
-  return `Renewal failed. ${bots} ${botWord} pause in 2 days unless you top up Stars.`;
+  return (
+    `Renewal failed — not enough Stars. ${bots} ${botWord} pause in 2 days unless you top up.\n\n` +
+    "Top up Stars in Telegram (Settings → Stars), then tap below to retry."
+  );
 }
 
-export function quotaMessagesExceededDM(cap: number): string {
-  return `You've hit ${cap.toLocaleString()} messages this period. Upgrade or wait until renewal.`;
+export function quotaMessagesExceededDM(args: {
+  cap: number;
+  planLabel: string;
+}): string {
+  return (
+    `📈 You've hit ${args.cap.toLocaleString()} messages on <b>${args.planLabel}</b> this period.\n\n` +
+    "Upgrade to keep answering now, or wait until your next renewal.\n\n" +
+    pricingLine()
+  );
 }
 
 export function pausedBotCustomerPingDM(botUsername: string): string {
-  return `@${botUsername} got a message but is paused due to plan limits. Subscribe to reactivate.`;
+  return (
+    `👤 A customer just messaged <b>@${botUsername}</b>, but it's paused due to plan limits.\n\n` +
+    "Tap below to reactivate and let your AI take it from here."
+  );
+}
+
+export function recoveryT3DM(args: { docs: number }): string {
+  const docsLine =
+    args.docs > 0
+      ? `Your ${args.docs} document${args.docs === 1 ? "" : "s"} are still here. `
+      : "";
+  return (
+    `👋 We miss you. ${docsLine}Resubscribe to bring your bots back online.\n\n` +
+    pricingLine()
+  );
+}
+
+export function recoveryT14DM(): string {
+  return (
+    "⏳ It's been two weeks since your subscription ended. Your bots are still paused and " +
+    "customers reaching them get no reply.\n\n" +
+    "Reactivate anytime — your docs and settings are still saved.\n\n" +
+    pricingLine()
+  );
 }
 
 // =============================================================================
