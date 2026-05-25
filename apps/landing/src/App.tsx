@@ -489,7 +489,7 @@ function PriceCard({
 const FAQS = [
   {
     q: "Do I need Telegram Premium?",
-    a: "No. Telegram opened the Business chatbot feature to every account, so Plxey works on a regular free Telegram account. You also don't need any Premium-only features to send or receive Stars.",
+    a: "No. You don't need Telegram Premium for Plxey to work — a regular free Telegram account is fine. Stars work for everyone too, so billing isn't gated either.",
   },
   {
     q: "Wait, customers chat with me directly — not a bot?",
@@ -651,14 +651,6 @@ function Foot() {
           <a href="#features" className="press hover:text-text">Features</a>
           <a href="#pricing" className="press hover:text-text">Pricing</a>
           <a href="#faq" className="press hover:text-text">FAQ</a>
-          <a
-            href="https://github.com/BraveRam/custom-tg-agent"
-            target="_blank"
-            rel="noreferrer"
-            className="press hover:text-text"
-          >
-            GitHub
-          </a>
         </nav>
         <p className="font-mono text-[11px] text-text-muted">
           © {new Date().getFullYear()} Plxey

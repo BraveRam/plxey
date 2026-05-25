@@ -12,17 +12,17 @@ type Step =
   | { kind: "bot"; text: string };
 
 const STORY: Step[] = [
-  { kind: "customer", text: "Hey — what are your Sunday hours?" },
+  { kind: "customer", text: "Hey — what are your shipping times?" },
   { kind: "typing" },
   {
     kind: "bot",
-    text: "We're open 11–18 on Sundays, last seating at 17:00.",
+    text: "2–3 business days inside the EU, 5–7 to the US. Tracking lands in your email the moment it leaves.",
   },
-  { kind: "customer", text: "Cool. Can you book a table for two at 13:30?" },
+  { kind: "customer", text: "What's in your FAQs?" },
   { kind: "typing" },
   {
     kind: "bot",
-    text: "Bookings aren't something I can confirm myself — I've sent this to the team and they'll reply shortly.",
+    text: "Shipping, returns, sizing, custom orders, and bulk pricing. Want me to pull one up?",
   },
 ];
 
