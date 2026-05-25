@@ -25,6 +25,7 @@ import { ingestDocument } from "../lib/doc-ingest";
 import { getBotStats } from "../lib/analytics-stats";
 import { getBillingSummary } from "../lib/billing-read";
 import { getOnboardingBotUsername } from "../lib/bot-identity";
+import { registry } from "../bots/registry";
 import { ownerDistinctId, track } from "../lib/analytics";
 import { logger } from "../lib/logger";
 
@@ -193,6 +194,12 @@ api.patch("/bots/:id", async (c) => {
       dailyUserAiReplyLimit,
       dailyCapReachedMessage,
     });
+    // BotRegistry caches the loaded tenant bot's settings (system prompt,
+    // welcome message, autoReadBusinessMessages, daily caps, status). The
+    // bot-side toggles invalidate or mutate the cached entry directly; the
+    // Mini App PATCH path must do the same or live updates won't take
+    // effect until the next process restart.
+    registry.invalidate(id);
     trackMini(c.get("ownerId"), "bot.updated", id);
     return c.json(toPublicBot(updated));
   } catch (err) {

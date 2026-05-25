@@ -126,9 +126,13 @@ export function Billing() {
                       </span>
                     </p>
                   ) : null}
-                  {data.subscriptionRenewsAt ? (
+                  {data.subscriptionRenewsAt && data.status !== "trialing" ? (
                     <p>
-                      Renews{" "}
+                      {data.status === "active"
+                        ? "Renews "
+                        : data.status === "canceled"
+                          ? "Ends "
+                          : "Ended "}
                       <span className="font-medium text-foreground">
                         {fmtDate(data.subscriptionRenewsAt)}
                       </span>
