@@ -1,174 +1,209 @@
-@import url("https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700;800;900&family=Geist+Mono:wght@400;500&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Delius+Swash+Caps&family=Inconsolata:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap");
 @import "tailwindcss";
 
 /*
- * Tokens — single emerald accent, off-black ink, warm cream base.
- * No purple. No Inter. No defaults shipped.
+ * Doodle design system — playful, hand-drawn, minimalist.
+ * Per .agents/skills/design-system/SKILL.md.
+ *
+ * Token discipline: every component reaches for these semantic vars,
+ * never raw hex.
  */
 :root {
-  --bg: oklch(0.985 0.005 90);
-  --surface: oklch(1 0 0);
-  --ink: oklch(0.155 0.005 280);
-  --ink-soft: oklch(0.42 0.01 280);
-  --ink-muted: oklch(0.6 0.012 280);
-  --line: oklch(0.16 0.005 280 / 0.10);
-  --line-soft: oklch(0.16 0.005 280 / 0.06);
-  --accent: oklch(0.66 0.16 158);
-  --accent-soft: oklch(0.66 0.16 158 / 0.12);
-  --accent-deep: oklch(0.46 0.13 160);
+  /* Color */
+  --c-surface: #ffffff;
+  --c-paper: #fbf9f4; /* warm off-white "notebook" tint */
+  --c-text: #111827;
+  --c-text-soft: #4b5563;
+  --c-text-muted: #6b7280;
+  --c-primary: #49b6e5;
+  --c-primary-ink: #2493c6;
+  --c-secondary: #263d5b;
+  --c-success: #16a34a;
+  --c-warning: #d97706;
+  --c-danger: #dc2626;
 
-  --ease: cubic-bezier(0.16, 1, 0.3, 1);
-  --ease-spring: cubic-bezier(0.32, 0.72, 0, 1);
+  /* Spacing scale 4 / 8 / 12 / 16 / 24 / 32 */
+  --s-1: 4px;
+  --s-2: 8px;
+  --s-3: 12px;
+  --s-4: 16px;
+  --s-6: 24px;
+  --s-8: 32px;
 
+  /* Type scale 14 / 16 / 18 / 24 / 32 / 40 */
+  --t-14: 14px;
+  --t-16: 16px;
+  --t-18: 18px;
+  --t-24: 24px;
+  --t-32: 32px;
+  --t-40: 40px;
+
+  /* Motion */
+  --ease: cubic-bezier(0.32, 0.72, 0, 1);
+
+  /* Hand-drawn ink for doodle SVGs */
+  --ink: var(--c-text);
+
+  /* Sketch shadow — slightly imperfect, low opacity */
+  --shadow-sketch:
+    2px 3px 0 0 var(--c-text),
+    0 0 0 1px var(--c-text);
   --shadow-soft:
-    0 1px 1px rgb(0 0 0 / 0.02),
-    0 12px 32px -16px rgb(0 0 0 / 0.10),
-    0 30px 60px -28px rgb(0 0 0 / 0.07);
-  --shadow-island:
-    0 1px 1px rgb(0 0 0 / 0.04),
-    0 14px 36px -10px rgb(0 0 0 / 0.18),
-    0 36px 60px -20px rgb(0 0 0 / 0.16);
+    0 1px 0 0 var(--c-text),
+    0 2px 14px -6px rgb(0 0 0 / 0.08);
 }
 
 @theme inline {
-  --color-bg: var(--bg);
-  --color-surface: var(--surface);
-  --color-ink: var(--ink);
-  --color-ink-soft: var(--ink-soft);
-  --color-ink-muted: var(--ink-muted);
-  --color-line: var(--line);
-  --color-line-soft: var(--line-soft);
-  --color-accent: var(--accent);
-  --color-accent-soft: var(--accent-soft);
-  --color-accent-deep: var(--accent-deep);
+  --color-surface: var(--c-surface);
+  --color-paper: var(--c-paper);
+  --color-text: var(--c-text);
+  --color-text-soft: var(--c-text-soft);
+  --color-text-muted: var(--c-text-muted);
+  --color-primary: var(--c-primary);
+  --color-primary-ink: var(--c-primary-ink);
+  --color-secondary: var(--c-secondary);
+  --color-success: var(--c-success);
+  --color-warning: var(--c-warning);
+  --color-danger: var(--c-danger);
 
-  --font-sans: "Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI",
-    sans-serif;
-  --font-mono: "Geist Mono", ui-monospace, SFMono-Regular, "SF Mono", monospace;
-  --font-display: "Geist", ui-sans-serif, system-ui, sans-serif;
-
-  --radius-tile: 2.5rem;
+  --font-sans: "Inconsolata", "JetBrains Mono", ui-sans-serif, system-ui,
+    -apple-system, "Segoe UI", sans-serif;
+  --font-display: "Delius Swash Caps", "Inconsolata", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", "Inconsolata", ui-monospace, SFMono-Regular,
+    monospace;
 }
 
-* { border-color: var(--line); }
-
 html, body, #root { min-height: 100% }
-
 html { scroll-behavior: smooth }
 
 body {
   margin: 0;
-  background-color: var(--bg);
-  color: var(--ink);
+  background: var(--c-paper);
+  color: var(--c-text);
   font-family: var(--font-sans);
-  font-feature-settings: "ss01", "ss03", "cv11";
+  font-size: var(--t-16);
+  line-height: 1.6;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
 
-/* Ambient mesh — pinned, never repainted on scroll */
-.atmos::before {
-  content: "";
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  z-index: -1;
-  background:
-    radial-gradient(
-      ellipse 60% 40% at 10% -5%,
-      color-mix(in oklch, var(--accent) 24%, transparent) 0%,
-      transparent 60%
-    ),
-    radial-gradient(
-      ellipse 50% 35% at 110% 30%,
-      color-mix(in oklch, var(--accent) 16%, transparent) 0%,
-      transparent 65%
-    ),
-    radial-gradient(
-      ellipse 60% 50% at 110% 110%,
-      color-mix(in oklch, var(--ink) 8%, transparent) 0%,
-      transparent 60%
-    );
-  opacity: 0.55;
-}
-.atmos::after {
-  content: "";
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  z-index: -1;
-  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 200'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 0.55 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)' opacity='0.85'/></svg>");
-  opacity: 0.028;
-  mix-blend-mode: multiply;
-}
+* { border-color: var(--c-text) }
 
-/* Liquid glass refraction */
-.glass {
-  background: color-mix(in oklch, var(--surface) 78%, transparent);
-  backdrop-filter: blur(18px) saturate(140%);
-  box-shadow:
-    inset 0 1px 0 rgb(255 255 255 / 0.55),
-    inset 0 0 0 1px rgb(0 0 0 / 0.06),
-    var(--shadow-soft);
+/* Subtle notebook paper line — very faint, only on hero */
+.paper-rule {
+  background-image:
+    repeating-linear-gradient(
+      to bottom,
+      transparent 0,
+      transparent 31px,
+      color-mix(in srgb, var(--c-text) 4%, transparent) 31px,
+      color-mix(in srgb, var(--c-text) 4%, transparent) 32px
+    );
 }
 
 /* Press physics */
 .press {
   transition:
-    transform 280ms var(--ease),
-    box-shadow 280ms var(--ease),
-    background-color 280ms var(--ease);
+    transform 240ms var(--ease),
+    box-shadow 240ms var(--ease),
+    background-color 240ms var(--ease);
 }
-.press:active { transform: translateY(1px) scale(0.985) }
+.press:active { transform: translate(1px, 1px) }
 
-/* CSS reveal — used for entries that don't need GSAP precision */
+/* Sketch outline button */
+.btn-sketch {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  padding: var(--s-3) var(--s-6);
+  border-radius: 999px;
+  background: var(--c-surface);
+  color: var(--c-text);
+  font-family: var(--font-display);
+  font-size: var(--t-18);
+  box-shadow: var(--shadow-sketch);
+  transition:
+    transform 240ms var(--ease),
+    box-shadow 240ms var(--ease);
+}
+.btn-sketch:hover {
+  transform: translate(-1px, -1px);
+  box-shadow:
+    4px 5px 0 0 var(--c-text),
+    0 0 0 1px var(--c-text);
+}
+.btn-sketch:active {
+  transform: translate(2px, 2px);
+  box-shadow:
+    0 0 0 0 var(--c-text),
+    0 0 0 1px var(--c-text);
+}
+.btn-sketch--primary {
+  background: var(--c-text);
+  color: var(--c-paper);
+}
+.btn-sketch--accent {
+  background: var(--c-primary);
+  color: var(--c-text);
+}
+
+/* Hand-drawn card — uses double box-shadow as the "drawn" border */
+.card-sketch {
+  background: var(--c-surface);
+  border-radius: 22px;
+  box-shadow: var(--shadow-sketch);
+  padding: var(--s-8);
+}
+.card-sketch--inverted {
+  background: var(--c-text);
+  color: var(--c-paper);
+}
+
+/* Pill chip */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  padding: var(--s-1) var(--s-3);
+  border-radius: 999px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 500;
+  background: color-mix(in srgb, var(--c-text) 6%, transparent);
+  color: var(--c-text-soft);
+}
+
+/* Reveal */
 .reveal {
   opacity: 0;
-  transform: translateY(28px);
-  filter: blur(8px);
+  transform: translateY(18px);
   transition:
-    opacity 700ms var(--ease),
-    transform 700ms var(--ease),
-    filter 700ms var(--ease);
+    opacity 600ms var(--ease),
+    transform 600ms var(--ease);
 }
-.reveal.is-in { opacity: 1; transform: translateY(0); filter: blur(0) }
-.reveal[data-stagger].is-in { transition-delay: calc(var(--idx, 0) * 70ms) }
+.reveal.is-in { opacity: 1; transform: translateY(0) }
+.reveal[data-stagger].is-in { transition-delay: calc(var(--idx, 0) * 80ms) }
 
-/* Perpetual motion */
-@keyframes float-y {
-  0%, 100% { transform: translateY(0) }
-  50% { transform: translateY(-6px) }
+/* Faint wiggle motion for doodle accents */
+@keyframes wiggle {
+  0%, 100% { transform: rotate(-2deg) translateY(0) }
+  50% { transform: rotate(2deg) translateY(-2px) }
 }
-.anim-float { animation: float-y 7s var(--ease) infinite }
-.anim-float-slow { animation: float-y 10s var(--ease) infinite }
+.anim-wiggle { animation: wiggle 5s ease-in-out infinite }
 
 @keyframes pulse-dot {
-  0%, 100% { box-shadow: 0 0 0 0 color-mix(in oklch, var(--accent) 45%, transparent) }
-  50% { box-shadow: 0 0 0 6px color-mix(in oklch, var(--accent) 0%, transparent) }
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--c-success) 50%, transparent) }
+  50% { box-shadow: 0 0 0 5px color-mix(in srgb, var(--c-success) 0%, transparent) }
 }
-.anim-pulse { animation: pulse-dot 2.6s var(--ease) infinite }
+.anim-pulse { animation: pulse-dot 2.4s var(--ease) infinite }
 
-@keyframes ticker {
-  from { transform: translate3d(0,0,0) }
-  to   { transform: translate3d(-50%,0,0) }
+/* Visible focus per WCAG 2.2 AA */
+:focus-visible {
+  outline: 2px solid var(--c-text);
+  outline-offset: 3px;
+  border-radius: 6px;
 }
-.anim-ticker { animation: ticker 32s linear infinite }
 
-@keyframes caret { 0%,60%{opacity:1} 61%,100%{opacity:0} }
-.anim-caret { animation: caret 0.9s steps(1, end) infinite }
-
-@keyframes orb {
-  0%, 100% { transform: translate3d(0,0,0) scale(1) }
-  50% { transform: translate3d(0,-8px,0) scale(1.07) }
-}
-.anim-orb { animation: orb 9s var(--ease) infinite; will-change: transform }
-
-/* Hide horizontal scrollbars for marquee rows */
 .no-scrollbar::-webkit-scrollbar { display: none }
 .no-scrollbar { scrollbar-width: none }
-
-/* Image filter helper — used on picsum hero backdrop to kill stock look */
-.editorial-img {
-  filter: grayscale(0.85) contrast(1.05) brightness(0.78);
-  mix-blend-mode: luminosity;
-}
