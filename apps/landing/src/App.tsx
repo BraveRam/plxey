@@ -86,7 +86,7 @@ function Hero() {
             className="max-w-[20ch] font-display leading-[1.05]"
             style={{ fontSize: "clamp(2.4rem, 5.6vw, 4.8rem)" }}
           >
-            An assistant that replies{" "}
+            An AI agent that replies{" "}
             <span className="relative inline-block whitespace-nowrap">
               <span className="relative z-10">as you</span>
               <Highlight />

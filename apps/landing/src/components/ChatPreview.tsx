@@ -12,15 +12,18 @@ type Step =
   | { kind: "bot"; text: string };
 
 const STORY: Step[] = [
-  { kind: "customer", text: "Hey — open Sunday?" },
+  { kind: "customer", text: "Hey — what are your Sunday hours?" },
   { kind: "typing" },
   {
     kind: "bot",
-    text: "Yes! 11–18 Sundays, last seating 17:00. Want me to hold a table for two at 13:30?",
+    text: "We're open 11–18 on Sundays, last seating at 17:00.",
   },
-  { kind: "customer", text: "Yes please." },
+  { kind: "customer", text: "Cool. Can you book a table for two at 13:30?" },
   { kind: "typing" },
-  { kind: "bot", text: "Held. I'll confirm by 19:00 today." },
+  {
+    kind: "bot",
+    text: "Bookings aren't something I can confirm myself — I've sent this to the team and they'll reply shortly.",
+  },
 ];
 
 export const ChatPreview = memo(function ChatPreview() {
