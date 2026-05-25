@@ -9,18 +9,18 @@
  * never raw hex.
  */
 :root {
-  /* Color */
-  --c-surface: #ffffff;
-  --c-paper: #fbf9f4; /* warm off-white "notebook" tint */
-  --c-text: #111827;
-  --c-text-soft: #4b5563;
-  --c-text-muted: #6b7280;
-  --c-primary: #49b6e5;
+  /* Color — chalkboard dark mode. Cream "chalk" ink on warm near-black. */
+  --c-surface: #16181c;
+  --c-paper: #0f1115;
+  --c-text: #f5efe1;
+  --c-text-soft: #c2bcab;
+  --c-text-muted: #8c8674;
+  --c-primary: #6cc4ec;
   --c-primary-ink: #2493c6;
-  --c-secondary: #263d5b;
-  --c-success: #16a34a;
-  --c-warning: #d97706;
-  --c-danger: #dc2626;
+  --c-secondary: #f5efe1;
+  --c-success: #4ade80;
+  --c-warning: #f59e0b;
+  --c-danger: #f87171;
 
   /* Spacing scale 4 / 8 / 12 / 16 / 24 / 32 */
   --s-1: 4px;
@@ -44,13 +44,15 @@
   /* Hand-drawn ink for doodle SVGs */
   --ink: var(--c-text);
 
-  /* Sketch shadow — slightly imperfect, low opacity */
+  /* Sketch shadow — paired box-shadow mimics pen outline + drop.
+   * On dark mode we shift the drop to a soft black so the sketched
+   * edge reads as a chalk highlight rather than a halo. */
   --shadow-sketch:
-    2px 3px 0 0 var(--c-text),
-    0 0 0 1px var(--c-text);
+    2px 3px 0 0 rgb(0 0 0 / 0.6),
+    0 0 0 1.5px var(--c-text);
   --shadow-soft:
     0 1px 0 0 var(--c-text),
-    0 2px 14px -6px rgb(0 0 0 / 0.08);
+    0 2px 14px -6px rgb(0 0 0 / 0.4);
 }
 
 @theme inline {
@@ -87,7 +89,7 @@ body {
   text-rendering: optimizeLegibility;
 }
 
-* { border-color: var(--c-text) }
+* { border-color: color-mix(in srgb, var(--c-text) 22%, transparent) }
 
 /* Subtle notebook paper line — very faint, only on hero */
 .paper-rule {
@@ -130,14 +132,14 @@ body {
 .btn-sketch:hover {
   transform: translate(-1px, -1px);
   box-shadow:
-    4px 5px 0 0 var(--c-text),
-    0 0 0 1px var(--c-text);
+    4px 5px 0 0 rgb(0 0 0 / 0.7),
+    0 0 0 1.5px var(--c-text);
 }
 .btn-sketch:active {
   transform: translate(2px, 2px);
   box-shadow:
-    0 0 0 0 var(--c-text),
-    0 0 0 1px var(--c-text);
+    0 0 0 0 rgb(0 0 0 / 0),
+    0 0 0 1.5px var(--c-text);
 }
 .btn-sketch--primary {
   background: var(--c-text);

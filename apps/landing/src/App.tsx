@@ -82,16 +82,9 @@ function Hero() {
       className="relative mx-auto grid w-full max-w-[1200px] grid-cols-1 items-center gap-12 px-5 pb-16 pt-20 md:grid-cols-12 md:pt-28 md:pb-24"
     >
       <div className="md:col-span-7">
-        <Reveal>
-          <span className="chip">
-            <span aria-hidden className="size-1.5 rounded-full bg-success anim-pulse" />
-            Live in beta — no Premium needed
-          </span>
-        </Reveal>
-
         <Reveal delay={1}>
           <h1
-            className="mt-6 max-w-[18ch] font-display leading-[1.05]"
+            className="max-w-[18ch] font-display leading-[1.05]"
             style={{ fontSize: "clamp(2.4rem, 5.6vw, 4.8rem)" }}
           >
             Your Telegram bot, replying to{" "}
