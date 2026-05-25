@@ -104,11 +104,6 @@ export function Billing() {
           {/* Plan hero — gradient halo + status pill */}
           <Reveal>
             <Bezel innerClassName="relative p-6 overflow-hidden">
-              <div
-                aria-hidden
-                className="ds-orb pointer-events-none absolute -right-10 -top-12 size-44 rounded-full blur-3xl"
-                style={{ background: "var(--primary)", opacity: 0.35 }}
-              />
               <div className="relative flex flex-col gap-1.5">
                 <div className="flex items-center gap-2 text-[12px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
                   <Sparkles className="size-3.5" />
