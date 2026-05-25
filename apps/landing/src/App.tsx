@@ -20,7 +20,7 @@ import {
   StarDoodle,
 } from "@/components/Doodle";
 
-const BOT_HANDLE = "tgbusinessbot";
+const BOT_HANDLE = "plxeyaibot";
 const DEEP_LINK = `https://t.me/${BOT_HANDLE}?start=launch`;
 
 export function App() {
@@ -47,10 +47,10 @@ function Nav() {
       <a
         href="#top"
         className="press flex items-center gap-2 font-display text-[22px] leading-none"
-        aria-label="Reception home"
+        aria-label="Plxey home"
       >
         <DoodleLogo className="text-text" />
-        <span>Reception</span>
+        <span>Plxey</span>
       </a>
       <div className="hidden items-center gap-6 font-mono text-[14px] text-text-soft md:flex">
         <a href="#how" className="press hover:text-text">How</a>
@@ -105,7 +105,7 @@ function Hero() {
         <Reveal delay={2}>
           <p className="mt-7 max-w-[58ch] text-[18px] leading-relaxed text-text-soft">
             Customers DM your personal Telegram handle as they always have —
-            Reception answers from your docs in your voice. You see every
+            Plxey answers from your docs in your voice. You see every
             message, you can take over any time, and the bot pings you the
             moment something needs a human.
           </p>
@@ -195,7 +195,7 @@ function HowItWorks() {
     {
       n: "four",
       t: "Go live as yourself",
-      d: "Customers DM your handle as always. Reception replies in your voice, escalates to you when it's not sure.",
+      d: "Customers DM your handle as always. Plxey replies in your voice, escalates to you when it's not sure.",
       icon: <ChatDoodle />,
     },
   ];
@@ -266,17 +266,17 @@ function Features() {
     {
       icon: <ChatDoodle />,
       title: "Speaks as you, not as a bot",
-      body: "Connected via Telegram's Business chatbot — customers see your handle, your photo, your replies. Reception is invisible underneath.",
+      body: "Connected via Telegram's Business chatbot — customers see your handle, your photo, your replies. Plxey is invisible underneath.",
     },
     {
       icon: <Sparkle />,
       title: "Grounded in your docs",
-      body: "Every answer is pulled from the files you upload. If the docs don't cover it, Reception says so out loud and pings you to take over.",
+      body: "Every answer is pulled from the files you upload. If the docs don't cover it, Plxey says so out loud and pings you to take over.",
     },
     {
       icon: <LockDoodle />,
       title: "You stay in control",
-      body: "Every reply lands in your own Telegram chat. Edit, override, or jump in mid-conversation — Reception backs off the instant you type.",
+      body: "Every reply lands in your own Telegram chat. Edit, override, or jump in mid-conversation — Plxey backs off the instant you type.",
     },
   ];
 
@@ -489,19 +489,19 @@ function PriceCard({
 const FAQS = [
   {
     q: "Do I need Telegram Premium?",
-    a: "No. Telegram opened the Business chatbot feature to every account, so Reception works on a regular free Telegram account. You also don't need any Premium-only features to send or receive Stars.",
+    a: "No. Telegram opened the Business chatbot feature to every account, so Plxey works on a regular free Telegram account. You also don't need any Premium-only features to send or receive Stars.",
   },
   {
     q: "Wait, customers chat with me directly — not a bot?",
-    a: "Right. Your customers DM your personal Telegram handle the same way they always have. Reception connects via Telegram's official chatbot slot, so the replies show up under your own name and avatar. Your bot's handle never appears in the chat.",
+    a: "Right. Your customers DM your personal Telegram handle the same way they always have. Plxey connects via Telegram's official chatbot slot, so the replies show up under your own name and avatar. Your bot's handle never appears in the chat.",
   },
   {
     q: "How does it know what to say?",
-    a: "Every reply is grounded in the documents you upload — PDFs, FAQs, menus, schedules. If a customer asks something your docs don't cover, Reception declines politely and forwards the message to you with full context so you can answer once and move on.",
+    a: "Every reply is grounded in the documents you upload — PDFs, FAQs, menus, schedules. If a customer asks something your docs don't cover, Plxey declines politely and forwards the message to you with full context so you can answer once and move on.",
   },
   {
     q: "Can I take over a conversation?",
-    a: "Any time. The moment you reply in a chat yourself, Reception backs off for that thread. There's also a per-bot kill switch in the Mini App that pauses every reply at once.",
+    a: "Any time. The moment you reply in a chat yourself, Plxey backs off for that thread. There's also a per-bot kill switch in the Mini App that pauses every reply at once.",
   },
   {
     q: "How is my data handled?",
@@ -513,7 +513,7 @@ const FAQS = [
   },
   {
     q: "Is there an API?",
-    a: "Not yet. Reception is opinionated and built for non-technical owners first. If you want a managed integration, message us inside the Mini App.",
+    a: "Not yet. Plxey is opinionated and built for non-technical owners first. If you want a managed integration, message us inside the Mini App.",
   },
 ];
 
@@ -605,7 +605,7 @@ function FootCta() {
                   Stop missing customers.
                 </h2>
                 <p className="mt-4 max-w-[44ch] text-[16px] leading-relaxed text-paper/70">
-                  Install Reception on a real bot in under a minute. First seven
+                  Install Plxey on a real bot in under a minute. First seven
                   days are on us. If it doesn't pull its weight — walk away.
                 </p>
               </div>
@@ -641,7 +641,7 @@ function Foot() {
         <div className="flex items-center gap-3">
           <DoodleLogo className="size-7" />
           <span className="font-display text-[18px] leading-none">
-            Reception
+            Plxey
           </span>
           <span className="hidden font-mono text-[11px] text-text-muted sm:inline">
             made for Telegram bots
@@ -661,7 +661,7 @@ function Foot() {
           </a>
         </nav>
         <p className="font-mono text-[11px] text-text-muted">
-          © {new Date().getFullYear()} Reception
+          © {new Date().getFullYear()} Plxey
         </p>
       </div>
     </footer>

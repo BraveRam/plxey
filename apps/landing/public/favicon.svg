@@ -1,4 +1,15 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
-  <rect width="32" height="32" rx="8" fill="#0f1115" stroke="#f5efe1" stroke-width="1.5" />
-  <path d="M9 11h14M9 16h10M9 21h12" stroke="#6cc4ec" stroke-width="2.4" stroke-linecap="round" />
+  <rect width="32" height="32" rx="8" fill="#0f1115" />
+  <!-- headset arc -->
+  <path d="M8 16 C 8 11, 11 7, 16 7 S 24 11, 24 16" stroke="#6cc4ec" stroke-width="2.2" fill="none" stroke-linecap="round" />
+  <!-- cups -->
+  <circle cx="8" cy="17" r="1.8" fill="#6cc4ec" />
+  <circle cx="24" cy="17" r="1.8" fill="#6cc4ec" />
+  <!-- mic boom -->
+  <path d="M24 18 C 25 21, 22 23, 19 23" stroke="#6cc4ec" stroke-width="1.8" fill="none" stroke-linecap="round" />
+  <!-- face dots -->
+  <circle cx="14" cy="17" r="0.9" fill="#f5efe1" />
+  <circle cx="19" cy="17" r="0.9" fill="#f5efe1" />
+  <!-- smile -->
+  <path d="M14 21 C 16 22.5, 18 22.5, 20 21" stroke="#f5efe1" stroke-width="1.4" fill="none" stroke-linecap="round" />
 </svg>

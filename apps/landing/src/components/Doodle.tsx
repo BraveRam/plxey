@@ -194,7 +194,8 @@ export function HeartDoodle({ className, ...rest }: Svg) {
   );
 }
 
-/** Doodle logo — handwritten R inside a sketched square */
+/** Plxey mark — hand-drawn headset operator inside a sketched circle.
+ *  Echoes the call-center brand without lifting the painted illustration. */
 export function DoodleLogo({ className }: { className?: string }) {
   return (
     <svg
@@ -203,16 +204,35 @@ export function DoodleLogo({ className }: { className?: string }) {
       className={cn("w-9 h-9", className)}
       fill="none"
       stroke="currentColor"
-      strokeWidth={2}
+      strokeWidth={1.8}
       strokeLinecap="round"
       strokeLinejoin="round"
     >
-      <path d="M5 8 C 6 5, 9 4, 14 4 H 30 C 33 4, 36 6, 36 10 V 30 C 36 33, 34 36, 30 36 H 12 C 7 36, 4 33, 4 28 Z" />
+      {/* Hand-drawn outer circle */}
+      <path d="M20 3 C 30 3, 37 11, 37 21 S 30 37, 20 37 S 3 30, 3 20 S 10 3, 20 3" />
+      {/* Hair tufts */}
+      <path d="M11 19 C 11 13, 14 9, 20 9 S 29 13, 29 19" />
+      <path d="M11 19 C 10 22, 10 25, 12 27" />
+      <path d="M29 19 C 30 22, 30 25, 28 27" />
+      {/* Headset arc */}
       <path
-        d="M14 28 V 12 H 21 C 25 12, 27 14, 27 17 S 25 22, 21 22 H 14 M 22 22 L 28 28"
+        d="M10 19 C 10 12, 14 7, 20 7 S 30 12, 30 19"
         stroke="var(--c-primary)"
-        strokeWidth={2.6}
+        strokeWidth={2.2}
       />
+      {/* Headset cups */}
+      <circle cx="10" cy="20" r="2" fill="var(--c-primary)" stroke="none" />
+      <circle cx="30" cy="20" r="2" fill="var(--c-primary)" stroke="none" />
+      {/* Mic boom */}
+      <path
+        d="M30 21 C 31 24, 28 26, 25 26"
+        stroke="var(--c-primary)"
+        strokeWidth={2}
+      />
+      {/* Face — eyes + smile */}
+      <circle cx="17" cy="20" r="0.9" fill="currentColor" stroke="none" />
+      <circle cx="23" cy="20" r="0.9" fill="currentColor" stroke="none" />
+      <path d="M17 24 C 19 26, 21 26, 23 24" />
     </svg>
   );
 }
