@@ -12,11 +12,11 @@ type Step =
   | { kind: "bot"; text: string };
 
 const STORY: Step[] = [
-  { kind: "customer", text: "Hi — open Sunday?" },
+  { kind: "customer", text: "Hey — open Sunday?" },
   { kind: "typing" },
   {
     kind: "bot",
-    text: "Yes! 11–18, last seating 17:00. Hold a table for two at 13:30?",
+    text: "Yes! 11–18 Sundays, last seating 17:00. Want me to hold a table for two at 13:30?",
   },
   { kind: "customer", text: "Yes please." },
   { kind: "typing" },
@@ -43,14 +43,14 @@ export const ChatPreview = memo(function ChatPreview() {
             </div>
             <div className="leading-tight">
               <p className="font-mono text-[13px] font-semibold">
-                @caelum_roastery_bot
+                @caelum_roastery
               </p>
               <p className="flex items-center gap-1.5 font-mono text-[11px] text-text-soft">
                 <span
                   aria-hidden
                   className="anim-pulse inline-block size-1.5 rounded-full bg-success"
                 />
-                online · replying
+                online · typing
               </p>
             </div>
           </div>

@@ -9,7 +9,6 @@ import {
   CheckDoodle,
   ChevronDoodle,
   DoodleLogo,
-  DocDoodle,
   HeartDoodle,
   Highlight,
   LockDoodle,
@@ -84,17 +83,17 @@ function Hero() {
       <div className="md:col-span-7">
         <Reveal delay={1}>
           <h1
-            className="max-w-[18ch] font-display leading-[1.05]"
+            className="max-w-[20ch] font-display leading-[1.05]"
             style={{ fontSize: "clamp(2.4rem, 5.6vw, 4.8rem)" }}
           >
-            Your Telegram bot, replying to{" "}
+            An assistant that replies{" "}
             <span className="relative inline-block whitespace-nowrap">
-              <span className="relative z-10">customers</span>
+              <span className="relative z-10">as you</span>
               <Highlight />
             </span>{" "}
-            while you{" "}
+            on{" "}
             <span className="relative inline-block">
-              sleep
+              Telegram
               <Squiggle
                 className="!absolute left-0 -bottom-2 text-text"
               />
@@ -105,9 +104,10 @@ function Hero() {
 
         <Reveal delay={2}>
           <p className="mt-7 max-w-[58ch] text-[18px] leading-relaxed text-text-soft">
-            Drop in a BotFather token, upload your docs, and Reception answers
-            every customer DM in your voice. No Telegram Premium, no Stripe,
-            no code.
+            Customers DM your personal Telegram handle as they always have —
+            Reception answers from your docs in your voice. You see every
+            message, you can take over any time, and the bot pings you the
+            moment something needs a human.
           </p>
         </Reveal>
 
@@ -132,9 +132,9 @@ function Hero() {
         <Reveal delay={4}>
           <ul className="mt-8 grid grid-cols-2 gap-x-6 gap-y-2 font-mono text-[13px] text-text-soft sm:flex sm:flex-wrap">
             {[
-              "Any @BotFather bot",
+              "No Premium required",
+              "Works on your existing handle",
               "60-second setup",
-              "Pay in Stars",
               "Cancel any time",
             ].map((it) => (
               <li key={it} className="flex items-center gap-2">
@@ -160,7 +160,7 @@ function Hero() {
               aria-hidden
               className="absolute -left-2 -top-16 hidden -rotate-6 font-display text-[18px] text-text-soft md:block"
             >
-              answers in your voice
+              this is your handle, not a bot
             </p>
           </div>
         </Reveal>
@@ -176,21 +176,27 @@ function HowItWorks() {
   const steps = [
     {
       n: "one",
-      t: "Connect your bot",
-      d: "Drop the token from @BotFather. Stored encrypted, forgotten the moment you revoke it.",
+      t: "Make a bot, drop the token",
+      d: "Spin one up in @BotFather, copy the token, paste it in our onboarding chat. Stored encrypted, forgotten when you revoke.",
       icon: <PlaneDoodle />,
     },
     {
       n: "two",
-      t: "Upload your docs",
-      d: "PDFs, FAQs, menus, schedules. Anything a new hire would memorise on day one.",
-      icon: <DocDoodle />,
+      t: "Enable business mode",
+      d: "In @BotFather → your bot → Bot Settings → Business Mode → On. One toggle. We'll remind you.",
+      icon: <BoltDoodle />,
     },
     {
       n: "three",
-      t: "Go live",
-      d: "Customers DM your bot. Reception replies in your voice, books, quotes, escalates.",
-      icon: <BoltDoodle />,
+      t: "Add it to your Telegram",
+      d: "Telegram → Settings → Telegram Business → Chatbots → add your bot and grant Reply + Read permissions.",
+      icon: <LockDoodle />,
+    },
+    {
+      n: "four",
+      t: "Go live as yourself",
+      d: "Customers DM your handle as always. Reception replies in your voice, escalates to you when it's not sure.",
+      icon: <ChatDoodle />,
     },
   ];
 
@@ -203,20 +209,20 @@ function HowItWorks() {
         <Reveal>
           <div className="flex flex-col items-start gap-4 md:flex-row md:items-end md:justify-between">
             <h2 className="font-display text-[36px] leading-tight md:text-[48px]">
-              Three steps. <br className="md:hidden" />
+              Four steps. <br className="md:hidden" />
               <span className="relative inline-block">
                 About a minute.
                 <Squiggle className="!absolute left-0 -bottom-1 text-text" />
               </span>
             </h2>
             <p className="max-w-[40ch] text-[15.5px] text-text-soft md:text-right">
-              No code, no installation. Open the bot in Telegram and you're set
-              before your coffee cools.
+              No code, no Premium, no separate inbox. You stay in your own
+              Telegram chat — there's just a brain underneath now.
             </p>
           </div>
         </Reveal>
 
-        <ol className="mt-14 grid grid-cols-1 gap-10 md:grid-cols-3 md:gap-12">
+        <ol className="mt-14 grid grid-cols-1 gap-10 sm:grid-cols-2 md:gap-y-14 md:grid-cols-4 md:gap-x-10">
           {steps.map((s, i) => (
             <Reveal key={s.n} delay={i + 1}>
               <li className="relative">
@@ -227,20 +233,20 @@ function HowItWorks() {
                 <div className="mt-5 inline-flex size-14 items-center justify-center rounded-2xl bg-text text-paper [&_svg]:size-6">
                   {s.icon}
                 </div>
-                <h3 className="mt-5 font-display text-[28px] leading-tight">
+                <h3 className="mt-5 font-display text-[22px] leading-tight md:text-[24px]">
                   {s.t}
                 </h3>
-                <p className="mt-3 max-w-[36ch] text-[15px] leading-relaxed text-text-soft">
+                <p className="mt-3 max-w-[36ch] text-[14.5px] leading-relaxed text-text-soft">
                   {s.d}
                 </p>
 
-                {/* Doodle arrow connector between steps (desktop only) */}
+                {/* Doodle arrow between steps on desktop */}
                 {i < steps.length - 1 ? (
                   <div
                     aria-hidden
-                    className="pointer-events-none absolute -right-8 top-12 hidden text-text/35 anim-wiggle md:block"
+                    className="pointer-events-none absolute -right-6 top-10 hidden text-text/30 anim-wiggle md:block"
                   >
-                    <ScribbleArrow className="w-14 h-12 rotate-[-15deg]" />
+                    <ScribbleArrow className="w-12 h-10 rotate-[-15deg]" />
                   </div>
                 ) : null}
               </li>
@@ -259,18 +265,18 @@ function Features() {
   const items = [
     {
       icon: <ChatDoodle />,
-      title: "Replies grounded in your docs",
-      body: "Every answer is pulled from the files you upload. If the docs don't cover it, Reception says so and pings you.",
+      title: "Speaks as you, not as a bot",
+      body: "Connected via Telegram's Business chatbot — customers see your handle, your photo, your replies. Reception is invisible underneath.",
     },
     {
       icon: <Sparkle />,
-      title: "Sounds exactly like you",
-      body: "Set a tone, a welcome line, a system prompt. Warm and chatty or terse and precise — your call.",
+      title: "Grounded in your docs",
+      body: "Every answer is pulled from the files you upload. If the docs don't cover it, Reception says so out loud and pings you to take over.",
     },
     {
       icon: <LockDoodle />,
-      title: "Your data, locked down",
-      body: "Bot tokens encrypted at rest. Docs scoped to your tenant. Never used to train any shared model.",
+      title: "You stay in control",
+      body: "Every reply lands in your own Telegram chat. Edit, override, or jump in mid-conversation — Reception backs off the instant you type.",
     },
   ];
 
@@ -482,24 +488,28 @@ function PriceCard({
 /* ============================================================== */
 const FAQS = [
   {
-    q: "Do I need a Telegram Premium account?",
-    a: "No. Reception works on any Telegram bot you create through @BotFather — which is completely free. Telegram Premium is only needed if you also want the bot to reply inside your personal Telegram chats via the Business API, and that's strictly optional.",
+    q: "Do I need Telegram Premium?",
+    a: "No. Telegram opened the Business chatbot feature to every account, so Reception works on a regular free Telegram account. You also don't need any Premium-only features to send or receive Stars.",
   },
   {
-    q: "What does it use to answer customers?",
-    a: "Every reply is grounded in the documents you upload. If a customer asks something your docs don't cover, Reception says so and (optionally) pings you to take over.",
+    q: "Wait, customers chat with me directly — not a bot?",
+    a: "Right. Your customers DM your personal Telegram handle the same way they always have. Reception connects via Telegram's official chatbot slot, so the replies show up under your own name and avatar. Your bot's handle never appears in the chat.",
+  },
+  {
+    q: "How does it know what to say?",
+    a: "Every reply is grounded in the documents you upload — PDFs, FAQs, menus, schedules. If a customer asks something your docs don't cover, Reception declines politely and forwards the message to you with full context so you can answer once and move on.",
+  },
+  {
+    q: "Can I take over a conversation?",
+    a: "Any time. The moment you reply in a chat yourself, Reception backs off for that thread. There's also a per-bot kill switch in the Mini App that pauses every reply at once.",
   },
   {
     q: "How is my data handled?",
-    a: "Bot tokens are encrypted at rest with AES-GCM. Documents are stored privately to your tenant — never used to train any shared model.",
-  },
-  {
-    q: "Can I pause it instantly?",
-    a: "Yes. The Mini App has a kill switch per bot. Toggle it and replies pause immediately; customer messages are queued, not lost.",
+    a: "Bot tokens are encrypted at rest with AES-GCM. Documents are stored privately to your tenant and never used to train any shared model. Conversations are scoped per Business connection and isolated between owners.",
   },
   {
     q: "What happens after the trial?",
-    a: "Bots pause until you subscribe. Your documents and settings stay exactly where they are — re-subscribe and everything picks back up.",
+    a: "Replies pause until you subscribe. Your documents and settings stay exactly where they are — re-subscribe and everything picks back up.",
   },
   {
     q: "Is there an API?",
