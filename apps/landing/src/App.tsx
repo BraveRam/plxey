@@ -22,6 +22,10 @@ import {
 
 const BOT_HANDLE = "plxeyaibot";
 const DEEP_LINK = `https://t.me/${BOT_HANDLE}?start=launch`;
+// Plan CTAs both drop into the bot's /billing screen — owner picks
+// tier there. The /start handler in apps/bot/src/bots/onboarding.ts
+// already routes `?start=billing` -> renderBillingScreen.
+const BILLING_LINK = `https://t.me/${BOT_HANDLE}?start=billing`;
 
 export function App() {
   return (
@@ -468,7 +472,7 @@ function PriceCard({
       </ul>
 
       <a
-        href={DEEP_LINK}
+        href={BILLING_LINK}
         target="_blank"
         rel="noreferrer"
         className={
