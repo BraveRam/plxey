@@ -266,7 +266,7 @@ function Features() {
     {
       icon: <ChatDoodle />,
       title: "Speaks as you, not as a bot",
-      body: "Connected via Telegram's Business chatbot — customers see your handle, your photo, your replies. Plxey is invisible underneath.",
+      body: "Customers see your handle, your photo, your replies — exactly as if you typed them yourself. Plxey stays out of sight.",
     },
     {
       icon: <Sparkle />,
@@ -319,7 +319,7 @@ function Features() {
 /* ============================================================== */
 /*  Pricing                                                         */
 /* ============================================================== */
-const PRO = ["Up to 3 bots", "10 docs per bot", "5,000 replies / month", "Owner Mini App"];
+const PRO = ["Up to 3 bots", "10 docs per bot", "5,000 replies / month"];
 const BIZ = [
   "Up to 10 bots",
   "50 docs per bot",
@@ -376,7 +376,7 @@ function Pricing() {
         </div>
 
         <p className="mt-8 text-center font-mono text-[12px] uppercase tracking-[0.18em] text-text-muted">
-          Stars are Telegram's native currency · billed monthly via the Bot API
+          Stars are Telegram's native currency · billed monthly inside Telegram
         </p>
       </div>
     </section>
@@ -493,7 +493,7 @@ const FAQS = [
   },
   {
     q: "Wait, customers chat with me directly — not a bot?",
-    a: "Right. Your customers DM your personal Telegram handle the same way they always have. Plxey connects via Telegram's official chatbot slot, so the replies show up under your own name and avatar. Your bot's handle never appears in the chat.",
+    a: "Right. Your customers DM your personal Telegram handle the same way they always have. Plxey plugs into Telegram's official setup so the replies show up under your name and avatar — your bot's handle never appears in the chat.",
   },
   {
     q: "How does it know what to say?",
@@ -501,11 +501,11 @@ const FAQS = [
   },
   {
     q: "Can I take over a conversation?",
-    a: "Any time. The moment you reply in a chat yourself, Plxey backs off for that thread. There's also a per-bot kill switch in the Mini App that pauses every reply at once.",
+    a: "Any time. The moment you reply in a chat yourself, Plxey backs off for that thread. There's also a kill switch in your Plxey settings that pauses every reply at once.",
   },
   {
     q: "How is my data handled?",
-    a: "Bot tokens are encrypted at rest. Documents are stored privately to your tenant and never used to train any shared model. Conversations are scoped per Business connection and isolated between owners.",
+    a: "Bot tokens are encrypted at rest. Your documents are private to your account and never used to train any shared model. Other Plxey customers can't see your chats or your files.",
   },
   {
     q: "What happens after the trial?",
