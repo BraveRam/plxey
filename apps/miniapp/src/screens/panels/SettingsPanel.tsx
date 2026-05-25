@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { Trash2 } from "lucide-react";
@@ -38,10 +38,18 @@ export function SettingsPanel({ bot }: { bot: PublicBot }) {
 
   const deleteHandle = bot.botUsername?.trim() ?? "";
   const deleteToken = deleteHandle === "" ? "DELETE" : deleteHandle;
-  const deleteLabel =
-    deleteHandle === ""
-      ? "Type DELETE to confirm deletion"
-      : `Type ${deleteHandle} to confirm deletion`;
+  // Highlight the confirmation token so the owner can scan it quickly. Using
+  // a ReactNode here keeps the Label markup semantic and avoids parsing
+  // bold-segments out of a plain string at render time.
+  const deleteLabel: ReactNode = (
+    <>
+      Type{" "}
+      <span className="font-semibold text-foreground">
+        {deleteHandle === "" ? "DELETE" : deleteHandle}
+      </span>{" "}
+      to confirm deletion
+    </>
+  );
   const deleteMatches =
     deleteConfirm.trim().toLowerCase() === deleteToken.toLowerCase();
 
@@ -240,8 +248,13 @@ export function SettingsPanel({ bot }: { bot: PublicBot }) {
               undone.
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-2">
-            <Label htmlFor="delete-confirm">{deleteLabel}</Label>
+          <div className="space-y-3">
+            <Label
+              htmlFor="delete-confirm"
+              className="mb-1 block text-[14px] leading-snug"
+            >
+              {deleteLabel}
+            </Label>
             <Input
               id="delete-confirm"
               value={deleteConfirm}
