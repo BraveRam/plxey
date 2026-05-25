@@ -8,7 +8,7 @@ function Textarea({
   return (
     <textarea
       className={cn(
-        "flex min-h-28 w-full resize-y rounded-2xl bg-foreground/[0.04] px-4 py-3 text-[15px] leading-snug",
+        "flex min-h-28 w-full resize-y rounded-lg bg-foreground/[0.04] px-4 py-3 text-[15px] leading-snug",
         "ring-1 ring-inset ring-foreground/[0.06]",
         "shadow-[inset_0_1px_0_0_var(--ds-inner-highlight)]",
         "transition-[box-shadow,background-color] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)]",

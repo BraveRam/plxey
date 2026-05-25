@@ -56,7 +56,7 @@ export function BotDetail() {
       {/* Identity hero */}
       <Reveal>
         <header className="relative z-10 flex flex-col items-center gap-3 text-center">
-          <Avatar name={name} size={92} halo />
+          <Avatar name={name} size={92} />
           <div className="space-y-1.5">
             <h1 className="font-display text-[26px] font-bold tracking-[-0.02em]">
               {bot.botUsername ? `@${bot.botUsername}` : "Bot"}

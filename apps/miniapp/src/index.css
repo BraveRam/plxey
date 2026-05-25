@@ -150,27 +150,7 @@
 }
 
 /* ----- Ambient page background ------------------------------------ */
-/* A barely-there radial wash + film grain pinned to the viewport so
- * scrolling content does not repaint blur layers (mobile perf). */
-.ds-bg-shell::before {
-  content: "";
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  z-index: 0;
-  background:
-    radial-gradient(
-      ellipse 90% 60% at 15% -10%,
-      color-mix(in oklch, var(--primary) 24%, transparent) 0%,
-      transparent 65%
-    ),
-    radial-gradient(
-      ellipse 80% 60% at 110% 110%,
-      color-mix(in oklch, var(--primary) 18%, transparent) 0%,
-      transparent 70%
-    );
-  opacity: 0.7;
-}
+/* Film grain pinned to the viewport so scrolling content does not repaint. */
 .ds-bg-shell::after {
   content: "";
   position: fixed;
@@ -218,21 +198,6 @@
 }
 .ds-reveal.is-staggered.is-in {
   transition-delay: calc(var(--ds-stagger, 0) * 60ms);
-}
-
-/* Subtle pulse for hero halos */
-@keyframes ds-orb {
-  0%,
-  100% {
-    transform: translate3d(0, 0, 0) scale(1);
-  }
-  50% {
-    transform: translate3d(0, -6px, 0) scale(1.08);
-  }
-}
-.ds-orb {
-  animation: ds-orb 7s var(--ds-ease) infinite;
-  will-change: transform;
 }
 
 /* Press-down physics for tappable surfaces */
