@@ -505,15 +505,11 @@ const FAQS = [
   },
   {
     q: "How is my data handled?",
-    a: "Bot tokens are encrypted at rest with AES-GCM. Documents are stored privately to your tenant and never used to train any shared model. Conversations are scoped per Business connection and isolated between owners.",
+    a: "Bot tokens are encrypted at rest. Documents are stored privately to your tenant and never used to train any shared model. Conversations are scoped per Business connection and isolated between owners.",
   },
   {
     q: "What happens after the trial?",
     a: "Replies pause until you subscribe. Your documents and settings stay exactly where they are — re-subscribe and everything picks back up.",
-  },
-  {
-    q: "Is there an API?",
-    a: "Not yet. Plxey is opinionated and built for non-technical owners first. If you want a managed integration, message us inside the Mini App.",
   },
 ];
 
