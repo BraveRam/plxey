@@ -16,10 +16,12 @@ COPY packages/crypto/package.json ./packages/crypto/
 COPY packages/storage/package.json ./packages/storage/
 COPY apps/bot/package.json ./apps/bot/
 COPY apps/rag/package.json ./apps/rag/
-# miniapp is deployed separately (Vercel), but its package.json must be
-# present so `bun install --frozen-lockfile` can resolve the full
-# workspace graph the lockfile describes.
+# miniapp + landing are deployed separately (Vercel), but their
+# package.json files must be present so `bun install --frozen-lockfile`
+# can resolve the full workspace graph the lockfile describes. Missing
+# either one makes bun re-resolve and fail the frozen check.
 COPY apps/miniapp/package.json ./apps/miniapp/
+COPY apps/landing/package.json ./apps/landing/
 
 # Install all workspaces (production-only — drops devDependencies like
 # drizzle-kit, types, pino-pretty). Bun creates the workspace symlink
