@@ -30,7 +30,9 @@ export function SettingsPanel({ bot }: { bot: PublicBot }) {
   const [capStr, setCapStr] = useState(
     bot.dailyUserAiReplyLimit !== null ? String(bot.dailyUserAiReplyLimit) : "",
   );
-  const [capMessage, setCapMessage] = useState(bot.dailyCapReachedMessage ?? "");
+  const [capMessage, setCapMessage] = useState(
+    bot.dailyCapReachedMessage ?? "",
+  );
   const [deleteConfirm, setDeleteConfirm] = useState("");
   const [deleteOpen, setDeleteOpen] = useState(false);
 
@@ -39,14 +41,17 @@ export function SettingsPanel({ bot }: { bot: PublicBot }) {
   const deleteLabel =
     deleteHandle === ""
       ? "Type DELETE to confirm deletion"
-      : `Type ${deleteHandle} to confirm deletion (no @)`;
+      : `Type ${deleteHandle} to confirm deletion`;
   const deleteMatches =
     deleteConfirm.trim().toLowerCase() === deleteToken.toLowerCase();
 
   const dirty =
     systemPrompt !== bot.systemPrompt ||
     welcome !== (bot.welcomeMessage ?? "") ||
-    capStr !== (bot.dailyUserAiReplyLimit !== null ? String(bot.dailyUserAiReplyLimit) : "") ||
+    capStr !==
+      (bot.dailyUserAiReplyLimit !== null
+        ? String(bot.dailyUserAiReplyLimit)
+        : "") ||
     capMessage !== (bot.dailyCapReachedMessage ?? "");
 
   const save = async () => {
@@ -73,10 +78,7 @@ export function SettingsPanel({ bot }: { bot: PublicBot }) {
     }
   };
 
-  const toggle = async (
-    field: "autoReadBusinessMessages",
-    value: boolean,
-  ) => {
+  const toggle = async (field: "autoReadBusinessMessages", value: boolean) => {
     try {
       await update.mutateAsync({ id: bot.id, patch: { [field]: value } });
       haptic.tap();
@@ -200,7 +202,12 @@ export function SettingsPanel({ bot }: { bot: PublicBot }) {
         </CardContent>
       </Card>
 
-      <Button className="w-full" size="lg" disabled={!dirty || update.isPending} onClick={save}>
+      <Button
+        className="w-full"
+        size="lg"
+        disabled={!dirty || update.isPending}
+        onClick={save}
+      >
         {update.isPending ? "Saving…" : "Save changes"}
       </Button>
 
@@ -229,7 +236,8 @@ export function SettingsPanel({ bot }: { bot: PublicBot }) {
           <DialogHeader>
             <DialogTitle>Delete bot?</DialogTitle>
             <DialogDescription>
-              Delete this bot and all its knowledge documents. This can't be undone.
+              Delete this bot and all its knowledge documents. This can't be
+              undone.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-2">
