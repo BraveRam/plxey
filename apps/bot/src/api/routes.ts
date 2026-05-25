@@ -18,7 +18,14 @@ import { isOwnerBanned } from "../lib/banned";
 import { apiLimiter } from "../lib/redis";
 import { clientIp } from "../lib/client-ip";
 import { verifyInitData } from "../lib/telegram-auth";
-import { checkQuota } from "../lib/owners";
+import {
+  checkQuota,
+  decrementBotCount,
+  decrementDocCount,
+  incrementBotCount,
+  incrementDocCount,
+  startTrialOnFirstBot,
+} from "../lib/owners";
 import { detectMimeType } from "../bots/document-types";
 import { checkDocumentLimits } from "../bots/document-limits";
 import { ingestDocument } from "../lib/doc-ingest";
@@ -136,9 +143,33 @@ api.get("/bots", async (c) => {
 api.post("/bots", async (c) => {
   const { token } = await c.req.json<{ token: string }>();
   if (!token) return c.json({ error: "token required" }, 400);
+  const ownerId = c.get("ownerId");
+
+  // Plan-cap quota gate. Mirrors the bot's /createbot conversation
+  // (apps/bot/src/bots/onboarding.ts) so a lapsed owner can't sneak
+  // bots in via the Mini App.
+  const quota = await checkQuota(ownerId, "bot");
+  if (!quota.ok) {
+    return c.json({ error: "quota", reason: quota.reason }, 403);
+  }
+
   try {
-    const ownerId = c.get("ownerId");
     const botRecord = await createBot(token, ownerId);
+
+    // Counter + trial seeding mirror the bot-side conversation flow.
+    // Without these, owners.bot_count stays at 0 (until the weekly
+    // cron-usage-reconcile) and trial_ends_at never gets set — billing
+    // UI shows wrong usage and trial-sweep can never lapse the owner.
+    // startTrialOnFirstBot is a no-op once trial_ends_at is set.
+    try {
+      await incrementBotCount(ownerId);
+      await startTrialOnFirstBot(ownerId);
+    } catch (err) {
+      logger.warn(
+        { err, ownerId, botId: botRecord.id },
+        "miniapp: counter/trial seed failed (fail-open)",
+      );
+    }
 
     // Register the webhook with Telegram so the new bot actually receives
     // updates. Mirrors the onboarding bot's create flow; the BotRegistry
@@ -211,9 +242,26 @@ api.delete("/bots/:id", async (c) => {
   const id = c.req.param("id");
   const denied = await requireBotOwner(c, id);
   if (denied) return denied;
+  const ownerId = c.get("ownerId");
   try {
     await deleteBot(id);
-    trackMini(c.get("ownerId"), "bot.deleted", id);
+    // Same invalidation contract as the PATCH path: a cached bot in
+    // BotRegistry would otherwise keep serving webhooks after deletion.
+    // The registry comment at apps/bot/src/bots/registry.ts:1173 makes
+    // this the caller's responsibility.
+    registry.invalidate(id);
+    // Mirror the bot-side delete flow (apps/bot/src/bots/onboarding.ts)
+    // so owners.bot_count stays accurate without waiting for the weekly
+    // reconcile cron.
+    try {
+      await decrementBotCount(ownerId);
+    } catch (err) {
+      logger.warn(
+        { err, ownerId, botId: id },
+        "miniapp: decrementBotCount failed (fail-open)",
+      );
+    }
+    trackMini(ownerId, "bot.deleted", id);
     return c.json({ success: true });
   } catch (err) {
     return c.json({ error: err instanceof Error ? err.message : "Unknown error" }, 404);
@@ -311,6 +359,18 @@ api.post("/documents", async (c) => {
       tenantId: botRow.tenantId,
       botId,
     });
+    // Keep owners.doc_count fresh so the billing screen + reminder-scan
+    // see the new doc immediately instead of waiting for the weekly
+    // reconcile. Mirrors the bot's batch-upload conversation in
+    // apps/bot/src/bots/registry.ts.
+    try {
+      await incrementDocCount(ownerId);
+    } catch (err) {
+      logger.warn(
+        { err, ownerId, botId },
+        "miniapp: incrementDocCount failed (fail-open)",
+      );
+    }
     trackMini(ownerId, "doc.uploaded", botId);
     return c.json({ documentId }, 201);
   } catch (err) {
@@ -321,12 +381,21 @@ api.post("/documents", async (c) => {
 
 api.delete("/documents/:id", async (c) => {
   const id = c.req.param("id");
+  const ownerId = c.get("ownerId");
   const owner = await ownerForDocId(id);
   if (owner === null) return c.json({ error: "not found" }, 404);
-  if (owner !== c.get("ownerId")) return c.json({ error: "forbidden" }, 403);
+  if (owner !== ownerId) return c.json({ error: "forbidden" }, 403);
   try {
     await deleteDocument(id);
-    trackMini(c.get("ownerId"), "doc.deleted");
+    try {
+      await decrementDocCount(ownerId);
+    } catch (err) {
+      logger.warn(
+        { err, ownerId, docId: id },
+        "miniapp: decrementDocCount failed (fail-open)",
+      );
+    }
+    trackMini(ownerId, "doc.deleted");
     return c.json({ success: true });
   } catch (err) {
     return c.json({ error: err instanceof Error ? err.message : "Unknown error" }, 404);

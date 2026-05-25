@@ -456,6 +456,13 @@ export const starPayments = pgTable(
     starsAmount: integer("stars_amount").notNull(),
     isFirstRecurring: boolean("is_first_recurring").notNull().default(false),
     invoicePayload: text("invoice_payload").notNull(),
+    // The canonical idempotency key from Telegram. UNIQUE so a Telegram
+    // redelivery (e.g. our successful_payment handler throws because
+    // inngest.send fails, Telegram retries the update) can't insert a
+    // second ledger row for the same charge. Refund rows reuse the
+    // refunded charge's id with a `:refund` suffix so they don't collide
+    // with the original positive entry.
+    telegramPaymentChargeId: text("telegram_payment_charge_id"),
     rawSuccessfulPayment: jsonb("raw_successful_payment"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
@@ -464,5 +471,8 @@ export const starPayments = pgTable(
   (t) => ({
     ownerIdx: index("star_payments_owner_idx").on(t.ownerTelegramUserId),
     subIdx: index("star_payments_sub_idx").on(t.subscriptionId),
+    chargeIdUnique: uniqueIndex("star_payments_charge_id_unique").on(
+      t.telegramPaymentChargeId,
+    ),
   }),
 );

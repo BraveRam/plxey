@@ -34,6 +34,14 @@ export async function ingestDocument(
 
   const workUrl = process.env.WORKER_URL;
   if (!workUrl) throw new Error("WORKER_URL not configured");
+  // RAG worker rejects unauthenticated traffic on every mutating route.
+  // The two services share this secret out-of-band (set on both Koyeb
+  // services). Fail loudly here rather than letting the worker reject
+  // with a 403 the operator has to dig out of logs.
+  const ragSecret = process.env.RAG_SHARED_SECRET;
+  if (!ragSecret && process.env.INNGEST_DEV !== "1") {
+    throw new Error("RAG_SHARED_SECRET not configured");
+  }
 
   const ext = fileName.split(".").pop()?.toLowerCase();
   const b2Path = `tenants/${tenantId}/docs/${randomUUID()}${ext ? `.${ext}` : ""}`;
@@ -46,7 +54,10 @@ export async function ingestDocument(
 
   const ingestRes = await fetch(`${workUrl}/ingest`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      ...(ragSecret ? { "X-Internal-Secret": ragSecret } : {}),
+    },
     body: JSON.stringify({
       b2FileId: fileId,
       b2FileName,
