@@ -63,14 +63,22 @@ export const subscriptionRefunded = inngest.createFunction(
     //    over historical reconciliation queries.
     await step.run("insert-audit-row", async () => {
       const amount = subRow?.starsPerPeriod ?? 0;
-      await db.insert(starPayments).values({
-        subscriptionId: subRow?.id ?? null,
-        ownerTelegramUserId,
-        starsAmount: -amount,
-        isFirstRecurring: false,
-        invoicePayload: `refund:${telegramPaymentChargeId}`,
-        rawSuccessfulPayment: null,
-      });
+      await db
+        .insert(starPayments)
+        .values({
+          subscriptionId: subRow?.id ?? null,
+          ownerTelegramUserId,
+          starsAmount: -amount,
+          isFirstRecurring: false,
+          invoicePayload: `refund:${telegramPaymentChargeId}`,
+          // `:refund` suffix keeps the unique key distinct from the
+          // original positive ledger row for the same charge.
+          telegramPaymentChargeId: `${telegramPaymentChargeId}:refund`,
+          rawSuccessfulPayment: null,
+        })
+        .onConflictDoNothing({
+          target: starPayments.telegramPaymentChargeId,
+        });
     });
 
     // 3. Fire the universal lapse event. The /lapsed handler force-pauses

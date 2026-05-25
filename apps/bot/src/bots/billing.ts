@@ -1280,6 +1280,54 @@ async function handleSuccessfulPayment(ctx: Context): Promise<void> {
   }
   const { ownerId, plan, nonce } = parsed;
 
+  // Defense-in-depth: re-validate amount + owner state. pre_checkout
+  // already checked these, but if the webhook secret leaked an attacker
+  // could craft a successful_payment update and bypass pre_checkout
+  // entirely. Catching wrong amounts / banned owners here is cheap.
+  const expectedAmount = PLANS[plan].starsPerPeriod;
+  if (sp.total_amount !== expectedAmount) {
+    logger.error(
+      {
+        ownerId,
+        plan,
+        expected: expectedAmount,
+        received: sp.total_amount,
+        chargeId: sp.telegram_payment_charge_id,
+      },
+      "successful_payment total_amount mismatch — refusing to grant access",
+    );
+    return;
+  }
+
+  try {
+    const ownerRow = await db.query.owners.findFirst({
+      where: eq(owners.telegramUserId, ownerId),
+      columns: { isBanned: true },
+    });
+    if (!ownerRow) {
+      logger.error(
+        { ownerId, chargeId: sp.telegram_payment_charge_id },
+        "successful_payment for unknown owner — refusing to grant access",
+      );
+      return;
+    }
+    if (ownerRow.isBanned) {
+      logger.error(
+        { ownerId, chargeId: sp.telegram_payment_charge_id },
+        "successful_payment for banned owner — refusing to grant access",
+      );
+      return;
+    }
+  } catch (err) {
+    // If we can't even read the owners row, fail loudly so Telegram
+    // retries instead of granting access on a half-broken DB.
+    logger.error(
+      { err, ownerId, chargeId: sp.telegram_payment_charge_id },
+      "successful_payment owner lookup failed — letting Telegram retry",
+    );
+    throw err;
+  }
+
   const r = redis();
   // Lock the nonce so any replay (e.g. Telegram redelivering the same
   // update, or a third party trying to re-use the invoice payload) is
@@ -1287,20 +1335,34 @@ async function handleSuccessfulPayment(ctx: Context): Promise<void> {
   try {
     await r.set(`nonce-used:${nonce}`, "1", { ex: NONCE_USED_TTL_SECONDS });
   } catch (err) {
-    // Non-fatal. The DB unique constraint on telegram_payment_charge_id is
-    // the canonical idempotency guarantee.
+    // Non-fatal. The DB unique constraint on telegram_payment_charge_id
+    // is the canonical idempotency guarantee for the ledger.
     logger.warn({ err, nonce }, "nonce-used lock write failed");
   }
 
-  // Insert the ledger row first. If this throws (DB down), we surface the
-  // error so Telegram retries the update — the ledger MUST land.
-  await db.insert(starPayments).values({
-    ownerTelegramUserId: ownerId,
-    starsAmount: sp.total_amount,
-    isFirstRecurring: sp.is_first_recurring === true,
-    invoicePayload: sp.invoice_payload,
-    rawSuccessfulPayment: sp as unknown as Record<string, unknown>,
-  });
+  // Insert the ledger row first. UNIQUE on telegram_payment_charge_id
+  // makes this idempotent: if Telegram redelivers the same update (e.g.
+  // because inngest.send below throws), the second insert is a no-op
+  // and we still re-fire the downstream event. The returning() lets us
+  // tell which case we're in for logging.
+  const inserted = await db
+    .insert(starPayments)
+    .values({
+      ownerTelegramUserId: ownerId,
+      starsAmount: sp.total_amount,
+      isFirstRecurring: sp.is_first_recurring === true,
+      invoicePayload: sp.invoice_payload,
+      telegramPaymentChargeId: sp.telegram_payment_charge_id,
+      rawSuccessfulPayment: sp as unknown as Record<string, unknown>,
+    })
+    .onConflictDoNothing({ target: starPayments.telegramPaymentChargeId })
+    .returning({ id: starPayments.id });
+  if (inserted.length === 0) {
+    logger.info(
+      { ownerId, plan, chargeId: sp.telegram_payment_charge_id },
+      "successful_payment duplicate — ledger row already exists",
+    );
+  }
 
   // subscription_expiration_date is required for Stars subscription
   // payments. Default to "now + 30 days" if Telegram ever sends a payment
