@@ -25,7 +25,7 @@ export const PLANS: Record<PlanKey, PlanConfig> = {
   },
   pro: {
     key: "pro",
-    starsPerPeriod: 300,
+    starsPerPeriod: 3,
     maxBots: 3,
     maxDocsPerBot: 10,
     maxMessagesPerPeriod: 5000,
