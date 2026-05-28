@@ -766,7 +766,7 @@ Prefixed ids prevent collision when the same Telegram user is both an owner of o
 - `onboarding.*` — start/help opened, bot create flow (prompt shown, token submitted/invalid/succeeded/blocked), open/pause/resume/restart/delete each bot in the manage list. Restart fires `onboarding.bot.restart.ok` or `onboarding.bot.restart.failed` (with `reason`).
 - `billing.*` — menu opened, plan picked, invoice minted, cancel tapped/confirmed (with reason), keep, resume, upgrade tapped/confirmed.
 - `mgmt.*` — every management-menu surface (prompt updated, welcome updated/reset, knowledge opened, daily-limit set/removed/invalid, busy-reply updated/reset, autoread toggled, permissions opened/refreshed, analytics opened, analytics window picked).
-- `miniapp.*` — emitted server-side from `api/routes.ts` (`trackMini`) for owner Mini App actions: `miniapp.opened` (first `GET /api/bots`), `bot.created`, `bot.updated`, `bot.deleted`, `doc.uploaded`, `doc.deleted`, `billing.viewed`, `analytics.viewed`. Bot-scoped events carry `groups: { bot }`. The Mini App has no client-side PostHog SDK — all its telemetry is captured at the API boundary.
+- `miniapp.*` — emitted server-side from `api/routes.ts` (`trackMini`) for owner Mini App actions: `miniapp.opened` (first `GET /api/bots`), `bot.created`, `bot.updated`, `bot.deleted`, `bot.restart`, `bot.restart.failed`, `doc.uploaded`, `doc.deleted`, `doc.canceled`, `billing.viewed`, `analytics.viewed`. Bot-scoped events carry `groups: { bot }`. The Mini App has no client-side PostHog SDK — all its telemetry is captured at the API boundary.
 - `admin.broadcast.started` — operator ran `/broadcast`.
 - `customer.*` — `customer.identified` on first sighting, `customer.message.received` for every inbound, `customer.daily_first_seen` deduped via Upstash `posthog:dfs:{botId}:{userId}:{YYYYMMDD}` (NX EX 86400), `customer.message.handled` with `responseType ∈ "ai" | "busy_reply" | "over_quota" | "dropped_no_permission" | "rate_limited"`, `customer.cap_reached.busy_reply_sent` when the daily cap triggers.
 - `owner_reply.*` — tapped, sent, cancelled, expired.
@@ -854,6 +854,10 @@ Mounted at `/api` in `apps/bot/src/index.ts`. Every route passes through, in ord
 ### `DELETE /api/documents/:id`
 
 - Owner-checked. Side effects: B2 delete (warn-log on failure) + delete `documents` row.
+
+### `POST /api/bots/:id/restart`
+
+- Owner-checked. Calls `restartBot` (re-validate token via `getMe` → re-set webhook → status `active` + refresh username), then `registry.invalidate`. The same recovery action as the onboarding bot's Restart button. On success returns `{ success: true, botUsername }`. On the result-union failures it returns the owner-facing `restartErrorMessage` copy with a status: `token_invalid` → 422, `webhook_failed` → 502, `not_configured` → 500. Emits `miniapp.bot.restart` / `miniapp.bot.restart.failed`.
 
 ---
 

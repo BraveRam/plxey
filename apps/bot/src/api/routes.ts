@@ -11,9 +11,11 @@ import {
   deleteBot,
   listDocuments,
   deleteDocument,
+  restartBot,
   toPublicBot,
   ownerForBotId,
 } from "../lib/api";
+import { restartErrorMessage } from "../lib/text";
 import { isOwnerBanned } from "../lib/banned";
 import { apiLimiter } from "../lib/redis";
 import { clientIp } from "../lib/client-ip";
@@ -235,6 +237,42 @@ api.patch("/bots/:id", async (c) => {
     return c.json(toPublicBot(updated));
   } catch (err) {
     return c.json({ error: err instanceof Error ? err.message : "Unknown error" }, 404);
+  }
+});
+
+// Re-validate the bot's token and re-establish its webhook, then reactivate.
+// Mirrors the onboarding bot's Restart button. Returns 200 on success; maps
+// the result-union failure reasons to a status + owner-facing message so the
+// Mini App can surface it. See restartBot in lib/api.ts.
+api.post("/bots/:id/restart", async (c) => {
+  const id = c.req.param("id");
+  const denied = await requireBotOwner(c, id);
+  if (denied) return denied;
+  const ownerId = c.get("ownerId");
+  try {
+    const result = await restartBot(id);
+    // Force the registry to re-read on the next webhook (mirrors PATCH/DELETE).
+    registry.invalidate(id);
+    if (!result.ok) {
+      trackMini(ownerId, "bot.restart.failed", id);
+      const status =
+        result.reason === "token_invalid"
+          ? 422
+          : result.reason === "webhook_failed"
+            ? 502
+            : 500;
+      return c.json(
+        { error: restartErrorMessage(result.reason), reason: result.reason },
+        status,
+      );
+    }
+    trackMini(ownerId, "bot.restart", id);
+    return c.json({ success: true, botUsername: result.botUsername });
+  } catch (err) {
+    return c.json(
+      { error: err instanceof Error ? err.message : "Unknown error" },
+      404,
+    );
   }
 });
 

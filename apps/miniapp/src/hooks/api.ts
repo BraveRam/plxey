@@ -77,6 +77,15 @@ export function useDeleteBot() {
   });
 }
 
+export function useRestartBot() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.restartBot(id),
+    // Refetch bots so the (possibly flipped) status + refreshed username show.
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["bots"] }),
+  });
+}
+
 export function useUploadDocument(botId: string) {
   const qc = useQueryClient();
   return useMutation({

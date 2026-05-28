@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
-import { Trash2 } from "lucide-react";
+import { Trash2, RotateCw } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Dialog,
@@ -16,7 +16,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { useUpdateBot, useDeleteBot } from "@/hooks/api";
+import { useUpdateBot, useDeleteBot, useRestartBot } from "@/hooks/api";
 import { haptic, confirm } from "@/lib/telegram";
 import type { PublicBot } from "@/types";
 
@@ -24,6 +24,7 @@ export function SettingsPanel({ bot }: { bot: PublicBot }) {
   const navigate = useNavigate();
   const update = useUpdateBot();
   const remove = useDeleteBot();
+  const restart = useRestartBot();
 
   const [systemPrompt, setSystemPrompt] = useState(bot.systemPrompt);
   const [welcome, setWelcome] = useState(bot.welcomeMessage ?? "");
@@ -111,6 +112,21 @@ export function SettingsPanel({ bot }: { bot: PublicBot }) {
     } catch {
       haptic.error();
       toast.error("Couldn't update");
+    }
+  };
+
+  const doRestart = async () => {
+    const ok = await confirm(
+      "Restart this bot? It re-checks the bot token and reconnects it to Telegram. Use this if the bot stopped responding.",
+    );
+    if (!ok) return;
+    try {
+      await restart.mutateAsync(bot.id);
+      haptic.success();
+      toast.success("Bot restarted");
+    } catch (err) {
+      haptic.error();
+      toast.error(err instanceof Error ? err.message : "Restart failed");
     }
   };
 
@@ -224,14 +240,24 @@ export function SettingsPanel({ bot }: { bot: PublicBot }) {
           {bot.status === "active" ? "Pause bot" : "Resume bot"}
         </Button>
         <Button
-          variant="destructive"
+          variant="outline"
           className="flex-1"
-          disabled={remove.isPending}
-          onClick={openDelete}
+          disabled={restart.isPending}
+          onClick={doRestart}
         >
-          <Trash2 /> {remove.isPending ? "Deleting…" : "Delete"}
+          <RotateCw className={restart.isPending ? "animate-spin" : undefined} />{" "}
+          {restart.isPending ? "Restarting…" : "Restart"}
         </Button>
       </div>
+
+      <Button
+        variant="destructive"
+        className="w-full"
+        disabled={remove.isPending}
+        onClick={openDelete}
+      >
+        <Trash2 /> {remove.isPending ? "Deleting…" : "Delete"}
+      </Button>
 
       <Dialog
         open={deleteOpen}

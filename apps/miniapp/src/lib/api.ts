@@ -61,6 +61,11 @@ export const api = {
     }),
   deleteBot: (id: string) =>
     request<{ success: true }>(`/bots/${id}`, { method: "DELETE" }),
+  restartBot: (id: string) =>
+    request<{ success: true; botUsername: string | null }>(
+      `/bots/${id}/restart`,
+      { method: "POST" },
+    ),
 
   listDocuments: (botId: string) =>
     request<DocumentItem[]>(`/documents?botId=${encodeURIComponent(botId)}`),
