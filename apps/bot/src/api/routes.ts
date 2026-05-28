@@ -258,9 +258,11 @@ api.post("/bots/:id/restart", async (c) => {
       const status =
         result.reason === "token_invalid"
           ? 422
-          : result.reason === "webhook_failed"
-            ? 502
-            : 500;
+          : result.reason === "rate_limited"
+            ? 429
+            : result.reason === "webhook_failed"
+              ? 502
+              : 500;
       return c.json(
         { error: restartErrorMessage(result.reason), reason: result.reason },
         status,

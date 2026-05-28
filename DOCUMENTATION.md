@@ -147,7 +147,7 @@ Middleware applied in mount order in `apps/bot/src/bots/onboarding.ts`:
 5. **createConversation("createBot")** — `createBotConversation`.
 6. **createConversation("deleteBot")** — `deleteBotConversation` (receives `botId` as entry arg).
 7. **Command/callback handlers** — `/start`, `/help`, `/privacy`, `/terms`, `create_bot`, `manage`, `bot_*`, `pause_*`, `resume_*`, `restart_*`, `delete_*`, `menu`, catch-all `callback_query:data`. Plus `/billing` mounted by `attachBillingHandlers`. `/privacy` and `/terms` reply with the `PRIVACY_POLICY` and `TERMS_OF_SERVICE` constants from `lib/text.ts`; they fire `onboarding.privacy.opened` / `onboarding.terms.opened` events to PostHog.
-   - **`restart_{botId}`** — re-validates the bot's token (`getMe`) and re-sets its webhook to `${PUBLIC_URL}/webhook/tenant/{botId}` (same params as creation), then flips status to `active` and refreshes the cached username. Recovers a bot that went silent (webhook cleared, token reused elsewhere) without a delete + re-add. Implemented by `restartBot` in `lib/api.ts`, which returns a result union: `{ok:true, botUsername}` or `{ok:false, reason}` where `reason ∈ {not_configured, token_invalid, webhook_failed}`. A revoked-in-BotFather token surfaces as `token_invalid` (owner-facing copy via `restartErrorMessage`). The handler invalidates the registry cache afterward and fires `onboarding.bot.restart.ok` / `onboarding.bot.restart.failed` (with `reason`).
+   - **`restart_{botId}`** — re-validates the bot's token (`getMe`) and re-sets its webhook to `${PUBLIC_URL}/webhook/tenant/{botId}` (same params as creation), then flips status to `active` and refreshes the cached username. Recovers a bot that went silent (webhook cleared, token reused elsewhere) without a delete + re-add. Implemented by `restartBot` in `lib/api.ts`, which returns a result union: `{ok:true, botUsername}` or `{ok:false, reason}` where `reason ∈ {not_configured, token_invalid, webhook_failed, rate_limited}`. A revoked-in-BotFather token surfaces as `token_invalid` (owner-facing copy via `restartErrorMessage`). `setWebhook` is wrapped in a bounded retry (`setWebhookWithRetry` / pure `webhookRetryDelayMs`, max 3 attempts) that absorbs transient Telegram failures — `429 Too Many Requests` (honoring `retry_after`) and `400 "Failed to resolve host"` DNS flakes. A per-bot `restartLimiter` (Upstash fixed window, 1 per 5s, key `rl:bot-restart:{botId}`) throttles button-mashing → `rate_limited`. The handler invalidates the registry cache afterward and fires `onboarding.bot.restart.ok` / `onboarding.bot.restart.failed` (with `reason`).
 8. **Slash-menu autocomplete** — registered once at boot via `bot.api.setMyCommands([...])` (global scope, fire-and-forget) so the five commands (`/start`, `/help`, `/billing`, `/privacy`, `/terms`) appear in Telegram's `/` picker.
 
 ### Tenant bot (per-business)
@@ -857,7 +857,7 @@ Mounted at `/api` in `apps/bot/src/index.ts`. Every route passes through, in ord
 
 ### `POST /api/bots/:id/restart`
 
-- Owner-checked. Calls `restartBot` (re-validate token via `getMe` → re-set webhook → status `active` + refresh username), then `registry.invalidate`. The same recovery action as the onboarding bot's Restart button. On success returns `{ success: true, botUsername }`. On the result-union failures it returns the owner-facing `restartErrorMessage` copy with a status: `token_invalid` → 422, `webhook_failed` → 502, `not_configured` → 500. Emits `miniapp.bot.restart` / `miniapp.bot.restart.failed`.
+- Owner-checked. Calls `restartBot` (re-validate token via `getMe` → re-set webhook with bounded retry → status `active` + refresh username), then `registry.invalidate`. The same recovery action as the onboarding bot's Restart button. On success returns `{ success: true, botUsername }`. On the result-union failures it returns the owner-facing `restartErrorMessage` copy with a status: `token_invalid` → 422, `rate_limited` → 429, `webhook_failed` → 502, `not_configured` → 500. Emits `miniapp.bot.restart` / `miniapp.bot.restart.failed`.
 
 ---
 
@@ -868,13 +868,14 @@ Mounted at `/api` in `apps/bot/src/index.ts`. Every route passes through, in ord
 | Per-IP `/api/*` | `apiLimiter` | Sliding | 120 | 60 s | `rl:api:{ip}` | `api/routes.ts:11–17` |
 | Per-customer-per-bot AI | `customerMessageLimiter` | Sliding | 10 | 60 s | `rl:msg:{botId}:{customerUserId}` | `registry.ts:1172–1184`, before `askAI` |
 | Per-bot Refresh button | `permissionRefreshLimiter` | Fixed | 1 | 3 s | `rl:perm-refresh:{botId}` | `registry.ts:883–891`, on `biz_refresh_permissions` |
+| Per-bot Restart | `restartLimiter` | Fixed | 1 | 5 s | `rl:bot-restart:{botId}` | inside `restartBot` (`lib/api.ts`); covers both the onboarding button and `POST /api/bots/:id/restart` |
 | Onboarding bot per-user | `@grammyjs/ratelimiter` | In-process sliding | 20 | 60 s | `onboarding:{from.id}` | `onboarding.ts:291–298` |
 | Tenant bot owner-side per-user | `@grammyjs/ratelimiter` | In-process sliding | 30 | 60 s | `bot:{botId}:{from.id}` | `registry.ts:690–697`, filtered to non-business-chat updates only |
 | Per-end-user daily AI replies | `daily-ai-limit.ts` (raw INCR + EXPIRE) | Calendar-day UTC | owner-set (clamped to plan cap) | 24h | `airep:{botId}:{userId}:{YYYYMMDD}` | `registry.ts` business_message handler, after owner-quota check |
 
 ### Fail-open
 
-`apiLimiter`, `customerMessageLimiter`, `permissionRefreshLimiter`, and the daily-AI-reply counter all fail open on Redis errors — outage allows traffic through rather than taking the service offline. The daily counter logs a warn and treats the read as 0; the INCR-on-success path is best-effort.
+`apiLimiter`, `customerMessageLimiter`, `permissionRefreshLimiter`, `restartLimiter`, and the daily-AI-reply counter all fail open on Redis errors — outage allows traffic through rather than taking the service offline. The daily counter logs a warn and treats the read as 0; the INCR-on-success path is best-effort. (`restartLimiter` failing open is backstopped by `setWebhookWithRetry`, which still absorbs the 429 a missed throttle would cause.)
 
 ---
 

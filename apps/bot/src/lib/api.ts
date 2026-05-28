@@ -1,5 +1,5 @@
 import { eq, inArray } from "drizzle-orm";
-import { Bot } from "grammy";
+import { Bot, GrammyError, HttpError } from "grammy";
 import {
   db,
   documents,
@@ -10,6 +10,7 @@ import {
 import { encrypt, decrypt } from "@tg-business/crypto";
 import { deleteFile, b2BucketId } from "@tg-business/storage";
 import { logger } from "./logger";
+import { restartLimiter } from "./redis";
 import { randomBytes } from "crypto";
 
 export interface TenantResult {
@@ -202,7 +203,95 @@ export async function updateBot(id: string, data: { status?: string; systemPromp
  */
 export type RestartBotResult =
   | { ok: true; botUsername: string | null }
-  | { ok: false; reason: "not_configured" | "token_invalid" | "webhook_failed" };
+  | {
+      ok: false;
+      reason:
+        | "not_configured"
+        | "token_invalid"
+        | "webhook_failed"
+        | "rate_limited";
+    };
+
+/** Max `setWebhook` attempts before a restart gives up with webhook_failed. */
+const MAX_WEBHOOK_ATTEMPTS = 3;
+
+/**
+ * Backoff (ms) before retrying a failed `setWebhook`, or `null` when the
+ * failure is terminal and must not be retried. Pure so it's unit-testable.
+ *
+ * Transient cases seen in production:
+ *   - 429 Too Many Requests — Telegram caps setWebhook ~1/s/bot; honor the
+ *     server-provided `retry_after` (seconds → ms), default 1s.
+ *   - 400 "Failed to resolve host / name resolution" — Telegram momentarily
+ *     can't DNS-resolve our webhook host; back off and retry.
+ *   - network error (no API response) — a blip reaching Telegram.
+ * Everything else (auth failures, genuinely bad webhook URLs) is terminal.
+ */
+export function webhookRetryDelayMs(args: {
+  errorCode: number | null;
+  description: string;
+  retryAfter: number | null;
+  isNetworkError: boolean;
+  attempt: number;
+}): number | null {
+  if (args.isNetworkError) return 500 * args.attempt;
+  if (args.errorCode === 429) return (args.retryAfter ?? 1) * 1000;
+  if (
+    args.errorCode === 400 &&
+    /resolve host|name resolution/i.test(args.description)
+  ) {
+    return 500 * args.attempt;
+  }
+  return null;
+}
+
+/** Map a thrown grammy error to a retry delay via `webhookRetryDelayMs`. */
+function webhookRetryDelayFor(err: unknown, attempt: number): number | null {
+  if (err instanceof GrammyError) {
+    return webhookRetryDelayMs({
+      errorCode: err.error_code,
+      description: err.description ?? "",
+      retryAfter: err.parameters?.retry_after ?? null,
+      isNetworkError: false,
+      attempt,
+    });
+  }
+  if (err instanceof HttpError) {
+    return webhookRetryDelayMs({
+      errorCode: null,
+      description: "",
+      retryAfter: null,
+      isNetworkError: true,
+      attempt,
+    });
+  }
+  return null;
+}
+
+/**
+ * Call `setWebhook` with bounded retry on transient failures. Throws the
+ * last error if every attempt fails or the failure is terminal.
+ */
+async function setWebhookWithRetry(
+  bot: Bot,
+  url: string,
+  opts: { drop_pending_updates: boolean; secret_token: string },
+): Promise<void> {
+  for (let attempt = 1; attempt <= MAX_WEBHOOK_ATTEMPTS; attempt++) {
+    try {
+      await bot.api.setWebhook(url, opts);
+      return;
+    } catch (err) {
+      const delay = webhookRetryDelayFor(err, attempt);
+      if (delay === null || attempt === MAX_WEBHOOK_ATTEMPTS) throw err;
+      logger.warn(
+        { err, attempt, delay },
+        "setWebhook transient failure — retrying",
+      );
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
+}
 
 /**
  * Re-validate a bot's token and re-establish its webhook, then reactivate it.
@@ -233,6 +322,16 @@ export async function restartBot(id: string): Promise<RestartBotResult> {
     return { ok: false, reason: "not_configured" };
   }
 
+  // Throttle per bot so button-mashing can't spam Telegram's setWebhook
+  // rate limit. Fail open on a Redis blip — the retry below still protects
+  // against the resulting 429.
+  const rl = await restartLimiter()
+    .limit(id)
+    .catch(() => ({ success: true }));
+  if (!rl.success) {
+    return { ok: false, reason: "rate_limited" };
+  }
+
   const decryptedToken = await decrypt(botRecord.botTokenEncrypted);
   const temp = new Bot(decryptedToken);
 
@@ -246,9 +345,10 @@ export async function restartBot(id: string): Promise<RestartBotResult> {
     return { ok: false, reason: "token_invalid" };
   }
 
-  // 2. Re-establish the webhook (mirrors onboarding bot creation).
+  // 2. Re-establish the webhook (mirrors onboarding bot creation), with
+  //    bounded retry so a transient 429 / DNS flake doesn't fail the action.
   try {
-    await temp.api.setWebhook(`${publicUrl}/webhook/tenant/${id}`, {
+    await setWebhookWithRetry(temp, `${publicUrl}/webhook/tenant/${id}`, {
       drop_pending_updates: true,
       secret_token: botRecord.webhookSecret,
     });

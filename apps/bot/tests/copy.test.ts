@@ -38,8 +38,18 @@ describe("restartErrorMessage", () => {
     expect(msg.toLowerCase()).toContain("again");
   });
 
+  test("rate_limited tells the owner to wait", () => {
+    const msg = restartErrorMessage("rate_limited");
+    expect(msg.toLowerCase()).toContain("wait");
+  });
+
   test("every reason maps to a non-empty string", () => {
-    for (const reason of ["token_invalid", "not_configured", "webhook_failed"] as const) {
+    for (const reason of [
+      "token_invalid",
+      "not_configured",
+      "webhook_failed",
+      "rate_limited",
+    ] as const) {
       expect(restartErrorMessage(reason).length).toBeGreaterThan(0);
     }
   });

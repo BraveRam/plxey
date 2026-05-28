@@ -47,10 +47,11 @@ export const TOAST_AUTOREAD_OFF =
  *     BotFather. Actionable: re-add the bot with a fresh token.
  *   - `not_configured` — server-side misconfig (e.g. missing PUBLIC_URL).
  *     Don't leak the internal detail; just ask the owner to retry.
- *   - `webhook_failed` — Telegram rejected setWebhook transiently.
+ *   - `webhook_failed` — Telegram rejected setWebhook after retries.
+ *   - `rate_limited` — restart tapped again too soon (per-bot throttle).
  */
 export function restartErrorMessage(
-  reason: "token_invalid" | "not_configured" | "webhook_failed",
+  reason: "token_invalid" | "not_configured" | "webhook_failed" | "rate_limited",
 ): string {
   switch (reason) {
     case "token_invalid":
@@ -62,6 +63,8 @@ export function restartErrorMessage(
       return "Couldn't restart the bot right now. Please try again in a moment.";
     case "webhook_failed":
       return "Couldn't reach Telegram to restart the bot. Try again in a moment.";
+    case "rate_limited":
+      return "Just restarted — wait a few seconds before trying again.";
   }
 }
 

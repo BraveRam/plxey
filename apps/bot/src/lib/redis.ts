@@ -87,3 +87,24 @@ export function permissionRefreshLimiter(): Ratelimit {
   });
   return cachedRefreshLimit;
 }
+
+/**
+ * Per-bot limiter for the Restart action (onboarding bot button + Mini App
+ * `POST /bots/:id/restart`). `setWebhook` is hard rate-limited by Telegram
+ * (~1 call/sec/bot); restarting is a deliberate recovery action, so cap it
+ * at one per window to stop button-mashing from triggering a 429 storm.
+ *
+ * Key: `rl:bot-restart:{botId}`.
+ */
+let cachedRestartLimit: Ratelimit | null = null;
+
+export function restartLimiter(): Ratelimit {
+  if (cachedRestartLimit) return cachedRestartLimit;
+  cachedRestartLimit = new Ratelimit({
+    redis: redis(),
+    limiter: Ratelimit.fixedWindow(1, "5 s"),
+    prefix: "rl:bot-restart",
+    analytics: false,
+  });
+  return cachedRestartLimit;
+}
