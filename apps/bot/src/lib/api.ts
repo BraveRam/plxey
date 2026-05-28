@@ -195,6 +195,78 @@ export async function updateBot(id: string, data: { status?: string; systemPromp
   return updated!;
 }
 
+/**
+ * Outcome of `restartBot`. `ok:true` carries the (possibly refreshed)
+ * username from getMe; `ok:false` carries a machine-readable reason the
+ * caller maps to an owner-facing message (`restartErrorMessage`).
+ */
+export type RestartBotResult =
+  | { ok: true; botUsername: string | null }
+  | { ok: false; reason: "not_configured" | "token_invalid" | "webhook_failed" };
+
+/**
+ * Re-validate a bot's token and re-establish its webhook, then reactivate it.
+ *
+ * Powers the onboarding bot's "Restart" button: recovers a bot that went
+ * silent (webhook cleared by Telegram, token reused elsewhere) without a
+ * delete + re-add that would drop its config, documents, and conversations.
+ *
+ *   1. Decrypt the stored token and call `getMe` — proves the token still
+ *      works. A token revoked in BotFather fails here → `token_invalid`.
+ *   2. `setWebhook` back to this bot's tenant endpoint (same params as
+ *      onboarding creation: drop_pending_updates + secret_token).
+ *   3. Flip status back to `active` and refresh the cached username.
+ *
+ * Returns a result union instead of throwing for the expected operational
+ * failures so the caller can surface an actionable message. Throws only for
+ * a missing bot row (stale button / programming error).
+ */
+export async function restartBot(id: string): Promise<RestartBotResult> {
+  const botRecord = await db.query.tenantBots.findFirst({
+    where: eq(tenantBots.id, id),
+  });
+  if (!botRecord) throw new Error("Bot not found");
+
+  const publicUrl = process.env.PUBLIC_URL;
+  if (!publicUrl) {
+    logger.error({ botId: id }, "restartBot: PUBLIC_URL not configured");
+    return { ok: false, reason: "not_configured" };
+  }
+
+  const decryptedToken = await decrypt(botRecord.botTokenEncrypted);
+  const temp = new Bot(decryptedToken);
+
+  // 1. Validate the token. getMe 401s if it was revoked in BotFather.
+  let botUsername: string | null;
+  try {
+    const me = await temp.api.getMe();
+    botUsername = me.username ?? null;
+  } catch (err) {
+    logger.warn({ err, botId: id }, "restartBot: getMe failed — token likely revoked");
+    return { ok: false, reason: "token_invalid" };
+  }
+
+  // 2. Re-establish the webhook (mirrors onboarding bot creation).
+  try {
+    await temp.api.setWebhook(`${publicUrl}/webhook/tenant/${id}`, {
+      drop_pending_updates: true,
+      secret_token: botRecord.webhookSecret,
+    });
+  } catch (err) {
+    logger.error({ err, botId: id }, "restartBot: setWebhook failed");
+    return { ok: false, reason: "webhook_failed" };
+  }
+
+  // 3. Reactivate and refresh the cached username (it may have changed).
+  await db
+    .update(tenantBots)
+    .set({ status: "active", ...(botUsername ? { botUsername } : {}) })
+    .where(eq(tenantBots.id, id));
+
+  logger.info({ botId: id, botUsername }, "bot restarted");
+  return { ok: true, botUsername };
+}
+
 export async function deleteBot(id: string): Promise<void> {
   const botRecord = await db.query.tenantBots.findFirst({
     where: eq(tenantBots.id, id),

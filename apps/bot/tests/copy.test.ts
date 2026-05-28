@@ -14,9 +14,36 @@ import {
   dailyCapUpdated,
   managementMenu,
   onboardingWelcome,
+  restartErrorMessage,
   tenantHelp,
   truncateMid,
 } from "../src/lib/text";
+
+describe("restartErrorMessage", () => {
+  test("token_invalid points the owner at BotFather + re-adding", () => {
+    const msg = restartErrorMessage("token_invalid");
+    expect(msg.toLowerCase()).toContain("token");
+    expect(msg).toContain("BotFather");
+  });
+
+  test("not_configured is a transient try-again message", () => {
+    const msg = restartErrorMessage("not_configured");
+    expect(msg.toLowerCase()).toContain("again");
+    // Must not leak the internal PUBLIC_URL config detail to the owner.
+    expect(msg).not.toContain("PUBLIC_URL");
+  });
+
+  test("webhook_failed is a transient try-again message", () => {
+    const msg = restartErrorMessage("webhook_failed");
+    expect(msg.toLowerCase()).toContain("again");
+  });
+
+  test("every reason maps to a non-empty string", () => {
+    for (const reason of ["token_invalid", "not_configured", "webhook_failed"] as const) {
+      expect(restartErrorMessage(reason).length).toBeGreaterThan(0);
+    }
+  });
+});
 
 describe("daily limit button label", () => {
   test("uses target emoji and 'Daily limit' wording", () => {

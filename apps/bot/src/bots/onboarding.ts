@@ -2,7 +2,7 @@ import { Bot, type Api, type Context, InlineKeyboard, session, type SessionFlavo
 import { type Conversation, type ConversationFlavor, conversations, createConversation } from "@grammyjs/conversations";
 import { limit } from "@grammyjs/ratelimiter";
 import { logger } from "../lib/logger";
-import { createBot, updateBot, deleteBot, listBots } from "../lib/api";
+import { createBot, updateBot, deleteBot, restartBot, listBots } from "../lib/api";
 import { sequentializeByChat } from "../lib/sequentialize";
 import { ownerCaptureMiddleware } from "../lib/owner-capture";
 import {
@@ -42,6 +42,7 @@ import {
   onboardingBotStatusLine,
   onboardingDeleteFailed,
   onboardingWelcome,
+  restartErrorMessage,
   ADMIN_UNAUTHORIZED,
   BROADCAST_PROMPT,
   BROADCAST_NEED_MESSAGE,
@@ -110,6 +111,9 @@ async function showBotSettings(ctx: OnCtx, botId: string) {
   } else {
     kb.text("▶ Resume", `resume_${botId}`);
   }
+  // Restart re-validates the token + re-sets the webhook to recover a bot
+  // that stopped receiving updates, without losing its config/docs.
+  kb.text("🔄 Restart", `restart_${botId}`);
   kb.row();
   kb.text("⬅ Back to bots", "manage").row();
   kb.text("⚠ Delete bot", `delete_${botId}`);
@@ -718,6 +722,37 @@ export async function createOnboardingBot(): Promise<Bot> {
         {},
         { bot: botId },
       );
+    }
+    await showBotSettings(ctx, botId);
+  });
+
+  bot.callbackQuery(/^restart_(.+)$/, async (ctx) => {
+    // Answer immediately to dismiss the button spinner — restartBot makes two
+    // Telegram round-trips (getMe + setWebhook) and can take a beat.
+    await ctx.answerCallbackQuery();
+    const botId = ctx.match![1]!;
+    const ownerId = String(ctx.from?.id ?? "");
+
+    const outcome = await restartBot(botId);
+    // Re-read on the next webhook so the refreshed status/username take
+    // effect (mirrors pause/resume).
+    registry.invalidate(botId);
+
+    if (ownerId) {
+      track(
+        ownerDistinctId(ownerId),
+        outcome.ok
+          ? "onboarding.bot.restart.ok"
+          : "onboarding.bot.restart.failed",
+        outcome.ok ? {} : { reason: outcome.reason },
+        { bot: botId },
+      );
+    }
+
+    // On success the refreshed settings screen (now "✅ Active") is the
+    // feedback; on failure post an actionable line before re-rendering.
+    if (!outcome.ok) {
+      await ctx.reply(restartErrorMessage(outcome.reason));
     }
     await showBotSettings(ctx, botId);
   });

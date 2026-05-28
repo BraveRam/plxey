@@ -37,6 +37,35 @@ export const TOAST_AUTOREAD_OFF =
   "Auto-read off. Customer messages stay unread until you open them.";
 
 // =============================================================================
+// Restart (re-validate token + re-set webhook)
+// =============================================================================
+
+/**
+ * Owner-facing error for a failed bot restart. The `reason` values mirror
+ * `restartBot`'s result union in `lib/api.ts`:
+ *   - `token_invalid` — getMe failed; the token was likely revoked in
+ *     BotFather. Actionable: re-add the bot with a fresh token.
+ *   - `not_configured` — server-side misconfig (e.g. missing PUBLIC_URL).
+ *     Don't leak the internal detail; just ask the owner to retry.
+ *   - `webhook_failed` — Telegram rejected setWebhook transiently.
+ */
+export function restartErrorMessage(
+  reason: "token_invalid" | "not_configured" | "webhook_failed",
+): string {
+  switch (reason) {
+    case "token_invalid":
+      return (
+        "Couldn't reach this bot — its token may have been revoked in " +
+        "BotFather. Delete it here and add it again with a fresh token."
+      );
+    case "not_configured":
+      return "Couldn't restart the bot right now. Please try again in a moment.";
+    case "webhook_failed":
+      return "Couldn't reach Telegram to restart the bot. Try again in a moment.";
+  }
+}
+
+// =============================================================================
 // Common UI
 // =============================================================================
 

@@ -146,7 +146,8 @@ Middleware applied in mount order in `apps/bot/src/bots/onboarding.ts`:
 4. **conversations** — `@grammyjs/conversations`; `storage: { type: "key", adapter: new UpstashSessionStorage("tg:conv:onboarding:") }`.
 5. **createConversation("createBot")** — `createBotConversation`.
 6. **createConversation("deleteBot")** — `deleteBotConversation` (receives `botId` as entry arg).
-7. **Command/callback handlers** — `/start`, `/help`, `/privacy`, `/terms`, `create_bot`, `manage`, `bot_*`, `pause_*`, `resume_*`, `delete_*`, `menu`, catch-all `callback_query:data`. Plus `/billing` mounted by `attachBillingHandlers`. `/privacy` and `/terms` reply with the `PRIVACY_POLICY` and `TERMS_OF_SERVICE` constants from `lib/text.ts`; they fire `onboarding.privacy.opened` / `onboarding.terms.opened` events to PostHog.
+7. **Command/callback handlers** — `/start`, `/help`, `/privacy`, `/terms`, `create_bot`, `manage`, `bot_*`, `pause_*`, `resume_*`, `restart_*`, `delete_*`, `menu`, catch-all `callback_query:data`. Plus `/billing` mounted by `attachBillingHandlers`. `/privacy` and `/terms` reply with the `PRIVACY_POLICY` and `TERMS_OF_SERVICE` constants from `lib/text.ts`; they fire `onboarding.privacy.opened` / `onboarding.terms.opened` events to PostHog.
+   - **`restart_{botId}`** — re-validates the bot's token (`getMe`) and re-sets its webhook to `${PUBLIC_URL}/webhook/tenant/{botId}` (same params as creation), then flips status to `active` and refreshes the cached username. Recovers a bot that went silent (webhook cleared, token reused elsewhere) without a delete + re-add. Implemented by `restartBot` in `lib/api.ts`, which returns a result union: `{ok:true, botUsername}` or `{ok:false, reason}` where `reason ∈ {not_configured, token_invalid, webhook_failed}`. A revoked-in-BotFather token surfaces as `token_invalid` (owner-facing copy via `restartErrorMessage`). The handler invalidates the registry cache afterward and fires `onboarding.bot.restart.ok` / `onboarding.bot.restart.failed` (with `reason`).
 8. **Slash-menu autocomplete** — registered once at boot via `bot.api.setMyCommands([...])` (global scope, fire-and-forget) so the five commands (`/start`, `/help`, `/billing`, `/privacy`, `/terms`) appear in Telegram's `/` picker.
 
 ### Tenant bot (per-business)
@@ -306,7 +307,7 @@ apps/rag :3001 ─────────────────────�
 | Telegram update type | Tenant bot — file:line | Onboarding bot — file:line |
 |---|---|---|
 | `message` | `registry.ts:1299` — if owner: active-reply check, forward as business reply, or management menu; if non-owner: customer welcome | conversation-only via `conversation.wait` |
-| `callback_query` | `registry.ts:820–998` — management menu, `oreply_*`, `oreply_cancel_*`; catch-all `registry.ts:990` | `onboarding.ts:335–390` — `create_bot`, `manage`, `bot_*`, `pause_*`, `resume_*`, `delete_*`, `menu`; catch-all `onboarding.ts:386` |
+| `callback_query` | `registry.ts:820–998` — management menu, `oreply_*`, `oreply_cancel_*`; catch-all `registry.ts:990` | `onboarding.ts:335–390` — `create_bot`, `manage`, `bot_*`, `pause_*`, `resume_*`, `restart_*`, `delete_*`, `menu`; catch-all `onboarding.ts:386` |
 | `business_message` | `registry.ts:1078` filter; handler `registry.ts:1112`: rate-limit, optional `readBusinessMessage`, conversation load/create, `askAI`, send reply with `business_connection_id` | n/a |
 | `business_connection` | `registry.ts:1003` — read previous `isEnabled`, upsert row, refresh in-memory `BotEntry`, clear permission alert slot on re-grant, DM owner on `false→true` connect/reconnect transition (with extra warning if `can_reply` isn't granted) AND on `true→false` disconnect transition | n/a |
 | `edited_business_message` | excluded from owner rate limiter by `isBusinessChatUpdate` (`lib/business-update.ts:17`); no dedicated handler | n/a |
@@ -762,7 +763,7 @@ Prefixed ids prevent collision when the same Telegram user is both an owner of o
 
 **Event taxonomy** (high-level — see `apps/bot/src/lib/analytics.ts` callers for full list):
 
-- `onboarding.*` — start/help opened, bot create flow (prompt shown, token submitted/invalid/succeeded/blocked), open/pause/resume/delete each bot in the manage list.
+- `onboarding.*` — start/help opened, bot create flow (prompt shown, token submitted/invalid/succeeded/blocked), open/pause/resume/restart/delete each bot in the manage list. Restart fires `onboarding.bot.restart.ok` or `onboarding.bot.restart.failed` (with `reason`).
 - `billing.*` — menu opened, plan picked, invoice minted, cancel tapped/confirmed (with reason), keep, resume, upgrade tapped/confirmed.
 - `mgmt.*` — every management-menu surface (prompt updated, welcome updated/reset, knowledge opened, daily-limit set/removed/invalid, busy-reply updated/reset, autoread toggled, permissions opened/refreshed, analytics opened, analytics window picked).
 - `miniapp.*` — emitted server-side from `api/routes.ts` (`trackMini`) for owner Mini App actions: `miniapp.opened` (first `GET /api/bots`), `bot.created`, `bot.updated`, `bot.deleted`, `doc.uploaded`, `doc.deleted`, `billing.viewed`, `analytics.viewed`. Bot-scoped events carry `groups: { bot }`. The Mini App has no client-side PostHog SDK — all its telemetry is captured at the API boundary.
