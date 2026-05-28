@@ -8,6 +8,7 @@ const {
   parseCancelReasonCallback,
   composeBillingScreen,
   planLabelFor,
+  resolveExpectedStars,
   CB,
 } = _internals;
 
@@ -76,6 +77,51 @@ describe("parsePayload", () => {
 
   test("rejects empty string", () => {
     expect(parsePayload("")).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resolveExpectedStars — payment-amount validation target
+//
+// Renewals carry the subscription's locked-in price, which can differ from
+// the current catalog price after a price change. New/first payments must
+// match the catalog price of the invoice we minted.
+// ---------------------------------------------------------------------------
+
+describe("resolveExpectedStars", () => {
+  test("first payment validates against the catalog price", () => {
+    expect(
+      resolveExpectedStars({ catalogStars: 500, isRenewal: false, lockedStars: null }),
+    ).toBe(500);
+  });
+
+  test("first payment ignores any locked price (uses catalog)", () => {
+    // A first payment never carries a pre-existing subscription; even if a
+    // lockedStars somehow leaks in, the minted invoice's catalog price wins.
+    expect(
+      resolveExpectedStars({ catalogStars: 500, isRenewal: false, lockedStars: 300 }),
+    ).toBe(500);
+  });
+
+  test("renewal validates against the subscription's locked price", () => {
+    // The grandfathering case: catalog raised to 500, but this sub locked 300.
+    expect(
+      resolveExpectedStars({ catalogStars: 500, isRenewal: true, lockedStars: 300 }),
+    ).toBe(300);
+  });
+
+  test("renewal with no locatable subscription falls back to catalog", () => {
+    // Defense-in-depth: a renewal we can't match to a row must still clear
+    // the catalog bar, preserving the forged-payment protection.
+    expect(
+      resolveExpectedStars({ catalogStars: 500, isRenewal: true, lockedStars: null }),
+    ).toBe(500);
+  });
+
+  test("renewal at the unchanged price is unaffected", () => {
+    expect(
+      resolveExpectedStars({ catalogStars: 300, isRenewal: true, lockedStars: 300 }),
+    ).toBe(300);
   });
 });
 

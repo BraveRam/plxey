@@ -1284,7 +1284,37 @@ async function handleSuccessfulPayment(ctx: Context): Promise<void> {
   // already checked these, but if the webhook secret leaked an attacker
   // could craft a successful_payment update and bypass pre_checkout
   // entirely. Catching wrong amounts / banned owners here is cheap.
-  const expectedAmount = PLANS[plan].starsPerPeriod;
+  //
+  // Renewals are auto-charged by Telegram at the subscription's locked-in
+  // price, which can be below the current catalog price after a price hike
+  // (grandfathered subscribers — Telegram can't reprice a live Stars sub).
+  // Validate those against the subscription's stored `starsPerPeriod`,
+  // located by the recurring chain's charge id; new payments still validate
+  // against the catalog. See `resolveExpectedStars`.
+  const isRenewal = sp.is_recurring === true && sp.is_first_recurring !== true;
+  let lockedStars: number | null = null;
+  if (isRenewal && sp.telegram_payment_charge_id) {
+    try {
+      const sub = await db.query.subscriptions.findFirst({
+        where: eq(
+          subscriptions.telegramPaymentChargeId,
+          sp.telegram_payment_charge_id,
+        ),
+        columns: { starsPerPeriod: true },
+      });
+      lockedStars = sub?.starsPerPeriod ?? null;
+    } catch (err) {
+      logger.warn(
+        { err, ownerId, plan, chargeId: sp.telegram_payment_charge_id },
+        "renewal locked-price lookup failed — falling back to catalog price",
+      );
+    }
+  }
+  const expectedAmount = resolveExpectedStars({
+    catalogStars: PLANS[plan].starsPerPeriod,
+    isRenewal,
+    lockedStars,
+  });
   if (sp.total_amount !== expectedAmount) {
     logger.error(
       {
@@ -1292,6 +1322,7 @@ async function handleSuccessfulPayment(ctx: Context): Promise<void> {
         plan,
         expected: expectedAmount,
         received: sp.total_amount,
+        isRenewal,
         chargeId: sp.telegram_payment_charge_id,
       },
       "successful_payment total_amount mismatch — refusing to grant access",
@@ -1555,6 +1586,34 @@ async function loadActiveProSubscription(
 }
 
 /**
+ * Decide which Stars amount a `successful_payment` must equal to be honored.
+ *
+ * - First / non-recurring payments must match the **catalog** price — that's
+ *   the price encoded into the invoice link we minted, so any mismatch means
+ *   a tampered or forged payment.
+ * - Renewals are auto-charged by Telegram at the subscription's **locked-in**
+ *   price, which can differ from the catalog price after a price change
+ *   (existing subscribers are grandfathered — Telegram has no API to reprice a
+ *   live Stars subscription). Validate those against the subscription's stored
+ *   `starsPerPeriod`.
+ * - If a renewal can't be matched to a subscription row (`lockedStars` null),
+ *   fall back to the catalog price rather than accepting an arbitrary amount —
+ *   defense-in-depth against a forged renewal if the webhook secret ever leaks.
+ *
+ * Pure function (no DB) so it's unit-testable; the caller does the lookup.
+ */
+export function resolveExpectedStars(args: {
+  catalogStars: number;
+  isRenewal: boolean;
+  lockedStars: number | null;
+}): number {
+  if (args.isRenewal && args.lockedStars !== null) {
+    return args.lockedStars;
+  }
+  return args.catalogStars;
+}
+
+/**
  * Parse the invoice payload string `sub:{ownerId}:{plan}:{nonce}`.
  *
  * Returns null on:
@@ -1595,6 +1654,7 @@ export const _internals = {
   composeBillingScreen,
   buildActionsKeyboard,
   planLabelFor,
+  resolveExpectedStars,
   CB,
   CANCEL_CONFIRM_RE,
   SUBSCRIPTION_PERIOD_SECONDS,
