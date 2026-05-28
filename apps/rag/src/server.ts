@@ -113,6 +113,20 @@ app.post("/ingest", sharedSecretMiddleware, async (c) => {
   }
 });
 
+app.post("/cancel", sharedSecretMiddleware, async (c) => {
+  const { documentId } = await c.req
+    .json<{ documentId?: string }>()
+    .catch(() => ({ documentId: undefined }));
+  if (!documentId) return c.json({ error: "documentId required" }, 400);
+
+  // Emit the cancel event. A running `processDocument` with a matching
+  // `data.documentId` is aborted by its `cancelOn` rule; the bot then
+  // deletes the row + B2 file (chunks cascade). No-op if nothing is
+  // running — the bot's delete still cleans up.
+  await inngest.send({ name: "rag/document.cancel", data: { documentId } });
+  return c.json({ ok: true });
+});
+
 app.get("/ingest/:documentId", sharedSecretMiddleware, async (c) => {
   const docId = c.req.param("documentId");
   if (!docId) return c.json({ error: "documentId required" }, 400);

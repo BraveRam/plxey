@@ -109,8 +109,9 @@ tg-business/
 |---|---|
 | `POST /ingest` | Accepts JSON `{b2FileId, b2FileName, tenantId, botId, fileName, mimeType}`; inserts a `documents` row with status `processing`, fires `rag/document.ingest` Inngest event; returns `{documentId, status:"queued"}` 202 |
 | `GET /ingest/:documentId` | Returns document status (`processing`/`ready`/`failed`) |
+| `POST /cancel` | Accepts JSON `{documentId}`; fires `rag/document.cancel` Inngest event to abort an in-flight `processDocument` run via its `cancelOn` rule. Returns `{ok:true}`. DB/B2 cleanup is the caller's job (the bot reuses `deleteDocument`) |
 | `POST /upload-and-ingest` | Accepts raw binary body with `X-Tenant-Id`/`X-Bot-Id` headers; uploads to B2, then proceeds as `/ingest` |
-| `ALL /api/inngest` | Inngest serve handler; Inngest cloud delivers the `rag/document.ingest` event here |
+| `ALL /api/inngest` | Inngest serve handler; Inngest cloud delivers the `rag/document.ingest` and `rag/document.cancel` events here |
 
 **External services called**
 
@@ -599,7 +600,9 @@ Returns `{ documentId, status: "queued" }` 202.
 
 ### 2. RAG worker processes the event
 
-Inngest function `processDocument` (`id: "rag/document.ingest"`, concurrency 5, retries 3). Three sequential steps:
+Inngest function `processDocument` (`id: "rag/document.ingest"`, concurrency 5, retries 3). Declares `cancelOn: [{ event: "rag/document.cancel", match: "data.documentId" }]` so an owner-initiated cancel aborts the run at the next step boundary (see Cancellation below). Steps:
+
+**check-live** — first step reads the row's `status`; bails (returns) if the row is gone or no longer `processing`, so a cancel that raced ahead of `cancelOn` short-circuits before any B2 download / embeds.
 
 **extract** — `downloadFileById(b2FileId)`, dispatch by MIME:
 
@@ -612,9 +615,19 @@ Inngest function `processDocument` (`id: "rag/document.ingest"`, concurrency 5, 
 
 All parsers strip null bytes (`\0`). HTML parser also strips `<script>`, `<style>`, `<noscript>`, comments, all tags, decodes common HTML entities, collapses whitespace.
 
-**process** — `splitText(text)` with `size=500`, `overlap=50`. Recursive descent through separators `["\n\n", "\n", ".", "?", "!", ",", " ", ""]`. Splits at each level; if a piece exceeds 500 chars, recurses to next separator. `""` is the final character-level fallback. Overlap pass prepends last 50 chars of previous chunk to next. Then `embedMany({ model: EMBEDDING_MODEL, values: chunks })`. Bulk-insert all `document_chunks` rows with `tenantBotId = botId`, `metadata = {}`.
+**process** — `splitText(text)` with `size=500`, `overlap=50`. Recursive descent through separators `["\n\n", "\n", ".", "?", "!", ",", " ", ""]`. Splits at each level; if a piece exceeds 500 chars, recurses to next separator. `""` is the final character-level fallback. Overlap pass prepends last 50 chars of previous chunk to next. Then `embedMany({ model: EMBEDDING_MODEL, values: chunks })`. Re-reads `status` after embedding (a cancel can land mid-step, where `cancelOn` can't interrupt) and returns without writing if no longer `processing` — this prevents resurrecting chunks for a canceled doc or a FK violation if the row was deleted. Otherwise bulk-inserts all `document_chunks` rows with `tenantBotId = botId`, `metadata = {}`.
 
 **finish** — `documents.status = 'ready'`, fetch `tenants.telegramOwnerId` + `tenantBots.botTokenEncrypted`, decrypt, raw `fetch` to Telegram `sendMessage` to notify the owner. On any exception in any step: catch → set `documents.status = 'failed'` → re-throw (Inngest retries).
+
+### Cancellation
+
+While a doc is `processing`, the Mini App shows a Cancel button (DocumentsPanel) in place of the Trash button. Flow:
+
+1. Mini App `POST /api/documents/:id/cancel` (bot). Owner-checked; 409 if the doc is no longer `processing`.
+2. Bot calls `cancelDocumentIngest(id)` → RAG worker `POST /cancel` → `inngest.send("rag/document.cancel", { documentId })`. The running `processDocument` aborts via `cancelOn`.
+3. Bot then `deleteDocument(id)` (removes the row + B2 file; `document_chunks` cascade) and `decrementDocCount`.
+
+Because cancel deletes the doc, there is no `canceled` status — a canceled processing doc retains nothing useful. The worker's check-live + post-embed guards close the race between the cancel and an in-flight run. Aborting the upload's HTTP request (client `AbortController`) does **not** help: `POST /api/documents` returns 202-fast after queuing, so the embed job outlives the request — cancellation must go through this event path, not a socket abort.
 
 ### 3. Retrieval at query time
 
@@ -832,6 +845,10 @@ Mounted at `/api` in `apps/bot/src/index.ts`. Every route passes through, in ord
 ### `POST /api/documents`
 
 - Owner-checked. Multipart body `{ botId, file }`. Enforces the same quota / MIME / size / per-bot-cap checks as the bot upload path, then `ingestDocument` (B2 + RAG `/ingest`). Returns `{ documentId }` (201).
+
+### `POST /api/documents/:id/cancel`
+
+- Owner-checked. `409` if the doc is not `processing`. Signals the RAG worker to abort the Inngest run (`cancelDocumentIngest`), then reuses `deleteDocument` (B2 delete + row delete, chunks cascade) and `decrementDocCount`. Emits `miniapp.doc.canceled`. See [Cancellation](#cancellation).
 
 ### `DELETE /api/documents/:id`
 

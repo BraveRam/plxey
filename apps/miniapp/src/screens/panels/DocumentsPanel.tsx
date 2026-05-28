@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { toast } from "sonner";
-import { FileText, Trash2, Upload, CheckCircle2, Clock, XCircle, Loader2, FolderOpen } from "lucide-react";
+import { FileText, Trash2, Upload, CheckCircle2, Clock, XCircle, Loader2, FolderOpen, Ban } from "lucide-react";
 import { GlowIcon } from "@/components/GlowIcon";
 import { Card, CardContent } from "@/components/ui/card";
 import {
@@ -14,7 +14,12 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useDocuments, useUploadDocument, useDeleteDocument } from "@/hooks/api";
+import {
+  useDocuments,
+  useUploadDocument,
+  useDeleteDocument,
+  useCancelDocument,
+} from "@/hooks/api";
 import { haptic } from "@/lib/telegram";
 import type { DocumentItem } from "@/types";
 
@@ -42,8 +47,10 @@ export function DocumentsPanel({ botId }: { botId: string }) {
   const { data: docs, isLoading } = useDocuments(botId);
   const upload = useUploadDocument(botId);
   const del = useDeleteDocument(botId);
+  const cancel = useCancelDocument(botId);
   const fileInput = useRef<HTMLInputElement>(null);
   const [deleteTarget, setDeleteTarget] = useState<DocumentItem | null>(null);
+  const [cancelingId, setCancelingId] = useState<string | null>(null);
 
   const onPick = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -61,6 +68,20 @@ export function DocumentsPanel({ botId }: { botId: string }) {
 
   const onDelete = (doc: DocumentItem) => {
     setDeleteTarget(doc);
+  };
+
+  const onCancel = async (doc: DocumentItem) => {
+    setCancelingId(doc.id);
+    try {
+      await cancel.mutateAsync(doc.id);
+      haptic.success();
+      toast.success("Canceled");
+    } catch (err) {
+      haptic.error();
+      toast.error(err instanceof Error ? err.message : "Cancel failed");
+    } finally {
+      setCancelingId(null);
+    }
   };
 
   const confirmDelete = async () => {
@@ -121,14 +142,30 @@ export function DocumentsPanel({ botId }: { botId: string }) {
                   <DocStatus status={doc.status} />
                 </div>
               </div>
-              <Button
-                variant="ghost"
-                size="icon"
-                aria-label="Delete document"
-                onClick={() => onDelete(doc)}
-              >
-                <Trash2 className="text-destructive" />
-              </Button>
+              {doc.status === "processing" ? (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  aria-label="Cancel processing"
+                  disabled={cancelingId === doc.id}
+                  onClick={() => onCancel(doc)}
+                >
+                  {cancelingId === doc.id ? (
+                    <Loader2 className="animate-spin text-destructive" />
+                  ) : (
+                    <Ban className="text-destructive" />
+                  )}
+                </Button>
+              ) : (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  aria-label="Delete document"
+                  onClick={() => onDelete(doc)}
+                >
+                  <Trash2 className="text-destructive" />
+                </Button>
+              )}
             </Card>
           ))}
         </div>

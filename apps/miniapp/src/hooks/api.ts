@@ -92,3 +92,11 @@ export function useDeleteDocument(botId: string) {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["documents", botId] }),
   });
 }
+
+export function useCancelDocument(botId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.cancelDocument(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["documents", botId] }),
+  });
+}

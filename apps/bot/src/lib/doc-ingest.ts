@@ -13,6 +13,31 @@ import { randomUUID } from "crypto";
 import { uploadFile, b2BucketId } from "@tg-business/storage";
 import { logger } from "./logger";
 
+/**
+ * Resolve the RAG worker base URL + auth headers, or throw if misconfigured.
+ *
+ * The RAG worker rejects unauthenticated traffic on every mutating route.
+ * The two services share `RAG_SHARED_SECRET` out-of-band (set on both Koyeb
+ * services). Fail loudly here rather than letting the worker reject with a
+ * 403 the operator has to dig out of logs. Dev (`INNGEST_DEV=1`) may run
+ * without the secret.
+ */
+function ragWorker(): { workUrl: string; headers: Record<string, string> } {
+  const workUrl = process.env.WORKER_URL;
+  if (!workUrl) throw new Error("WORKER_URL not configured");
+  const ragSecret = process.env.RAG_SHARED_SECRET;
+  if (!ragSecret && process.env.INNGEST_DEV !== "1") {
+    throw new Error("RAG_SHARED_SECRET not configured");
+  }
+  return {
+    workUrl,
+    headers: {
+      "Content-Type": "application/json",
+      ...(ragSecret ? { "X-Internal-Secret": ragSecret } : {}),
+    },
+  };
+}
+
 export interface IngestDocumentArgs {
   buffer: Buffer;
   fileName: string;
@@ -32,16 +57,7 @@ export async function ingestDocument(
 ): Promise<{ documentId: string }> {
   const { buffer, fileName, mimeType, tenantId, botId } = args;
 
-  const workUrl = process.env.WORKER_URL;
-  if (!workUrl) throw new Error("WORKER_URL not configured");
-  // RAG worker rejects unauthenticated traffic on every mutating route.
-  // The two services share this secret out-of-band (set on both Koyeb
-  // services). Fail loudly here rather than letting the worker reject
-  // with a 403 the operator has to dig out of logs.
-  const ragSecret = process.env.RAG_SHARED_SECRET;
-  if (!ragSecret && process.env.INNGEST_DEV !== "1") {
-    throw new Error("RAG_SHARED_SECRET not configured");
-  }
+  const { workUrl, headers } = ragWorker();
 
   const ext = fileName.split(".").pop()?.toLowerCase();
   const b2Path = `tenants/${tenantId}/docs/${randomUUID()}${ext ? `.${ext}` : ""}`;
@@ -54,10 +70,7 @@ export async function ingestDocument(
 
   const ingestRes = await fetch(`${workUrl}/ingest`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...(ragSecret ? { "X-Internal-Secret": ragSecret } : {}),
-    },
+    headers,
     body: JSON.stringify({
       b2FileId: fileId,
       b2FileName,
@@ -79,4 +92,27 @@ export async function ingestDocument(
     "document queued for processing",
   );
   return { documentId: ingestBody.documentId };
+}
+
+/**
+ * Signal the RAG worker to cancel an in-flight ingest for `documentId`.
+ * Emits `rag/document.cancel`, which aborts a running `processDocument`
+ * via its `cancelOn` rule. The caller is responsible for the DB/B2
+ * cleanup afterwards (see the Mini App cancel route, which reuses
+ * `deleteDocument`). Throws on misconfig or a non-OK worker response.
+ */
+export async function cancelDocumentIngest(documentId: string): Promise<void> {
+  const { workUrl, headers } = ragWorker();
+
+  const res = await fetch(`${workUrl}/cancel`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ documentId }),
+  });
+
+  if (!res.ok) {
+    const errBody = await res.json().catch(() => ({}));
+    throw new Error((errBody as { error?: string }).error ?? "cancel failed");
+  }
+  logger.info({ documentId }, "document ingest cancel requested");
 }

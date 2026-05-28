@@ -75,6 +75,8 @@ export const api = {
   },
   deleteDocument: (id: string) =>
     request<{ success: true }>(`/documents/${id}`, { method: "DELETE" }),
+  cancelDocument: (id: string) =>
+    request<{ success: true }>(`/documents/${id}/cancel`, { method: "POST" }),
 
   billing: () => request<BillingSummary>("/owners/billing"),
   analytics: (botId: string) =>

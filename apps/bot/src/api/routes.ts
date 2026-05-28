@@ -28,7 +28,7 @@ import {
 } from "../lib/owners";
 import { detectMimeType } from "../bots/document-types";
 import { checkDocumentLimits } from "../bots/document-limits";
-import { ingestDocument } from "../lib/doc-ingest";
+import { ingestDocument, cancelDocumentIngest } from "../lib/doc-ingest";
 import { getBotStats } from "../lib/analytics-stats";
 import { getBillingSummary } from "../lib/billing-read";
 import { getOnboardingBotUsername } from "../lib/bot-identity";
@@ -376,6 +376,50 @@ api.post("/documents", async (c) => {
   } catch (err) {
     logger.error({ err, botId }, "miniapp document upload failed");
     return c.json({ error: err instanceof Error ? err.message : "Unknown error" }, 500);
+  }
+});
+
+// Cancel an in-flight ingest. Only valid while the doc is still
+// "processing"; once it's "ready"/"failed" the client should use DELETE.
+// Signals the worker to abort the Inngest run, then removes the row + B2
+// file (chunks cascade) by reusing the delete path.
+api.post("/documents/:id/cancel", async (c) => {
+  const id = c.req.param("id");
+  const ownerId = c.get("ownerId");
+  const owner = await ownerForDocId(id);
+  if (owner === null) return c.json({ error: "not found" }, 404);
+  if (owner !== ownerId) return c.json({ error: "forbidden" }, 403);
+
+  const doc = await db.query.documents.findFirst({
+    where: eq(documents.id, id),
+    columns: { status: true },
+  });
+  if (!doc) return c.json({ error: "not found" }, 404);
+  if (doc.status !== "processing") {
+    return c.json({ error: "not processing" }, 409);
+  }
+
+  try {
+    // Abort the worker run first so it stops before writing chunks, then
+    // delete. The worker's pre-insert guard covers the residual race.
+    await cancelDocumentIngest(id);
+    await deleteDocument(id);
+    try {
+      await decrementDocCount(ownerId);
+    } catch (err) {
+      logger.warn(
+        { err, ownerId, docId: id },
+        "miniapp: decrementDocCount failed (fail-open)",
+      );
+    }
+    trackMini(ownerId, "doc.canceled");
+    return c.json({ success: true });
+  } catch (err) {
+    logger.error({ err, docId: id }, "miniapp document cancel failed");
+    return c.json(
+      { error: err instanceof Error ? err.message : "Unknown error" },
+      500,
+    );
   }
 });
 

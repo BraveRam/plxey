@@ -16,6 +16,11 @@ export const processDocument = inngest.createFunction(
     concurrency: 5,
     retries: 3,
     triggers: [{ event: "rag/document.ingest" }],
+    // Owner-initiated cancel: a `rag/document.cancel` event whose
+    // `data.documentId` matches this run's triggering event aborts the
+    // run at the next step boundary. The bot emits it from the Mini App
+    // cancel button via the worker's /cancel route.
+    cancelOn: [{ event: "rag/document.cancel", match: "data.documentId" }],
   },
   async ({ event, step }) => {
     const { b2FileId, documentId, tenantId, botId, mimeType } = event.data as {
@@ -25,6 +30,18 @@ export const processDocument = inngest.createFunction(
       botId: string;
       mimeType: string;
     };
+
+    // Read the row's current status as the first step. If it's already
+    // gone (deleted by a cancel that raced ahead of `cancelOn`) or no
+    // longer "processing", bail before spending a B2 download / embeds.
+    const stillLive = await step.run("check-live", async () => {
+      const d = await db.query.documents.findFirst({
+        where: eq(documents.id, documentId),
+        columns: { status: true },
+      });
+      return d?.status === "processing";
+    });
+    if (!stillLive) return;
 
     try {
       const text = await step.run("extract", async () => {
@@ -37,6 +54,15 @@ export const processDocument = inngest.createFunction(
       await step.run("process", async () => {
         const chunks = splitText(text);
         const { embeddings } = await embedMany({ model: modelId, values: chunks });
+        // Re-check inside the step: `cancelOn` only aborts between steps,
+        // so a cancel that lands mid-embed can't stop this step. Without
+        // this guard the insert would either resurrect chunks for a
+        // canceled doc or hit a FK violation if the row was deleted.
+        const live = await db.query.documents.findFirst({
+          where: eq(documents.id, documentId),
+          columns: { status: true },
+        });
+        if (live?.status !== "processing") return;
         const rows = chunks.map((content, i) => ({
           tenantId,
           tenantBotId: botId,
