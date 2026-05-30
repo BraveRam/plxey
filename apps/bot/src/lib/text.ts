@@ -477,7 +477,11 @@ export function dailyCapMessageUpdated(value: string): string {
 // =============================================================================
 
 export function editPromptHeader(args: { prompt: string }): string {
-  return `<b>Current prompt</b>\n\n${args.prompt}\n\nSend your new prompt, or press Cancel.`;
+  // The prompt is owner-authored free text shown in a parse_mode:"HTML"
+  // message. Escape it — an unescaped `<`/`&` makes Telegram reject the
+  // send (400 "can't parse entities"), and since the caller deletes the
+  // menu before sending this, a failed send leaves a dead, empty screen.
+  return `<b>Current prompt</b>\n\n${escapeHtml(args.prompt)}\n\nSend your new prompt, or press Cancel.`;
 }
 
 export const PROMPT_UPDATED = "✅ Prompt updated.";

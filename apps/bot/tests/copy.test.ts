@@ -15,9 +15,29 @@ import {
   managementMenu,
   onboardingWelcome,
   restartErrorMessage,
+  editPromptHeader,
   tenantHelp,
   truncateMid,
 } from "../src/lib/text";
+
+describe("editPromptHeader", () => {
+  test("escapes HTML special chars in the prompt (sent with parse_mode HTML)", () => {
+    const out = editPromptHeader({ prompt: "reply if price < 100 & ok <b>x</b>" });
+    // User content must be escaped so Telegram's HTML parser doesn't 400.
+    expect(out).toContain("&lt;");
+    expect(out).toContain("&amp;");
+    expect(out).not.toContain("< 100");
+    expect(out).not.toContain("<b>x</b>");
+    // The template's own markup is preserved.
+    expect(out).toContain("<b>Current prompt</b>");
+  });
+
+  test("keeps a plain prompt readable", () => {
+    expect(editPromptHeader({ prompt: "Be a helpful assistant." })).toContain(
+      "Be a helpful assistant.",
+    );
+  });
+});
 
 describe("restartErrorMessage", () => {
   test("token_invalid points the owner at BotFather + re-adding", () => {
