@@ -2,8 +2,32 @@ import { describe, expect, test } from "bun:test";
 import type { Context } from "grammy";
 import { __test } from "../src/bots/admin-commands";
 
-const { isAdmin, formatSubscriptionLine, formatBotLine, renderOwnerSummary } =
-  __test;
+const {
+  isAdmin,
+  formatSubscriptionLine,
+  formatBotLine,
+  renderOwnerSummary,
+  parseOwnerIdArg,
+} = __test;
+
+describe("parseOwnerIdArg", () => {
+  test("accepts a numeric id, trimmed", () => {
+    expect(parseOwnerIdArg("123456789")).toBe("123456789");
+    expect(parseOwnerIdArg("  123  ")).toBe("123");
+  });
+
+  test("rejects empty / missing", () => {
+    expect(parseOwnerIdArg("")).toBeNull();
+    expect(parseOwnerIdArg("   ")).toBeNull();
+    expect(parseOwnerIdArg(undefined)).toBeNull();
+  });
+
+  test("rejects non-numeric (handles, partial digits, extra args)", () => {
+    expect(parseOwnerIdArg("@alex")).toBeNull();
+    expect(parseOwnerIdArg("12a")).toBeNull();
+    expect(parseOwnerIdArg("123 456")).toBeNull();
+  });
+});
 
 function makeCtx(fromId: number | undefined): Context {
   return {

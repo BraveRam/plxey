@@ -984,7 +984,7 @@ Owner identity is `tenants.telegram_owner_id` (Telegram numeric user ID as strin
 | `BOT_PORT` | No | Bot server port. Default 3000 | Local dev |
 | `LOG_LEVEL` | No | Pino level override | Hosting env |
 | `NODE_ENV` | No | `production` disables pino-pretty, sets level default to `info` | Hosting env |
-| `ADMIN_TELEGRAM_USER_ID` | Recommended (prod) | Telegram user id allowed to run admin commands (`/owner`, `/refund`, `/grant_comp`, `/ban`, `/unban`). Fail-closed if unset. | Generated |
+| `ADMIN_TELEGRAM_USER_ID` | Recommended (prod) | Telegram user id allowed to run admin commands (`/owner`, `/refund`, `/grant_comp`, `/revoke_comp`, `/ban`, `/unban`). Fail-closed if unset. | Generated |
 
 Per `CLAUDE.md`: never put real env values in tests, fixtures, or any committed file. `.env` is gitignored — keep it that way.
 
@@ -1219,6 +1219,7 @@ Plan-cap enforcement lives in:
 | `/owner <id_or_@username>` | Inspect owner state (plan, subs, bots, usage). |
 | `/refund <chargeId>` | `refundStarPayment` + `cancelStarSubscription` + fire `subscription/refunded`. |
 | `/grant_comp <ownerId> <pro\|business>` | Create complimentary subscription (year-2099 `currentPeriodEnd`, `is_complimentary=true`). |
+| `/revoke_comp <ownerId>` | Delete the owner's `is_complimentary=true` subscription row(s) + `recomputeEffectivePlan`. Deletion (not cancel) is required — the cancel flow only flips `status→canceled` and leaves the year-2099 `currentPeriodEnd`, so a canceled comp still counts as live. Replies "no comp found" when there are none. |
 | `/ban <ownerId>` | Flip `is_banned=true`, fire `owner/banned` (handler cancels subs + force-pauses bots). |
 | `/unban <ownerId>` | Flip `is_banned=false`. No auto-resubscribe. |
 | `/broadcast` | Admin-gated conversation (`makeBroadcastConversation`, `onboarding.ts`). Prompts for any message + Cancel, confirms the audience size, then `copyMessage`s it to every non-banned `owners` row (`lib/broadcast.ts`, throttled ~25/s, per-recipient failures skipped). The send loop runs in `conversation.external` so a replay never re-broadcasts. Not listed in the public slash menu. |

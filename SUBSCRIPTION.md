@@ -526,7 +526,7 @@ When a lapsed owner subscribes again, `subscription/started` fires:
   - `starsPerPeriod = 0`
 - Behaves identically to a paid subscription for plan-cap purposes.
 - Lapse-sweep query filters out `is_complimentary = true OR currentPeriodEnd > now()` — comp rows simply never lapse.
-- Admin must manually revoke via DB script if comp should end.
+- Revoked via `/revoke_comp <ownerId>` admin command — **deletes** the comp row(s) and recomputes the effective plan. Deletion is required rather than cancel: the cancel flow only flips `status→canceled` and leaves the year-2099 `currentPeriodEnd`, and `effectivePlan` counts a canceled row as live while `currentPeriodEnd > now()`, so a "canceled" comp would still grant the plan until 2099.
 
 ---
 
@@ -614,6 +614,7 @@ Admin commands in the onboarding bot, restricted to `ADMIN_TELEGRAM_USER_ID` env
 | `/owner <id_or_@username>` | Show owner profile, plan, subscriptions list, bot list, usage. Read-only. |
 | `/refund <chargeId>` | Refund + cancel auto-renew. See [Refund](#refund). |
 | `/grant_comp <ownerId> <pro\|business>` | Create complimentary subscription. |
+| `/revoke_comp <ownerId>` | Delete the owner's complimentary subscription row(s) + recompute effective plan. See [Complimentary Subscriptions](#complimentary-subscriptions). |
 | `/ban <ownerId>` | Set is_banned = true, cancel all active subs, force-pause all bots. |
 | `/unban <ownerId>` | Clear is_banned. Subscriptions stay canceled; owner re-subscribes if they want. |
 
@@ -857,7 +858,7 @@ Tracking the work into commits (rough order, not binding):
 7. Payment surface in onboarding bot: `/billing` command, plan picker, invoice link creation, `pre_checkout_query`, `successful_payment` handler.
 8. Cancel + Resume + Upgrade flows.
 9. Quota enforcement: bot create gate, doc upload gate, message counter, over-quota short-circuit.
-10. Admin commands: `/owner`, `/refund`, `/grant_comp`, `/ban`, `/unban`.
+10. Admin commands: `/owner`, `/refund`, `/grant_comp`, `/revoke_comp`, `/ban`, `/unban`.
 11. Profile-capture middleware on both bots.
 12. Text constants in `lib/text.ts` for all new copy.
 13. DOCUMENTATION.md updates: cross-link this spec, add "Billing & Subscriptions" section.

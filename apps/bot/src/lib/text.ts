@@ -1061,6 +1061,9 @@ export function adminOwnerSummary(args: {
 
 export const ADMIN_REFUND_SUCCESS = "Refund issued + auto-renew canceled.";
 export const ADMIN_COMP_GRANTED = "Complimentary subscription granted.";
+export const ADMIN_COMP_REVOKED =
+  "Complimentary subscription(s) revoked; effective plan recomputed.";
+export const ADMIN_COMP_NONE = "No complimentary subscription found for that owner.";
 export const ADMIN_BAN_APPLIED =
   "Owner banned; subscriptions canceled; bots paused.";
 export const ADMIN_UNBAN_APPLIED = "Owner unbanned.";

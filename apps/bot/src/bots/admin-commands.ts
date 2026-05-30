@@ -8,6 +8,7 @@
  *   /owner <id_or_@username>       — read-only owner profile + subs + bots
  *   /refund <chargeId>             — refund + cancel auto-renew + fire event
  *   /grant_comp <ownerId> <plan>   — insert synthetic comp subscription row
+ *   /revoke_comp <ownerId>         — delete comp subscription rows + recompute plan
  *   /ban <ownerId>                 — flag is_banned, fire owner/banned event
  *   /unban <ownerId>               — clear is_banned (no auto-resub)
  *
@@ -36,6 +37,8 @@ import { logger } from "../lib/logger";
 import {
   ADMIN_BAN_APPLIED,
   ADMIN_COMP_GRANTED,
+  ADMIN_COMP_NONE,
+  ADMIN_COMP_REVOKED,
   ADMIN_OWNER_NOT_FOUND,
   ADMIN_REFUND_SUCCESS,
   ADMIN_UNAUTHORIZED,
@@ -61,6 +64,16 @@ export function isAdmin(ctx: Context): boolean {
   const fromId = ctx.from?.id;
   if (fromId === undefined) return false;
   return String(fromId) === allowedId;
+}
+
+/**
+ * Validate the single numeric `<ownerId>` argument used by id-only admin
+ * commands (comps are addressed by Telegram user id, never `@handle`).
+ * Returns the trimmed id, or null when missing / non-numeric / has extra args.
+ */
+export function parseOwnerIdArg(raw: string | undefined): string | null {
+  const arg = (raw ?? "").trim();
+  return /^\d+$/.test(arg) ? arg : null;
 }
 
 /**
@@ -400,6 +413,54 @@ export function attachAdminCommands(bot: Bot<Context>): void {
     }
   });
 
+  // /revoke_comp <ownerId> — delete the owner's complimentary subscription
+  // row(s), then recompute their effective plan. Deletion (not cancel) is
+  // required: a comp's currentPeriodEnd is year-2099, and the cancel flow
+  // only flips status→canceled without moving currentPeriodEnd, so a
+  // "canceled" comp still counts as live in effectivePlan. Removing the row
+  // is the only way to actually drop the entitlement.
+  bot.command("revoke_comp", async (ctx) => {
+    if (!isAdmin(ctx)) {
+      await ctx.reply(ADMIN_UNAUTHORIZED);
+      return;
+    }
+    const ownerIdArg = parseOwnerIdArg(
+      typeof ctx.match === "string" ? ctx.match : "",
+    );
+    if (!ownerIdArg) {
+      await ctx.reply(
+        "Usage: /revoke_comp <ownerId>   (numeric Telegram user id)",
+      );
+      return;
+    }
+
+    try {
+      const deleted = await db
+        .delete(subscriptions)
+        .where(
+          and(
+            eq(subscriptions.ownerTelegramUserId, ownerIdArg),
+            eq(subscriptions.isComplimentary, true),
+          ),
+        )
+        .returning({ id: subscriptions.id });
+
+      if (deleted.length === 0) {
+        await ctx.reply(ADMIN_COMP_NONE);
+        return;
+      }
+
+      // Refresh owners.current_plan / status from the remaining rows (a real
+      // pro/business sub, a canceled tail, or none → lapsed).
+      await recomputeEffectivePlan(ownerIdArg);
+
+      await ctx.reply(ADMIN_COMP_REVOKED);
+    } catch (err) {
+      logger.warn({ err, ownerIdArg }, "/revoke_comp failed");
+      await ctx.reply("Revoke failed — see server logs.");
+    }
+  });
+
   // /ban <ownerId>
   bot.command("ban", async (ctx) => {
     if (!isAdmin(ctx)) {
@@ -490,6 +551,7 @@ export function attachAdminCommands(bot: Bot<Context>): void {
  */
 export const __test = {
   isAdmin,
+  parseOwnerIdArg,
   findOwner,
   renderOwnerSummary,
   formatSubscriptionLine,
@@ -500,8 +562,3 @@ export const __test = {
 // Suppress unused-symbol warnings for types imported solely for `$inferSelect`.
 // (Drizzle's `$inferSelect` is referenced via types only.)
 export type { OwnerRow, SubscriptionRow };
-
-// `and` is imported pre-emptively for future composite queries; the linter
-// will flag if dead. Keep it explicit so adding a second filter (e.g.
-// "exclude banned") is a one-import change.
-void and;
