@@ -328,6 +328,7 @@ const BIZ = [
   "Up to 10 bots",
   "50 docs per bot",
   "50,000 replies / month",
+  "Understands customer photos",
   "Priority queue",
   "Custom tone presets",
   "Direct line to founders",
@@ -502,6 +503,10 @@ const FAQS = [
   {
     q: "How does it know what to say?",
     a: "Every reply is grounded in the documents you upload — PDFs, FAQs, menus, schedules. If a customer asks something your docs don't cover, Plxey declines politely and forwards the message to you with full context so you can answer once and move on.",
+  },
+  {
+    q: "Can customers send photos?",
+    a: "On the Business plan, yes — your bot can read a customer's photo and answer about it (a receipt, a product, a screenshot). On other plans the bot replies in text and asks them to describe it.",
   },
   {
     q: "Can I take over a conversation?",

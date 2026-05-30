@@ -113,7 +113,8 @@ export const ONBOARDING_HELP =
   "<b>How this works</b>\n\n" +
   "This is your control panel. Each bot you connect runs AI-powered " +
   "support on your Telegram Business account, answers from your uploaded " +
-  "documentation, and escalates to you when it can't.\n\n" +
+  "documentation, and escalates to you when it can't. On the " +
+  "<b>Business</b> plan, your bot can also answer photos customers send.\n\n" +
   "<b>Setting up a bot</b>\n" +
   "1. Create a bot via @BotFather and enable <i>Business Mode</i> in its " +
   "settings.\n" +
@@ -158,6 +159,10 @@ export function tenantHelp(): string {
     "granted the bot.\n" +
     "• <b>📊 Analytics</b> — see how many customers talked to this bot " +
     "today and over the last week and month.\n\n" +
+    "<b>Photos (Business plan)</b>\n" +
+    "On the Business plan, customers can send your bot a photo and it " +
+    "answers about the image. On other plans the bot replies in text and " +
+    "asks the customer to describe their question.\n\n" +
     "<b>Replying to a customer yourself</b>\n" +
     "When the AI escalates, you'll get a message with a <b>✏️ Reply</b> " +
     "button. Tap it, send your message in any format (text, photo, voice, " +
