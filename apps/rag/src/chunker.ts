@@ -5,6 +5,25 @@ export interface ChunkOptions {
 
 const SEPARATORS = ["\n\n", "\n", ".", "?", "!", ",", " ", ""];
 
+/**
+ * Drop unpaired UTF-16 surrogates from a string.
+ *
+ * The recursive splitter slices by code units (the overlap pass uses
+ * `String.prototype.slice`), so it can cut a surrogate pair — e.g. an emoji —
+ * in half, leaving a lone surrogate in a chunk. The Neon HTTP driver
+ * JSON-encodes each row to send it, can't serialize a lone surrogate, and
+ * rejects the whole insert with "could not parse the HTTP request body: lone
+ * leading surrogate in hex escape". Stripping the unpaired halves keeps
+ * content well-formed; a split emoji is simply dropped (negligible for
+ * retrieval). Well-formed pairs are left untouched.
+ */
+export function stripLoneSurrogates(text: string): string {
+  return text.replace(
+    /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g,
+    "",
+  );
+}
+
 export function splitText(text: string, opts: Partial<ChunkOptions> = {}): string[] {
   text = text.replace(/\0/g, "");
   const size = opts.size ?? 500;
@@ -48,7 +67,7 @@ export function splitText(text: string, opts: Partial<ChunkOptions> = {}): strin
   }
 
   const raw = split(text.trim(), 0);
-  if (raw.length <= 1) return raw;
+  if (raw.length <= 1) return raw.map(stripLoneSurrogates);
 
   const result: string[] = [raw[0]!];
   for (let i = 1; i < raw.length; i++) {
@@ -57,5 +76,7 @@ export function splitText(text: string, opts: Partial<ChunkOptions> = {}): strin
     result.push(tail + raw[i]!);
   }
 
-  return result;
+  // Sanitize after the overlap pass: `slice(-overlap)` can cut a surrogate
+  // pair, so this is the point where lone surrogates appear.
+  return result.map(stripLoneSurrogates);
 }

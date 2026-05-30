@@ -1,5 +1,43 @@
 import { expect, test, describe } from "bun:test";
-import { splitText } from "../src/chunker";
+import { splitText, stripLoneSurrogates } from "../src/chunker";
+
+const hasLoneSurrogate = (s: string): boolean =>
+  /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(s);
+
+describe("stripLoneSurrogates", () => {
+  test("leaves a well-formed surrogate pair (emoji) intact", () => {
+    const emoji = "😀"; // U+1F600 — one surrogate pair
+    expect(stripLoneSurrogates(`hi ${emoji} there`)).toBe(`hi ${emoji} there`);
+  });
+
+  test("removes a lone high surrogate (split emoji, leading half)", () => {
+    const loneHigh = "\uD83D"; // high half of 😀 with no low half
+    expect(stripLoneSurrogates(`a${loneHigh}b`)).toBe("ab");
+  });
+
+  test("removes a lone low surrogate (split emoji, trailing half)", () => {
+    const loneLow = "\uDE00"; // low half of 😀 with no high half
+    expect(stripLoneSurrogates(`a${loneLow}b`)).toBe("ab");
+  });
+
+  test("leaves plain text untouched", () => {
+    expect(stripLoneSurrogates("Hello, world.")).toBe("Hello, world.");
+  });
+});
+
+describe("chunker never emits lone surrogates", () => {
+  test("emoji-dense text split small produces only well-formed chunks", () => {
+    // Force the splitter through its overlap + char-level passes on text
+    // packed with surrogate-pair emoji, so a naive code-unit slice would
+    // cut a pair. Every resulting chunk must be well-formed.
+    const text = "😀😃😄😁😆😅😂🤣😊😇🙂🙃😉😌😍🥰😘".repeat(20);
+    const chunks = splitText(text, { size: 25, overlap: 7 });
+    expect(chunks.length).toBeGreaterThan(1);
+    for (const c of chunks) {
+      expect(hasLoneSurrogate(c)).toBe(false);
+    }
+  });
+});
 
 describe("chunker", () => {
   test("returns empty array for empty string", () => {
