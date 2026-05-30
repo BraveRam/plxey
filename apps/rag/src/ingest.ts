@@ -100,7 +100,36 @@ export const processDocument = inngest.createFunction(
           // after some batches already inserted, re-inserting the same
           // (documentId, chunkIndex) rows is a no-op instead of a unique
           // violation against document_chunks_doc_chunk_uq.
-          await db.insert(documentChunks).values(rows).onConflictDoNothing();
+          try {
+            await db.insert(documentChunks).values(rows).onConflictDoNothing();
+          } catch (insertErr) {
+            // Capture the real driver cause at the point of failure — the
+            // outer catch only sees it after retries exhaust, and the
+            // DrizzleQueryError message hides it behind the SQL + params.
+            const cause =
+              insertErr instanceof Error ? insertErr.cause : undefined;
+            const dims = Array.isArray(embeddings[0])
+              ? (embeddings[0] as number[]).length
+              : null;
+            console.error(
+              JSON.stringify({
+                msg: "chunk_insert_failed",
+                documentId,
+                batchStart: start,
+                rows: rows.length,
+                embeddingDims: dims,
+                cause:
+                  cause instanceof Error
+                    ? cause.message
+                    : cause !== undefined
+                      ? String(cause).slice(0, 400)
+                      : insertErr instanceof Error
+                        ? insertErr.message?.slice(0, 400)
+                        : String(insertErr),
+              }),
+            );
+            throw insertErr;
+          }
         }
       });
 
