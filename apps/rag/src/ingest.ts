@@ -1,4 +1,4 @@
-import { Inngest } from "inngest";
+import { Inngest, NonRetriableError } from "inngest";
 import { embedMany } from "ai";
 import { db } from "./db";
 import { documents, documentChunks, tenants, tenantBots } from "@tg-business/db";
@@ -6,9 +6,24 @@ import { eq } from "drizzle-orm";
 import { downloadFileById } from "@tg-business/storage";
 import { decrypt } from "@tg-business/crypto";
 import { splitText } from "./chunker";
+import { batchRows } from "./batch";
 import { extractText } from "./parsers";
 
 export const inngest = new Inngest({ id: "tg-rag" });
+
+// Embed + insert chunks in bounded batches. Each row carries a 1536-dim
+// vector (~24KB as text); a single insert of every chunk builds one
+// multi-MB statement that can exceed the Neon HTTP request-size limit (seen
+// in prod as a "Failed query" on document_chunks for a multi-MB upload).
+// 50 rows ≈ ~1.2MB/request — comfortably under the driver + embeddings-API
+// limits.
+const INGEST_BATCH_SIZE = 50;
+
+// Hard ceiling on chunks per document. Past this we fail the ingest cleanly
+// (status=failed, no retry) rather than spend minutes embedding a
+// pathological upload. 5000 chunks ≈ ~2.5MB of extracted text — far beyond
+// any real support document.
+const MAX_CHUNKS = 5000;
 
 export const processDocument = inngest.createFunction(
   {
@@ -53,26 +68,40 @@ export const processDocument = inngest.createFunction(
 
       await step.run("process", async () => {
         const chunks = splitText(text);
-        const { embeddings } = await embedMany({ model: modelId, values: chunks });
-        // Re-check inside the step: `cancelOn` only aborts between steps,
-        // so a cancel that lands mid-embed can't stop this step. Without
-        // this guard the insert would either resurrect chunks for a
-        // canceled doc or hit a FK violation if the row was deleted.
-        const live = await db.query.documents.findFirst({
-          where: eq(documents.id, documentId),
-          columns: { status: true },
-        });
-        if (live?.status !== "processing") return;
-        const rows = chunks.map((content, i) => ({
-          tenantId,
-          tenantBotId: botId,
-          documentId,
-          chunkIndex: i,
-          content,
-          embedding: JSON.stringify(embeddings[i] as number[]),
-          metadata: {},
-        })) as unknown as (typeof documentChunks.$inferInsert)[];
-        await db.insert(documentChunks).values(rows);
+        if (chunks.length > MAX_CHUNKS) {
+          // Deterministic: retrying won't shrink the doc, so fail fast.
+          throw new NonRetriableError(
+            `document too large: ${chunks.length} chunks (max ${MAX_CHUNKS})`,
+          );
+        }
+
+        for (const { start, slice } of batchRows(chunks, INGEST_BATCH_SIZE)) {
+          // Re-check per batch: `cancelOn` only aborts between Inngest steps,
+          // and this whole loop is one step. A cancel/delete that lands
+          // mid-ingest must stop here so we don't keep writing chunks for a
+          // canceled doc or hit a FK violation if the row was deleted.
+          const live = await db.query.documents.findFirst({
+            where: eq(documents.id, documentId),
+            columns: { status: true },
+          });
+          if (live?.status !== "processing") return;
+
+          const { embeddings } = await embedMany({ model: modelId, values: slice });
+          const rows = slice.map((content, j) => ({
+            tenantId,
+            tenantBotId: botId,
+            documentId,
+            chunkIndex: start + j,
+            content,
+            embedding: JSON.stringify(embeddings[j] as number[]),
+            metadata: {},
+          })) as unknown as (typeof documentChunks.$inferInsert)[];
+          // onConflictDoNothing keeps batches idempotent: if the step retries
+          // after some batches already inserted, re-inserting the same
+          // (documentId, chunkIndex) rows is a no-op instead of a unique
+          // violation against document_chunks_doc_chunk_uq.
+          await db.insert(documentChunks).values(rows).onConflictDoNothing();
+        }
       });
 
       await step.run("finish", async () => {
@@ -109,6 +138,25 @@ export const processDocument = inngest.createFunction(
         });
       });
     } catch (err) {
+      // Surface the real driver error. A DrizzleQueryError's message is just
+      // the SQL + params (huge, and hides the reason); the actual Neon/
+      // Postgres cause lives on `.cause` and was previously lost on rethrow,
+      // leaving ingest failures undiagnosable in the worker logs.
+      const cause = err instanceof Error ? err.cause : undefined;
+      console.error(
+        JSON.stringify({
+          msg: "ingest failed",
+          documentId,
+          error:
+            err instanceof Error ? err.message?.slice(0, 500) : String(err),
+          cause:
+            cause instanceof Error
+              ? cause.message
+              : cause !== undefined
+                ? String(cause)
+                : undefined,
+        }),
+      );
       await db
         .update(documents)
         .set({ status: "failed" })
