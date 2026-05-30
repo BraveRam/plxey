@@ -1,7 +1,9 @@
 import { generateText, stepCountIs, tool } from "ai";
+import type { UserContent } from "ai";
 import { z } from "zod";
 import { logger } from "../lib/logger";
 import { findRelevantContent } from "./retrieval";
+import type { PlanKey } from "../lib/plans";
 
 interface HistoryEntry {
   role: "user" | "assistant";
@@ -13,12 +15,56 @@ interface SendAdminMessageResult {
   error?: string;
 }
 
+/** An inline image to attach to the current user turn (business plan only). */
+export interface InlineImage {
+  bytes: Uint8Array;
+  mediaType: string;
+}
+
 interface AskAIOptions {
   botId: string;
+  /** Owner's effective plan — selects the model (business → vision Gemini). */
+  plan?: PlanKey | null;
+  /** Inline image for this turn; only set for business-plan bots. */
+  image?: InlineImage;
   sendAdminMessage?: (input: {
     message: string;
     reason: string;
   }) => Promise<SendAdminMessageResult>;
+}
+
+const IMAGE_FALLBACK_PROMPT =
+  "Please answer the customer's question about the attached image.";
+
+/**
+ * Pick the model for a turn. Business-tier owners get the vision-capable
+ * Gemini model (overridable via `AI_MODEL_BUSINESS`); every other plan keeps
+ * the existing default (`AI_MODEL`). This is the only per-plan model routing
+ * in the app.
+ */
+export function selectModel(plan: PlanKey | null): string {
+  if (plan === "business") {
+    return process.env.AI_MODEL_BUSINESS || "google/gemini-2.5-flash-lite";
+  }
+  return process.env.AI_MODEL || "deepseek/deepseek-v4-flash";
+}
+
+/**
+ * Build the current user message content. Text-only turns stay a plain
+ * string; an image turn becomes [text, image] parts with the raw bytes
+ * inlined (the AI SDK accepts a Uint8Array directly — no URL needed). An
+ * image with an empty caption gets a fallback instruction so the model has
+ * something to act on.
+ */
+export function buildUserContent(
+  question: string,
+  image?: InlineImage,
+): UserContent {
+  if (!image) return question;
+  return [
+    { type: "text", text: question.trim() || IMAGE_FALLBACK_PROMPT },
+    { type: "image", image: image.bytes, mediaType: image.mediaType },
+  ];
 }
 
 export async function askAI(
@@ -77,7 +123,7 @@ export async function askAI(
   };
 
   const result = await generateText({
-    model: process.env.AI_MODEL || "deepseek/deepseek-v4-flash",
+    model: selectModel(options.plan ?? null),
     system:
       systemPrompt +
       "\n\nUse the conversation history for context." +
@@ -92,7 +138,10 @@ export async function askAI(
     maxOutputTokens: 500,
     stopWhen: stepCountIs(3),
     tools,
-    messages: [...history.slice(-10), { role: "user", content: question }],
+    messages: [
+      ...history.slice(-10),
+      { role: "user", content: buildUserContent(question, options.image) },
+    ],
   });
 
   const trimmed = result.text.trim();

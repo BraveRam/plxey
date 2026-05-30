@@ -84,6 +84,10 @@ import {
 } from "../lib/plans";
 import { forwardMessageAsBusinessReply } from "../lib/business-reply";
 import {
+  parseIncomingMessage,
+  downloadTelegramPhoto,
+} from "../lib/business-input";
+import {
   claimPermissionAlertSlot,
   clearPermissionAlertSlot,
 } from "../lib/permission-alert";
@@ -118,6 +122,7 @@ import {
   TOAST_TAP_TRASH_TO_DELETE,
   WELCOME_NO_CUSTOM,
   DAILY_AI_CAP_REACHED_REPLY,
+  IMAGE_UNSUPPORTED_REPLY,
   WELCOME_RESET,
   WELCOME_UPDATED,
   adminEscalation,
@@ -1964,9 +1969,12 @@ export class BotRegistry {
       },
       async (ctx) => {
         const msg = ctx.update.business_message;
-        if (typeof msg?.text !== "string") return;
+        if (!msg) return;
+        // Accept text and/or photo; drop other media (sticker/voice/etc.).
+        const { text, photoFileId } = parseIncomingMessage(msg);
+        if (!text && !photoFileId) return;
 
-        const question: string = msg.text;
+        const question: string = text;
         const connId = msg.business_connection_id;
         if (!connId) return;
         const chatId = msg.chat.id;
@@ -2048,7 +2056,9 @@ export class BotRegistry {
           conversationId: conv.id,
           tenantId,
           role: "user",
-          content: question,
+          // History stays text-only (the image isn't persisted); keep a
+          // marker so an image-only turn isn't stored as an empty string.
+          content: question || "[image]",
           telegramMessageId: String(msg.message_id),
         });
 
@@ -2258,6 +2268,50 @@ export class BotRegistry {
           }
         }
 
+        // Resolve an inline image for this turn. Business plan only; other
+        // plans answer the caption text-only, or get a canned reply when the
+        // customer sent an image with no caption. Runs after all gates, so an
+        // image turn is still rate-limited / quota-checked like any other.
+        let image: { bytes: Uint8Array; mediaType: string } | undefined;
+        if (photoFileId) {
+          if (msgQuota.plan === "business") {
+            image =
+              (await downloadTelegramPhoto(
+                ctx.api,
+                botEntry.token,
+                photoFileId,
+              ).catch((err) => {
+                logger.warn(
+                  { err, botId },
+                  "photo download failed — text-only fallback",
+                );
+                return null;
+              })) ?? undefined;
+          } else if (!question) {
+            // Non-business owner, image with no caption — nothing to answer.
+            try {
+              await ctx.api.sendMessage(chatId, IMAGE_UNSUPPORTED_REPLY, {
+                business_connection_id: connId,
+              });
+            } catch (err) {
+              logger.warn(
+                { err, botId, connId },
+                "failed to send image-unsupported reply",
+              );
+            }
+            if (from) {
+              track(
+                customerDistinctId(from.id),
+                "customer.message.handled",
+                { responseType: "image_unsupported" },
+                { bot: botId },
+              );
+            }
+            return;
+          }
+          // Non-business + caption → fall through as a text-only turn.
+        }
+
         // Mark the customer's message as read (double-check) if the owner
         // opted in AND the bot was actually granted can_read_messages.
         // Skipping the API call when the right is missing saves a doomed
@@ -2292,6 +2346,8 @@ export class BotRegistry {
           dbHistory,
           {
             botId,
+            plan: msgQuota.plan,
+            image,
             sendAdminMessage: async ({ message }) => {
               try {
                 const replyToken = await this.ownerReplyTargets.create({

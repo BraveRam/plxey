@@ -36,6 +36,13 @@ export const TOAST_AUTOREAD_ON =
 export const TOAST_AUTOREAD_OFF =
   "Auto-read off. Customer messages stay unread until you open them.";
 
+/**
+ * Sent to a customer who sends an image with no caption to a bot whose owner
+ * is not on the business plan (image understanding is business-tier only).
+ */
+export const IMAGE_UNSUPPORTED_REPLY =
+  "Sorry, I can't view images here — please describe your question in text and I'll help.";
+
 // =============================================================================
 // Restart (re-validate token + re-set webhook)
 // =============================================================================

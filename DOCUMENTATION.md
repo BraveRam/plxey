@@ -676,7 +676,20 @@ Both tables carry a nullable `tenant_bot_id` FK. Retrieval (`services/retrieval.
 
 ### Model
 
-Configured via `AI_MODEL`. Default: `"deepseek/deepseek-v4-flash"` (`services/ai.ts:63`). Resolved through Vercel AI Gateway via `generateText`.
+Per-plan routing via `selectModel(plan)` (`services/ai.ts`), the only model-routing in the app:
+- **business** plan → `process.env.AI_MODEL_BUSINESS || "google/gemini-2.5-flash-lite"` (vision-capable; enables image input).
+- every other plan (`pro`/`trial`/lapsed/`null`) → `process.env.AI_MODEL || "deepseek/deepseek-v4-flash"` (unchanged default).
+
+The plan is the owner's effective plan captured at message time (`checkQuota(...).plan`), passed into `askAI` as `options.plan`. Resolved through Vercel AI Gateway via `generateText`.
+
+### Image input (business plan only)
+
+Customers on a **business-tier** owner's bot can send a **photo** (optionally with a caption); the AI answers about it inline. Flow (`registry.ts` `business_message` handler):
+1. `parseIncomingMessage` (`lib/business-input.ts`) extracts `{ text, photoFileId }` (text falls back to caption; largest photo size). The update is dropped only when both are empty.
+2. After all existing gates (rate limit, owner quota, `can_reply`, per-user daily cap), if a photo is present **and** the plan is `business`: `downloadTelegramPhoto` fetches the bytes from Telegram's CDN (reusing the doc-upload getFile→fetch pattern), capped at `MAX_IMAGE_BYTES` (10 MB), `mediaType: image/jpeg`. Download failure → text-only fallback.
+3. `buildUserContent(question, image)` produces an `[text, image]` content-parts array; the AI SDK takes the raw `Uint8Array` inline (no URL — and no B2, by design). An empty caption gets a fallback text instruction.
+4. **Not persisted**: history stays text-only (`messages.content` stores `question || "[image]"`); the image is not replayed in later turns. No schema change, no B2.
+5. Non-business owner + photo: answers the caption text-only if present; if image-only, sends the canned `IMAGE_UNSUPPORTED_REPLY` and returns. An image turn counts against quota/daily cap like any other message.
 
 ### System prompt construction
 
