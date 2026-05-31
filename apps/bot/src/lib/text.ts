@@ -1079,6 +1079,13 @@ export const ADMIN_UNBAN_APPLIED = "Owner unbanned.";
 export const ADMIN_OWNER_NOT_FOUND = "Owner not found.";
 export const ADMIN_UNAUTHORIZED = "Not authorized.";
 
+// Admin dashboard (Mini App opener). Unlisted command — admins know it.
+export const ADMIN_DASHBOARD_PROMPT =
+  "📊 Admin dashboard — revenue, signups, subscriptions, bots, docs and message volume across every tenant, with a searchable per-owner drill-down. Tap to open.";
+export const ADMIN_DASHBOARD_BUTTON = "📊 Open dashboard";
+export const ADMIN_DASHBOARD_UNAVAILABLE =
+  "Dashboard link not ready yet — the bot's username hasn't resolved. Try again in a moment.";
+
 // =============================================================================
 // Broadcast (admin → all users)
 // =============================================================================

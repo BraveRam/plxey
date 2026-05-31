@@ -58,12 +58,25 @@ type SubscriptionRow = typeof subscriptions.$inferSelect;
  * If the env var is not configured, no caller is admin — which means the
  * admin surface is effectively disabled. Safer default than allow-all.
  */
+/**
+ * Pure admin check: a (stringified) Telegram user id matches the configured
+ * admin id. Fail-closed when either side is empty. Shared by the bot-command
+ * gate (`isAdmin`) and the API gate (`requireAdmin` in `api/routes.ts`).
+ */
+export function isAdminOwnerId(
+  ownerId: string | undefined,
+  allowed: string | undefined,
+): boolean {
+  if (!allowed || !ownerId) return false;
+  return ownerId === allowed;
+}
+
 export function isAdmin(ctx: Context): boolean {
-  const allowedId = process.env.ADMIN_TELEGRAM_USER_ID;
-  if (!allowedId) return false;
   const fromId = ctx.from?.id;
-  if (fromId === undefined) return false;
-  return String(fromId) === allowedId;
+  return isAdminOwnerId(
+    fromId === undefined ? undefined : String(fromId),
+    process.env.ADMIN_TELEGRAM_USER_ID,
+  );
 }
 
 /**
@@ -551,6 +564,7 @@ export function attachAdminCommands(bot: Bot<Context>): void {
  */
 export const __test = {
   isAdmin,
+  isAdminOwnerId,
   parseOwnerIdArg,
   findOwner,
   renderOwnerSummary,

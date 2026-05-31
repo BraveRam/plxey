@@ -44,6 +44,9 @@ import {
   onboardingWelcome,
   restartErrorMessage,
   ADMIN_UNAUTHORIZED,
+  ADMIN_DASHBOARD_PROMPT,
+  ADMIN_DASHBOARD_BUTTON,
+  ADMIN_DASHBOARD_UNAVAILABLE,
   BROADCAST_PROMPT,
   BROADCAST_NEED_MESSAGE,
   BROADCAST_CANCELLED,
@@ -53,6 +56,7 @@ import {
   broadcastDone,
 } from "../lib/text";
 import { isAdmin } from "./admin-commands";
+import { getOnboardingBotUsername } from "../lib/bot-identity";
 import {
   broadcastAudienceSize,
   runBroadcast,
@@ -575,6 +579,31 @@ export async function createOnboardingBot(): Promise<Bot> {
     }
     track(ownerDistinctId(String(ctx.from?.id ?? "")), "admin.broadcast.started");
     await ctx.conversation.enter("broadcast");
+  });
+
+  // Admin-only Mini App opener. Unlisted (kept out of setMyCommands) so
+  // regular owners never see it. Sends a `?startapp=dashboard` deep link;
+  // the Mini App's StartParamRouter maps that to the /admin route, and the
+  // GET /api/admin/* routes re-verify the admin id from initData server-side
+  // (the link alone grants nothing). Reuses the same isAdmin gate as
+  // /broadcast so a non-admin tapping a leaked link still hits a flat 403.
+  bot.command("dashboard", async (ctx) => {
+    if (!isAdmin(ctx as unknown as Context)) {
+      await ctx.reply(ADMIN_UNAUTHORIZED);
+      return;
+    }
+    const userId = String(ctx.from?.id ?? "");
+    const username = getOnboardingBotUsername();
+    if (!username) {
+      await ctx.reply(ADMIN_DASHBOARD_UNAVAILABLE);
+      return;
+    }
+    const kb = new InlineKeyboard().url(
+      ADMIN_DASHBOARD_BUTTON,
+      `https://t.me/${username}?startapp=dashboard`,
+    );
+    await ctx.reply(ADMIN_DASHBOARD_PROMPT, { reply_markup: kb });
+    track(ownerDistinctId(userId), "admin.dashboard.opened");
   });
 
   bot.command("help", async (ctx) => {

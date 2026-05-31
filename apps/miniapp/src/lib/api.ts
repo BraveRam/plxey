@@ -5,6 +5,9 @@ import type {
   BillingSummary,
   BotAnalytics,
   BotPermissions,
+  AdminMetrics,
+  AdminOwnersPage,
+  AdminOwnerDetail,
 } from "@/types";
 
 const BASE = import.meta.env.VITE_API_BASE ?? "";
@@ -88,4 +91,22 @@ export const api = {
     request<BotAnalytics>(`/bots/${botId}/analytics`),
   permissions: (botId: string) =>
     request<BotPermissions>(`/bots/${botId}/permissions`),
+
+  // Admin dashboard. Server re-verifies the caller is ADMIN_TELEGRAM_USER_ID
+  // from initData; a non-admin gets ApiError(403) which the UI renders as a
+  // forbidden state.
+  adminMetrics: (range: { from?: string; to?: string }) => {
+    const qs = new URLSearchParams();
+    if (range.from) qs.set("from", range.from);
+    if (range.to) qs.set("to", range.to);
+    const q = qs.toString();
+    return request<AdminMetrics>(`/admin/metrics${q ? `?${q}` : ""}`);
+  },
+  adminOwners: (search: string, page: number) => {
+    const qs = new URLSearchParams({ page: String(page) });
+    if (search) qs.set("search", search);
+    return request<AdminOwnersPage>(`/admin/owners?${qs.toString()}`);
+  },
+  adminOwnerDetail: (id: string) =>
+    request<AdminOwnerDetail>(`/admin/owners/${encodeURIComponent(id)}`),
 };

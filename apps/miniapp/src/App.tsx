@@ -1,18 +1,43 @@
-import { useEffect, useRef } from "react";
+import { lazy, Suspense, useEffect, useRef } from "react";
 import { Routes, Route, useNavigate } from "react-router-dom";
 import { getStartParam, isInTelegram } from "@/lib/telegram";
+import { Screen } from "@/components/Screen";
+import { Skeleton } from "@/components/ui/skeleton";
 import { BotList } from "@/screens/BotList";
 import { ConnectBot } from "@/screens/ConnectBot";
 import { BotDetail } from "@/screens/BotDetail";
 import { Billing } from "@/screens/Billing";
 
+// Admin surface is operator-only — lazy-load so the recharts-heavy dashboard
+// never ships in the bundle every owner downloads on app open.
+const AdminDashboard = lazy(() =>
+  import("@/screens/admin/AdminDashboard").then((m) => ({ default: m.AdminDashboard })),
+);
+const AdminOwner = lazy(() =>
+  import("@/screens/admin/AdminOwner").then((m) => ({ default: m.AdminOwner })),
+);
+
+// Shown while the lazy admin chunk downloads (recharts is heavy — on a slow
+// Telegram webview this gap is visible). Renders the Screen chrome + a
+// skeleton so it never flashes a blank page, matching the dashboard's own
+// data-loading state.
+const adminRouteFallback = (
+  <Screen eyebrow={<>Operations</>} title="Dashboard">
+    <Skeleton className="h-44 w-full rounded-2xl" />
+    <Skeleton className="h-56 w-full rounded-2xl" />
+  </Screen>
+);
+
 /**
  * Map from Telegram `?startapp=<param>` value to in-app route. Adding more
  * deep links later (e.g. `startapp=bots`, `startapp=connect`) is just an
- * entry in this table.
+ * entry in this table. `dashboard` lands on the admin surface — the route
+ * is public but the API behind it is admin-gated, so a non-admin just sees
+ * a forbidden state.
  */
 const START_PARAM_ROUTES: Record<string, string> = {
   billing: "/billing",
+  dashboard: "/admin",
 };
 
 export function App() {
@@ -37,6 +62,22 @@ export function App() {
         <Route path="/connect" element={<ConnectBot />} />
         <Route path="/bot/:id" element={<BotDetail />} />
         <Route path="/billing" element={<Billing />} />
+        <Route
+          path="/admin"
+          element={
+            <Suspense fallback={adminRouteFallback}>
+              <AdminDashboard />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/admin/owner/:id"
+          element={
+            <Suspense fallback={adminRouteFallback}>
+              <AdminOwner />
+            </Suspense>
+          }
+        />
       </Routes>
     </div>
   );

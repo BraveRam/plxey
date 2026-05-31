@@ -34,6 +34,13 @@ import { ingestDocument, cancelDocumentIngest } from "../lib/doc-ingest";
 import { getBotStats } from "../lib/analytics-stats";
 import { getBillingSummary } from "../lib/billing-read";
 import { getOnboardingBotUsername } from "../lib/bot-identity";
+import {
+  parseDateRange,
+  getAdminMetrics,
+  listAdminOwners,
+  getAdminOwnerDetail,
+} from "../lib/admin-metrics";
+import { isAdminOwnerId } from "../bots/admin-commands";
 import { registry } from "../bots/registry";
 import { ownerDistinctId, track } from "../lib/analytics";
 import { logger } from "../lib/logger";
@@ -121,6 +128,19 @@ async function requireBotOwner(
   const owner = await ownerForBotId(botId);
   if (owner === null) return c.json({ error: "not found" }, 404);
   if (owner !== c.get("ownerId")) return c.json({ error: "forbidden" }, 403);
+  return null;
+}
+
+// Assert the verified owner is the single configured admin. Fail-closed when
+// ADMIN_TELEGRAM_USER_ID is unset (no caller is admin). Reuses the same pure
+// check as the bot-command gate (`isAdmin` in bots/admin-commands.ts) so the
+// two surfaces can never drift. Returns a 403 Response when denied, else null.
+function requireAdmin(
+  c: Context<{ Variables: ApiVariables }>,
+): Response | null {
+  if (!isAdminOwnerId(c.get("ownerId"), process.env.ADMIN_TELEGRAM_USER_ID)) {
+    return c.json({ error: "forbidden" }, 403);
+  }
   return null;
 }
 
@@ -483,5 +503,60 @@ api.delete("/documents/:id", async (c) => {
     return c.json({ success: true });
   } catch (err) {
     return c.json({ error: err instanceof Error ? err.message : "Unknown error" }, 404);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Admin dashboard (single operator). All three routes are gated by
+// requireAdmin — the verified initData id must equal ADMIN_TELEGRAM_USER_ID.
+// Non-admins (every owner) get a flat 403, same shape as requireBotOwner, so
+// the Mini App can render a forbidden state without leaking the surface.
+// ---------------------------------------------------------------------------
+
+// Aggregate metrics + daily time-series for a date window. `from`/`to` are
+// optional ISO/date strings; parseDateRange defaults to the last 30 days and
+// tolerates missing/invalid/inverted bounds. Cached ~60s per range upstream.
+api.get("/admin/metrics", async (c) => {
+  const denied = requireAdmin(c);
+  if (denied) return denied;
+  const range = parseDateRange(c.req.query("from"), c.req.query("to"));
+  try {
+    const metrics = await getAdminMetrics(range);
+    trackMini(c.get("ownerId"), "admin.metrics.viewed");
+    return c.json(metrics);
+  } catch (err) {
+    logger.error({ err }, "admin metrics failed");
+    return c.json({ error: err instanceof Error ? err.message : "Unknown error" }, 500);
+  }
+});
+
+// Paginated owner directory for the drill-down table. `search` matches a
+// numeric id exactly or a username (with/without @) case-insensitively.
+api.get("/admin/owners", async (c) => {
+  const denied = requireAdmin(c);
+  if (denied) return denied;
+  const pageRaw = Number.parseInt(c.req.query("page") ?? "1", 10);
+  const page = Number.isFinite(pageRaw) ? pageRaw : 1;
+  try {
+    const result = await listAdminOwners({ search: c.req.query("search"), page });
+    return c.json(result);
+  } catch (err) {
+    logger.error({ err }, "admin owners list failed");
+    return c.json({ error: err instanceof Error ? err.message : "Unknown error" }, 500);
+  }
+});
+
+// One owner's full detail (profile + subscriptions + bots). 404 when no such
+// owner. The id is path-supplied but only an admin reaches this handler.
+api.get("/admin/owners/:id", async (c) => {
+  const denied = requireAdmin(c);
+  if (denied) return denied;
+  try {
+    const detail = await getAdminOwnerDetail(c.req.param("id"));
+    if (!detail) return c.json({ error: "not found" }, 404);
+    return c.json(detail);
+  } catch (err) {
+    logger.error({ err }, "admin owner detail failed");
+    return c.json({ error: err instanceof Error ? err.message : "Unknown error" }, 500);
   }
 });

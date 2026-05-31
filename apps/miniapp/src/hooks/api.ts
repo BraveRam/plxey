@@ -1,10 +1,19 @@
 import {
+  keepPreviousData,
   useMutation,
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import { api } from "@/lib/api";
+import { api, ApiError } from "@/lib/api";
 import type { PublicBot } from "@/types";
+
+/** Don't retry auth/permission denials — only flaky/5xx errors. */
+function retryUnlessAuth(failureCount: number, error: unknown): boolean {
+  if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {
+    return false;
+  }
+  return failureCount < 2;
+}
 
 export function useBots() {
   return useQuery({ queryKey: ["bots"], queryFn: api.listBots });
@@ -43,6 +52,37 @@ export function usePermissions(botId: string | undefined) {
     queryKey: ["permissions", botId],
     queryFn: () => api.permissions(botId!),
     enabled: !!botId,
+  });
+}
+
+export function useAdminMetrics(range: { from?: string; to?: string }) {
+  return useQuery({
+    queryKey: ["admin", "metrics", range.from ?? "", range.to ?? ""],
+    queryFn: () => api.adminMetrics(range),
+    retry: retryUnlessAuth,
+    // Server caches ~60s; mirror that so re-selecting a range is instant.
+    staleTime: 60_000,
+    placeholderData: keepPreviousData,
+  });
+}
+
+export function useAdminOwners(search: string, page: number) {
+  return useQuery({
+    queryKey: ["admin", "owners", search, page],
+    queryFn: () => api.adminOwners(search, page),
+    retry: retryUnlessAuth,
+    // Keep the previous page/results visible while typing or paging so the
+    // table doesn't flash empty between keystrokes.
+    placeholderData: keepPreviousData,
+  });
+}
+
+export function useAdminOwnerDetail(id: string | undefined) {
+  return useQuery({
+    queryKey: ["admin", "owner", id],
+    queryFn: () => api.adminOwnerDetail(id!),
+    enabled: !!id,
+    retry: retryUnlessAuth,
   });
 }
 
