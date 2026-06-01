@@ -44,9 +44,6 @@ import {
   onboardingWelcome,
   restartErrorMessage,
   ADMIN_UNAUTHORIZED,
-  ADMIN_DASHBOARD_PROMPT,
-  ADMIN_DASHBOARD_BUTTON,
-  ADMIN_DASHBOARD_UNAVAILABLE,
   BROADCAST_PROMPT,
   BROADCAST_NEED_MESSAGE,
   BROADCAST_CANCELLED,
@@ -578,34 +575,6 @@ export async function createOnboardingBot(): Promise<Bot> {
     }
     track(ownerDistinctId(String(ctx.from?.id ?? "")), "admin.broadcast.started");
     await ctx.conversation.enter("broadcast");
-  });
-
-  // Admin-only Mini App opener. Unlisted (kept out of setMyCommands) so
-  // regular owners never see it. Opens the Mini App directly at /admin via a
-  // `web_app` inline button. A `?startapp=` deep link would require a
-  // BotFather-registered *Main* Mini App (which this bot has none of — hence
-  // "this application doesn't exist"); an inline web_app button only needs the
-  // HTTPS URL, works in this private chat, and still delivers signed initData,
-  // so the GET /api/admin/* routes re-verify the admin id server-side (the URL
-  // alone grants nothing). Reuses the same isAdmin gate as /broadcast so a
-  // non-admin who somehow opens it still hits a flat 403.
-  bot.command("dashboard", async (ctx) => {
-    if (!isAdmin(ctx as unknown as Context)) {
-      await ctx.reply(ADMIN_UNAUTHORIZED);
-      return;
-    }
-    const userId = String(ctx.from?.id ?? "");
-    const miniappOrigin = process.env.MINIAPP_ORIGIN;
-    if (!miniappOrigin) {
-      await ctx.reply(ADMIN_DASHBOARD_UNAVAILABLE);
-      return;
-    }
-    const kb = new InlineKeyboard().webApp(
-      ADMIN_DASHBOARD_BUTTON,
-      `${miniappOrigin.replace(/\/$/, "")}/admin`,
-    );
-    await ctx.reply(ADMIN_DASHBOARD_PROMPT, { reply_markup: kb });
-    track(ownerDistinctId(userId), "admin.dashboard.opened");
   });
 
   bot.command("help", async (ctx) => {

@@ -359,6 +359,19 @@ api.get("/bots/:id/permissions", async (c) => {
   });
 });
 
+// Lightweight identity probe for the Mini App. Returns the caller's admin
+// status so the UI can conditionally surface the admin entry point (a button
+// in the home header). NOT gated by requireAdmin — non-admins get
+// `{ isAdmin: false }`. This only reveals the caller's own status, never the
+// admin id; the real protection is on /api/admin/* (every call re-verified).
+api.get("/me", (c) => {
+  const ownerId = c.get("ownerId");
+  return c.json({
+    ownerId,
+    isAdmin: isAdminOwnerId(ownerId, process.env.ADMIN_TELEGRAM_USER_ID),
+  });
+});
+
 api.get("/owners/billing", async (c) => {
   const ownerId = c.get("ownerId");
   const summary = await getBillingSummary(ownerId);

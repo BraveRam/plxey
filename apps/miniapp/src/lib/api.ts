@@ -86,6 +86,8 @@ export const api = {
   cancelDocument: (id: string) =>
     request<{ success: true }>(`/documents/${id}/cancel`, { method: "POST" }),
 
+  me: () => request<{ ownerId: string; isAdmin: boolean }>("/me"),
+
   billing: () => request<BillingSummary>("/owners/billing"),
   analytics: (botId: string) =>
     request<BotAnalytics>(`/bots/${botId}/analytics`),

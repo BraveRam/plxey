@@ -28,6 +28,16 @@ export function useBilling() {
   return useQuery({ queryKey: ["billing"], queryFn: api.billing });
 }
 
+/** Caller's admin status — gates the home-screen admin entry button. Cached
+ * long: it never changes within a session. */
+export function useMe() {
+  return useQuery({
+    queryKey: ["me"],
+    queryFn: api.me,
+    staleTime: Infinity,
+  });
+}
+
 export function useDocuments(botId: string | undefined) {
   return useQuery({
     queryKey: ["documents", botId],

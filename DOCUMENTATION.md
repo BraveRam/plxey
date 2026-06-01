@@ -129,7 +129,7 @@ Owner-facing Telegram Mini App, launched from the onboarding bot's chat menu but
 - **Telegram bridge** (`src/lib/telegram.ts`): `WebApp.ready()/expand()`, maps `themeParams` onto shadcn CSS variables (light/dark follows `colorScheme`), exposes signed `initData`, native BackButton, haptics.
 - **API client** (`src/lib/api.ts`): base `VITE_API_BASE` (= bot `PUBLIC_URL`); sends `Authorization: tma <initData>` on every request.
 - **Screens**: BotList, ConnectBot (paste BotFather token → `POST /api/bots`), BotDetail (tabs: Settings / Knowledge / Stats / Access), Billing, and the operator-only admin dashboard (`screens/admin/`, lazy-loaded — see [Admin Dashboard](#admin-dashboard)).
-- **Deep-link routing**: `App.tsx:StartParamRouter` reads `WebApp.initDataUnsafe.start_param` on mount and routes via `START_PARAM_ROUTES` (`billing` → `/billing`, `dashboard` → `/admin`). Notification DMs from `notify-owner.ts` embed `t.me/<onboarding-bot>?startapp=billing` URL buttons so owners can jump straight to the richer Mini App billing surface from any lifecycle DM. (The admin `/dashboard` command instead uses an inline `web_app` button straight to `${MINIAPP_ORIGIN}/admin` — `?startapp=` deep links need a BotFather Main Mini App this bot lacks; the `notify-owner` billing links have the same prerequisite.)
+- **Deep-link routing**: `App.tsx:StartParamRouter` reads `WebApp.initDataUnsafe.start_param` on mount and routes via `START_PARAM_ROUTES` (`billing` → `/billing`, `dashboard` → `/admin`). Notification DMs from `notify-owner.ts` embed `t.me/<onboarding-bot>?startapp=billing` URL buttons so owners can jump straight to the richer Mini App billing surface from any lifecycle DM. (Note: `?startapp=` deep links require a BotFather-registered Main Mini App this bot lacks, so these billing links currently fail with "this application doesn't exist" until that's configured or they're switched to inline `web_app` buttons. The admin dashboard sidesteps this entirely — it's an in-app button, not a deep link.)
 - **Env**: `VITE_API_BASE`. The bot side needs `MINIAPP_ORIGIN` for CORS + the menu button.
 
 ---
@@ -874,6 +874,10 @@ Mounted at `/api` in `apps/bot/src/index.ts`. Every route passes through, in ord
 
 - Owner-checked. Calls `restartBot` (re-validate token via `getMe` → re-set webhook with bounded retry → status `active` + refresh username), then `registry.invalidate`. The same recovery action as the onboarding bot's Restart button. On success returns `{ success: true, botUsername }`. On the result-union failures it returns the owner-facing `restartErrorMessage` copy with a status: `token_invalid` → 422, `rate_limited` → 429, `webhook_failed` → 502, `not_configured` → 500. Emits `miniapp.bot.restart` / `miniapp.bot.restart.failed`.
 
+### `GET /api/me`
+
+- **Not admin-gated** (any authenticated caller). Returns `{ ownerId, isAdmin }` where `isAdmin = isAdminOwnerId(ownerId, ADMIN_TELEGRAM_USER_ID)`. The Mini App home screen (`BotList`) calls this to decide whether to render the admin entry button next to billing. Reveals only the caller's own status, never the admin id; the real protection stays on `/api/admin/*`.
+
 ### `GET /api/admin/metrics?from=&to=`
 
 - **Admin-only** (`requireAdmin` — the initData-verified `ownerId` must equal `ADMIN_TELEGRAM_USER_ID`; 403 otherwise). Cross-tenant analytics sourced entirely from Neon (exact Postgres aggregation, not PostHog). `from`/`to` are optional `YYYY-MM-DD`; `parseDateRange` defaults to the last 30 days and tolerates missing/inverted/invalid bounds. Returns `{ range, kpis, totals, series, breakdowns }`: `kpis` are all-time snapshots (owners, active bots, MRR ★, active Pro/Business, comp subs, docs ready/total, banned), `totals` are window sums (revenue/refund ★, new owners, new subs, cancellations, customer/AI messages, unique customers), `series` are zero-filled daily arrays (revenue, signups, newSubs, cancellations, messages received/answered) via `generate_series` day-axis left-joins, `breakdowns` are `Record<status,count>` maps for subs/bots/docs + active plans. Cached ~60s per range in Redis (`admin:metrics:{fromIso}:{toIso}`); cache failures fall through to the DB. Implemented in `apps/bot/src/lib/admin-metrics.ts`. Emits `miniapp.admin.metrics.viewed`.
@@ -1000,7 +1004,7 @@ Owner identity is `tenants.telegram_owner_id` (Telegram numeric user ID as strin
 | `BOT_PORT` | No | Bot server port. Default 3000 | Local dev |
 | `LOG_LEVEL` | No | Pino level override | Hosting env |
 | `NODE_ENV` | No | `production` disables pino-pretty, sets level default to `info` | Hosting env |
-| `ADMIN_TELEGRAM_USER_ID` | Recommended (prod) | Telegram user id allowed to run admin commands (`/owner`, `/refund`, `/grant_comp`, `/revoke_comp`, `/ban`, `/unban`, `/dashboard`) **and** the `/api/admin/*` dashboard routes. Fail-closed if unset. | Generated |
+| `ADMIN_TELEGRAM_USER_ID` | Recommended (prod) | Telegram user id allowed to run admin commands (`/owner`, `/refund`, `/grant_comp`, `/revoke_comp`, `/ban`, `/unban`, `/broadcast`) **and** the admin dashboard (`/api/admin/*` routes + the `GET /api/me`-gated admin button in the Mini App). Fail-closed if unset. | Generated |
 
 Per `CLAUDE.md`: never put real env values in tests, fixtures, or any committed file. `.env` is gitignored — keep it that way.
 
@@ -1239,7 +1243,8 @@ Plan-cap enforcement lives in:
 | `/ban <ownerId>` | Flip `is_banned=true`, fire `owner/banned` (handler cancels subs + force-pauses bots). |
 | `/unban <ownerId>` | Flip `is_banned=false`. No auto-resubscribe. |
 | `/broadcast` | Admin-gated conversation (`makeBroadcastConversation`, `onboarding.ts`). Prompts for any message + Cancel, confirms the audience size, then `copyMessage`s it to every non-banned `owners` row (`lib/broadcast.ts`, throttled ~25/s, per-recipient failures skipped). The send loop runs in `conversation.external` so a replay never re-broadcasts. Not listed in the public slash menu. |
-| `/dashboard` | Admin-gated (`isAdmin`). Replies with an inline **`web_app`** button (`📊 Open dashboard`) that opens the Mini App directly at `${MINIAPP_ORIGIN}/admin`. A `?startapp=` deep link is deliberately **not** used — that requires a BotFather-registered *Main* Mini App (which this bot has none of → Telegram replies "this application doesn't exist"); an inline `web_app` button only needs the HTTPS URL, works in the private chat, and still delivers signed initData so the `/api/admin/*` routes re-verify the admin id server-side. Lives in `onboarding.ts`; **not** in `setMyCommands` (unlisted). Replies `ADMIN_DASHBOARD_UNAVAILABLE` if `MINIAPP_ORIGIN` is unset. Emits `admin.dashboard.opened`. |
+
+The admin dashboard has **no slash command** — the admin opens the Mini App normally (menu button) and taps the admin button in the home header (shown only when `GET /api/me` reports `isAdmin`). See [Admin Dashboard](#admin-dashboard).
 
 ### Inngest functions
 
@@ -1260,7 +1265,7 @@ Throttle: DM-fanout functions cap at `concurrency: 10` + `throttle: 30/sec` to s
 
 ### New env vars
 
-- `ADMIN_TELEGRAM_USER_ID` — Telegram user id for the admin command surface **and** the admin dashboard (`/dashboard` command + `/api/admin/*` routes + Mini App `/admin` route). If unset, the admin surface is silently denied (fail-closed).
+- `ADMIN_TELEGRAM_USER_ID` — Telegram user id for the admin command surface **and** the admin dashboard (`/api/admin/*` routes + the `GET /api/me`-gated admin button → Mini App `/admin` route). If unset, the admin surface is silently denied (fail-closed).
 
 ### New Redis key prefixes
 
@@ -1281,7 +1286,7 @@ Throttle: DM-fanout functions cap at `concurrency: 10` + `throttle: 30/sec` to s
 
 ## Admin Dashboard
 
-Single-operator analytics surface. The admin sends `/dashboard` in the onboarding bot → gets an inline `web_app` button (`📊 Open dashboard`) → the Mini App opens directly at `${MINIAPP_ORIGIN}/admin` (`BrowserRouter` + Vercel SPA rewrite render the route from the path; no `start_param` needed). A `?startapp=` deep link is intentionally avoided because it requires a BotFather-registered Main Mini App the bot doesn't have ("this application doesn't exist"). Everything is gated to `ADMIN_TELEGRAM_USER_ID`; opening the URL grants nothing (the inline `web_app` button still delivers signed initData, and the server re-verifies every request).
+Single-operator analytics surface. The admin opens the Mini App normally (the onboarding bot's chat menu button), and the home screen (`BotList`) shows an extra **admin button next to billing** in the header — rendered only when `GET /api/me` reports `isAdmin` (so non-admins never see it). Tapping it navigates in-app to `/admin`. There is no `/dashboard` slash command and no `?startapp=` deep link (that would need a BotFather-registered Main Mini App the bot doesn't have — "this application doesn't exist"). Everything is gated to `ADMIN_TELEGRAM_USER_ID`; the button is cosmetic — the server re-verifies the admin id on every `/api/admin/*` request, and a non-admin who reaches `/admin` directly gets a 403 → `Forbidden` wall.
 
 **Data source.** All numbers come from Neon (exact Postgres aggregation), not PostHog — the dashboard is the source-of-truth financial/operational view. Logic lives in `apps/bot/src/lib/admin-metrics.ts`, mirroring the `analytics-stats.ts` patterns (raw `db.execute(sql\`…\`)`, tolerant `.rows` extraction, short Redis cache).
 
@@ -1291,9 +1296,9 @@ Single-operator analytics surface. The admin sends `/dashboard` in the onboardin
 - `listAdminOwners({search, page})` — page size 25, fetch +1 for `hasMore`; `search` matches numeric id exactly or username `ilike`.
 - `getAdminOwnerDetail(ownerId)` — owner + all subscriptions (Drizzle query builder) + all bots (raw SQL join `tenants`→`tenant_bots` by `telegram_owner_id`).
 
-**Auth.** `requireAdmin(c)` in `api/routes.ts` reuses the pure `isAdminOwnerId` from `admin-commands.ts` (fail-closed when `ADMIN_TELEGRAM_USER_ID` unset) so the bot-command gate and the API gate can't drift. See [the three `/api/admin/*` routes](#get-apiadminmetricsfromto) and [Authorization for the REST API](#authorization-for-the-rest-api).
+**Auth.** `requireAdmin(c)` in `api/routes.ts` reuses the pure `isAdminOwnerId` from `admin-commands.ts` (fail-closed when `ADMIN_TELEGRAM_USER_ID` unset) so the bot-command gate, the `GET /api/me` probe, and the `/api/admin/*` gate can't drift. See [the three `/api/admin/*` routes](#get-apiadminmetricsfromto), [`GET /api/me`](#get-apime), and [Authorization for the REST API](#authorization-for-the-rest-api).
 
-**Mini App.** `apps/miniapp/src/screens/admin/` — `AdminDashboard` (date-range control with 7d/30d/90d/1y/All presets + custom from–to, revenue hero area chart, all-time KPI grid, window-totals grid, growth + messages line/area charts, status breakdowns, searchable owner table) and `AdminOwner` (drill-down). Both are `React.lazy`-loaded in `App.tsx` (with a Screen+Skeleton Suspense fallback) so the recharts-heavy code ships as a separate async chunk, not in every owner's initial bundle. A 403 from the API renders a `Forbidden` wall. The `/dashboard` command reaches `/admin` directly via the `web_app` button URL; a `dashboard` → `/admin` mapping also remains in `START_PARAM_ROUTES` as a harmless fallback in case a Main Mini App is ever configured.
+**Mini App.** `apps/miniapp/src/screens/admin/` — `AdminDashboard` (date-range control with 7d/30d/90d/1y/All presets + custom from–to, revenue hero area chart, all-time KPI grid, window-totals grid, growth + messages line/area charts, status breakdowns, searchable owner table) and `AdminOwner` (drill-down). Both are `React.lazy`-loaded in `App.tsx` (with a Screen+Skeleton Suspense fallback) so the recharts-heavy code ships as a separate async chunk, not in every owner's initial bundle. A 403 from the API renders a `Forbidden` wall. `/admin` is reached by the home-header admin button (`useMe` gates its visibility); it is a normal in-app route, not a deep link.
 
 **Known constraint.** The "All" preset floors the series at `2024-01-01` (before the project had data) to bound `generate_series`; charts use auto-thinned ticks + `dot={false}` so a long window stays readable.
 

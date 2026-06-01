@@ -1,5 +1,5 @@
 import { Link, useNavigate } from "react-router-dom";
-import { Plus, Sparkles, CreditCard, Bot } from "lucide-react";
+import { Plus, Sparkles, CreditCard, Bot, LayoutDashboard } from "lucide-react";
 import { Screen } from "@/components/Screen";
 import { GlowIcon } from "@/components/GlowIcon";
 import { Bezel } from "@/components/Bezel";
@@ -9,7 +9,7 @@ import { Button, ButtonTrailingIcon } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ListGroup, ListRow, SectionLabel } from "@/components/List";
-import { useBots } from "@/hooks/api";
+import { useBots, useMe } from "@/hooks/api";
 import { haptic } from "@/lib/telegram";
 
 function StatusBadge({ status }: { status: string }) {
@@ -31,6 +31,7 @@ function StatusBadge({ status }: { status: string }) {
 export function BotList() {
   const navigate = useNavigate();
   const { data: bots, isLoading, isError } = useBots();
+  const { data: me } = useMe();
 
   return (
     <Screen
@@ -38,17 +39,32 @@ export function BotList() {
       title="Your bots"
       subtitle="Prompts, knowledge, and access — all in one place."
       action={
-        <Button
-          asChild
-          variant="secondary"
-          size="icon"
-          aria-label="Billing"
-          className="rounded-full"
-        >
-          <Link to="/billing" onClick={() => haptic.tap()}>
-            <CreditCard />
-          </Link>
-        </Button>
+        <div className="flex items-center gap-2">
+          {me?.isAdmin ? (
+            <Button
+              asChild
+              variant="secondary"
+              size="icon"
+              aria-label="Admin dashboard"
+              className="rounded-full"
+            >
+              <Link to="/admin" onClick={() => haptic.tap()}>
+                <LayoutDashboard />
+              </Link>
+            </Button>
+          ) : null}
+          <Button
+            asChild
+            variant="secondary"
+            size="icon"
+            aria-label="Billing"
+            className="rounded-full"
+          >
+            <Link to="/billing" onClick={() => haptic.tap()}>
+              <CreditCard />
+            </Link>
+          </Button>
+        </div>
       }
     >
       {isLoading ? (

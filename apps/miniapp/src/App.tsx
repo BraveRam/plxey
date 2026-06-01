@@ -31,13 +31,12 @@ const adminRouteFallback = (
 /**
  * Map from Telegram `?startapp=<param>` value to in-app route. Adding more
  * deep links later (e.g. `startapp=bots`, `startapp=connect`) is just an
- * entry in this table. `dashboard` lands on the admin surface — the route
- * is public but the API behind it is admin-gated, so a non-admin just sees
- * a forbidden state.
+ * entry in this table. (The admin dashboard at `/admin` is reached via the
+ * in-app button in the home header, not a deep link — `?startapp=` would
+ * need a BotFather Main Mini App this bot doesn't have.)
  */
 const START_PARAM_ROUTES: Record<string, string> = {
   billing: "/billing",
-  dashboard: "/admin",
 };
 
 export function App() {
