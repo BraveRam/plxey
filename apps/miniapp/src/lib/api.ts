@@ -111,4 +111,12 @@ export const api = {
   },
   adminOwnerDetail: (id: string) =>
     request<AdminOwnerDetail>(`/admin/owners/${encodeURIComponent(id)}`),
+  adminBanOwner: (id: string) =>
+    request<{ success: true }>(`/admin/owners/${encodeURIComponent(id)}/ban`, {
+      method: "POST",
+    }),
+  adminUnbanOwner: (id: string) =>
+    request<{ success: true }>(`/admin/owners/${encodeURIComponent(id)}/unban`, {
+      method: "POST",
+    }),
 };

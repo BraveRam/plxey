@@ -96,6 +96,21 @@ export function useAdminOwnerDetail(id: string | undefined) {
   });
 }
 
+/** Ban/unban an owner from the dashboard. On success, refresh the owner
+ * detail, the owners list, and the headline metrics (banned count). */
+export function useSetOwnerBan(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (ban: boolean) =>
+      ban ? api.adminBanOwner(id) : api.adminUnbanOwner(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["admin", "owner", id] });
+      qc.invalidateQueries({ queryKey: ["admin", "owners"] });
+      qc.invalidateQueries({ queryKey: ["admin", "metrics"] });
+    },
+  });
+}
+
 export function useUpdateBot() {
   const qc = useQueryClient();
   return useMutation({

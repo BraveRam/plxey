@@ -890,6 +890,10 @@ Mounted at `/api` in `apps/bot/src/index.ts`. Every route passes through, in ord
 
 - **Admin-only**. One owner's full detail: profile row + all `subscriptions` (plan/status/comp/stars/period-end/canceled) + all `bots` (username/status/over-quota, joined `tenants` → `tenant_bots` by `telegram_owner_id`). 404 when no such owner.
 
+### `POST /api/admin/owners/:id/ban` · `POST /api/admin/owners/:id/unban`
+
+- **Admin-only**. Ban/unban an owner from the dashboard's owner-detail screen. `:id` must be a numeric Telegram user id (400 otherwise); 404 when no owner row. Both reuse `banOwner`/`unbanOwner` in `lib/owner-moderation.ts` — the **exact same core** as the `/ban`+`/unban` bot commands, so the two surfaces can't drift: ban flags `is_banned`, updates the in-memory ban cache (`markOwnerBanned`), and fires `owner/banned` (cancels all active subs + pauses all bots); unban clears the flag + cache with no auto-resubscribe. Emits `miniapp.admin.owner.banned` / `miniapp.admin.owner.unbanned`.
+
 ---
 
 ## Rate Limiting (Layered)
@@ -1240,8 +1244,8 @@ Plan-cap enforcement lives in:
 | `/refund <chargeId>` | `refundStarPayment` + `cancelStarSubscription` + fire `subscription/refunded`. |
 | `/grant_comp <ownerId> <pro\|business>` | Create complimentary subscription (year-2099 `currentPeriodEnd`, `is_complimentary=true`). |
 | `/revoke_comp <ownerId>` | Delete the owner's `is_complimentary=true` subscription row(s) + `recomputeEffectivePlan`. Deletion (not cancel) is required — the cancel flow only flips `status→canceled` and leaves the year-2099 `currentPeriodEnd`, so a canceled comp still counts as live. Replies "no comp found" when there are none. |
-| `/ban <ownerId>` | Flip `is_banned=true`, fire `owner/banned` (handler cancels subs + force-pauses bots). |
-| `/unban <ownerId>` | Flip `is_banned=false`. No auto-resubscribe. |
+| `/ban <ownerId>` | Flip `is_banned=true`, fire `owner/banned` (handler cancels subs + force-pauses bots). Delegates to `banOwner` in `lib/owner-moderation.ts` (shared with `POST /api/admin/owners/:id/ban`). |
+| `/unban <ownerId>` | Flip `is_banned=false`. No auto-resubscribe. Delegates to `unbanOwner` (shared with the admin API). |
 | `/broadcast` | Admin-gated conversation (`makeBroadcastConversation`, `onboarding.ts`). Prompts for any message + Cancel, confirms the audience size, then `copyMessage`s it to every non-banned `owners` row (`lib/broadcast.ts`, throttled ~25/s, per-recipient failures skipped). The send loop runs in `conversation.external` so a replay never re-broadcasts. Not listed in the public slash menu. |
 
 The admin dashboard has **no slash command** — the admin opens the Mini App normally (menu button) and taps the admin button in the home header (shown only when `GET /api/me` reports `isAdmin`). See [Admin Dashboard](#admin-dashboard).
@@ -1293,8 +1297,10 @@ Single-operator analytics surface. The admin opens the Mini App normally (the on
 **Functions:**
 - `parseDateRange(from?, to?, now?)` — pure; resolves the window (default last 30 days; missing `to` → now; missing `from` → to−30d; inverted bounds swapped; invalid → default). `now` is injectable for tests (`apps/bot/tests/admin-metrics.test.ts`).
 - `getAdminMetrics(range)` — `Promise.all` of `fetchKpis` (all-time snapshots), `fetchTotals` (window sums), `fetchBreakdowns` (status maps), `fetchSeries` (zero-filled daily arrays via `generate_series` day-axis left-joins). Cached ~60s per range (`admin:metrics:{fromIso}:{toIso}`), cache failures fall through to the DB.
-- `listAdminOwners({search, page})` — page size 25, fetch +1 for `hasMore`; `search` matches numeric id exactly or username `ilike`.
+- `listAdminOwners({search, page})` — page size 25; runs the page query (fetch +1 for `hasMore`) and a `db.$count(owners, where)` in parallel so the table can show `total` + "Page X of Y". `search` matches numeric id exactly or username `ilike`; the same `where` feeds both queries so the count stays consistent under search.
 - `getAdminOwnerDetail(ownerId)` — owner + all subscriptions (Drizzle query builder) + all bots (raw SQL join `tenants`→`tenant_bots` by `telegram_owner_id`).
+
+**Moderation.** The owner-detail screen has a **Ban / Unban** button (destructive, behind a native `confirm()`). It hits `POST /api/admin/owners/:id/{ban,unban}`, which call `banOwner`/`unbanOwner` in `lib/owner-moderation.ts` — the shared core also used by the `/ban`+`/unban` commands, so dashboard and bot bans have identical side effects (ban cache + `owner/banned` fan-out → subs canceled + bots paused). On success the client invalidates the owner detail, owners list, and metrics so the banned badge + KPI update.
 
 **Auth.** `requireAdmin(c)` in `api/routes.ts` reuses the pure `isAdminOwnerId` from `admin-commands.ts` (fail-closed when `ADMIN_TELEGRAM_USER_ID` unset) so the bot-command gate, the `GET /api/me` probe, and the `/api/admin/*` gate can't drift. See [the three `/api/admin/*` routes](#get-apiadminmetricsfromto), [`GET /api/me`](#get-apime), and [Authorization for the REST API](#authorization-for-the-rest-api).
 

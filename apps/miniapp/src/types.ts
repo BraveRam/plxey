@@ -132,6 +132,7 @@ export interface AdminOwnersPage {
   page: number;
   pageSize: number;
   hasMore: boolean;
+  total: number;
 }
 
 export interface AdminOwnerDetail extends AdminOwnerRow {

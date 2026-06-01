@@ -29,7 +29,7 @@ import {
   tenants,
   tenantBots,
 } from "@tg-business/db";
-import { markOwnerBanned, markOwnerUnbanned } from "../lib/banned";
+import { banOwner, unbanOwner } from "../lib/owner-moderation";
 import { recomputeEffectivePlan } from "../lib/owners";
 import { inngest } from "../inngest/client";
 import { cancelStarSubscription } from "../inngest/handlers/_telegram";
@@ -488,27 +488,11 @@ export function attachAdminCommands(bot: Bot<Context>): void {
     }
 
     try {
-      const result = await db
-        .update(owners)
-        .set({ isBanned: true, updatedAt: new Date() })
-        .where(eq(owners.telegramUserId, ownerIdArg))
-        .returning({ telegramUserId: owners.telegramUserId });
-
-      if (result.length === 0) {
+      const { found } = await banOwner(ownerIdArg);
+      if (!found) {
         await ctx.reply(ADMIN_OWNER_NOT_FOUND);
         return;
       }
-
-      // Cache hot-path lookup so the next tenant webhook for this
-      // owner's bots short-circuits in O(1) without a DB round-trip.
-      markOwnerBanned(ownerIdArg);
-
-      // owner/banned handler: cancels all active subs + pauses all bots.
-      await inngest.send({
-        name: "owner/banned",
-        data: { ownerTelegramUserId: ownerIdArg },
-      });
-
       await ctx.reply(ADMIN_BAN_APPLIED);
     } catch (err) {
       logger.warn({ err, ownerIdArg }, "/ban failed");
@@ -530,21 +514,11 @@ export function attachAdminCommands(bot: Bot<Context>): void {
     }
 
     try {
-      const result = await db
-        .update(owners)
-        .set({ isBanned: false, updatedAt: new Date() })
-        .where(eq(owners.telegramUserId, ownerIdArg))
-        .returning({ telegramUserId: owners.telegramUserId });
-
-      if (result.length === 0) {
+      const { found } = await unbanOwner(ownerIdArg);
+      if (!found) {
         await ctx.reply(ADMIN_OWNER_NOT_FOUND);
         return;
       }
-
-      // Mirror the ban-cache mutation: drop the owner from the in-
-      // memory Set so the next webhook is no longer dropped at ingress.
-      markOwnerUnbanned(ownerIdArg);
-
       // No auto-resub: owner must subscribe again per locked design.
       await ctx.reply(ADMIN_UNBAN_APPLIED);
     } catch (err) {

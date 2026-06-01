@@ -82,8 +82,8 @@ export function OwnersTable() {
         <h3 className="font-display text-[16px] font-semibold tracking-tight">
           Owners
         </h3>
-        <span className="text-[11.5px] text-muted-foreground">
-          tap a row for detail
+        <span className="text-[11.5px] tabular-nums text-muted-foreground">
+          {data ? `${formatNum(data.total)} total` : "tap a row for detail"}
         </span>
       </div>
 
@@ -140,7 +140,7 @@ export function OwnersTable() {
             <ChevronLeft className="size-4" /> Prev
           </button>
           <span className="text-[12px] tabular-nums text-muted-foreground">
-            Page {page}
+            Page {page} of {Math.max(1, Math.ceil(data.total / data.pageSize))}
           </span>
           <button
             type="button"

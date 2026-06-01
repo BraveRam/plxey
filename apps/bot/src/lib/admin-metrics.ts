@@ -337,7 +337,13 @@ const OWNERS_PAGE_SIZE = 25;
 export async function listAdminOwners(args: {
   search?: string;
   page?: number;
-}): Promise<{ rows: AdminOwnerRow[]; page: number; pageSize: number; hasMore: boolean }> {
+}): Promise<{
+  rows: AdminOwnerRow[];
+  page: number;
+  pageSize: number;
+  hasMore: boolean;
+  total: number;
+}> {
   const page = Math.max(1, Math.floor(args.page ?? 1));
   const search = (args.search ?? "").trim();
 
@@ -350,13 +356,17 @@ export async function listAdminOwners(args: {
         )
     : undefined;
 
-  // Fetch one extra row to compute hasMore without a COUNT round-trip.
-  const found = await db.query.owners.findMany({
-    where,
-    orderBy: (o, { desc: d }) => [d(o.firstSeenAt)],
-    limit: OWNERS_PAGE_SIZE + 1,
-    offset: (page - 1) * OWNERS_PAGE_SIZE,
-  });
+  // Page rows (fetch +1 to derive hasMore) and the matching total run in
+  // parallel — the total drives the "Page X of Y" / "N owners" UI.
+  const [found, total] = await Promise.all([
+    db.query.owners.findMany({
+      where,
+      orderBy: (o, { desc: d }) => [d(o.firstSeenAt)],
+      limit: OWNERS_PAGE_SIZE + 1,
+      offset: (page - 1) * OWNERS_PAGE_SIZE,
+    }),
+    db.$count(owners, where),
+  ]);
   const hasMore = found.length > OWNERS_PAGE_SIZE;
   const rows = found.slice(0, OWNERS_PAGE_SIZE).map(
     (o): AdminOwnerRow => ({
@@ -373,7 +383,7 @@ export async function listAdminOwners(args: {
       firstSeenAt: o.firstSeenAt.toISOString(),
     }),
   );
-  return { rows, page, pageSize: OWNERS_PAGE_SIZE, hasMore };
+  return { rows, page, pageSize: OWNERS_PAGE_SIZE, hasMore, total };
 }
 
 export interface AdminOwnerDetail extends AdminOwnerRow {

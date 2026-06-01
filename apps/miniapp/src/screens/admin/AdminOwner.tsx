@@ -1,13 +1,15 @@
 import { useParams } from "react-router-dom";
-import { Bot, Gift } from "lucide-react";
+import { Ban, Bot, Gift, ShieldCheck } from "lucide-react";
 import { Screen } from "@/components/Screen";
 import { Bezel } from "@/components/Bezel";
 import { Reveal } from "@/components/Reveal";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useBack } from "@/hooks/useBack";
-import { useAdminOwnerDetail } from "@/hooks/api";
+import { useAdminOwnerDetail, useSetOwnerBan } from "@/hooks/api";
 import { ApiError } from "@/lib/api";
+import { confirm, haptic } from "@/lib/telegram";
 import type { AdminOwnerDetail } from "@/types";
 import { Forbidden } from "./Forbidden";
 import { formatDateFull, formatNum, planLabel, statusVariant } from "./lib";
@@ -35,6 +37,9 @@ export function AdminOwner() {
   useBack();
   const { id } = useParams<{ id: string }>();
   const { data, isLoading, isError, error } = useAdminOwnerDetail(id);
+  // Declared before the early returns so hook order stays stable; only fires
+  // on button press, when `data` is guaranteed present.
+  const banMut = useSetOwnerBan(id ?? "");
 
   if (error instanceof ApiError && error.status === 403) {
     return <Forbidden />;
@@ -88,6 +93,34 @@ export function AdminOwner() {
           <p className="text-[12.5px] text-muted-foreground">
             First seen {formatDateFull(data.firstSeenAt) ?? "—"}
           </p>
+          <Button
+            variant={data.isBanned ? "outline" : "destructive"}
+            size="sm"
+            className="w-full"
+            disabled={banMut.isPending}
+            onClick={async () => {
+              const banning = !data.isBanned;
+              const ok = await confirm(
+                banning
+                  ? `Ban ${ownerName(data)}? This cancels their subscriptions and pauses all their bots.`
+                  : `Unban ${ownerName(data)}? They'll need to subscribe again to use bots.`,
+              );
+              if (!ok) return;
+              banMut.mutate(banning, {
+                onSuccess: () => haptic.success(),
+                onError: () => haptic.error(),
+              });
+            }}
+          >
+            {data.isBanned ? <ShieldCheck /> : <Ban />}
+            {banMut.isPending
+              ? data.isBanned
+                ? "Unbanning…"
+                : "Banning…"
+              : data.isBanned
+                ? "Unban owner"
+                : "Ban owner"}
+          </Button>
         </Bezel>
       </Reveal>
 

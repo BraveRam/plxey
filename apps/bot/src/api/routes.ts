@@ -41,6 +41,7 @@ import {
   getAdminOwnerDetail,
 } from "../lib/admin-metrics";
 import { isAdminOwnerId } from "../bots/admin-commands";
+import { banOwner, unbanOwner } from "../lib/owner-moderation";
 import { registry } from "../bots/registry";
 import { ownerDistinctId, track } from "../lib/analytics";
 import { logger } from "../lib/logger";
@@ -570,6 +571,43 @@ api.get("/admin/owners/:id", async (c) => {
     return c.json(detail);
   } catch (err) {
     logger.error({ err }, "admin owner detail failed");
+    return c.json({ error: err instanceof Error ? err.message : "Unknown error" }, 500);
+  }
+});
+
+// Ban / unban an owner from the dashboard. Reuses the exact same core as the
+// `/ban` + `/unban` admin commands (`lib/owner-moderation.ts`): ban flags the
+// row, updates the in-memory ban cache, and fires `owner/banned` (cancels
+// subs + pauses bots); unban clears the flag + cache. Owner ids are numeric
+// Telegram user ids — reject anything else before touching the DB.
+api.post("/admin/owners/:id/ban", async (c) => {
+  const denied = requireAdmin(c);
+  if (denied) return denied;
+  const id = c.req.param("id");
+  if (!/^\d+$/.test(id)) return c.json({ error: "invalid id" }, 400);
+  try {
+    const { found } = await banOwner(id);
+    if (!found) return c.json({ error: "not found" }, 404);
+    trackMini(c.get("ownerId"), "admin.owner.banned");
+    return c.json({ success: true });
+  } catch (err) {
+    logger.error({ err, id }, "admin ban failed");
+    return c.json({ error: err instanceof Error ? err.message : "Unknown error" }, 500);
+  }
+});
+
+api.post("/admin/owners/:id/unban", async (c) => {
+  const denied = requireAdmin(c);
+  if (denied) return denied;
+  const id = c.req.param("id");
+  if (!/^\d+$/.test(id)) return c.json({ error: "invalid id" }, 400);
+  try {
+    const { found } = await unbanOwner(id);
+    if (!found) return c.json({ error: "not found" }, 404);
+    trackMini(c.get("ownerId"), "admin.owner.unbanned");
+    return c.json({ success: true });
+  } catch (err) {
+    logger.error({ err, id }, "admin unban failed");
     return c.json({ error: err instanceof Error ? err.message : "Unknown error" }, 500);
   }
 });
