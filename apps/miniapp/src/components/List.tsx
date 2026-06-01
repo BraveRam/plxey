@@ -26,8 +26,7 @@ export function ListGroup({
   return (
     <div
       className={cn(
-        "relative overflow-hidden rounded-[var(--radius)] bg-card",
-        "shadow-[var(--ds-soft-shadow)] ring-1 ring-foreground/[0.05]",
+        "relative overflow-hidden rounded-[var(--radius)] border border-border bg-card",
         className,
       )}
     >
@@ -74,17 +73,17 @@ export function ListRow({
         "group flex items-center gap-3.5 px-5 py-4",
         // Inset hairline between rows, hidden on last child.
         "after:pointer-events-none after:absolute after:inset-x-5 after:bottom-0 after:h-px",
-        "after:bg-foreground/[0.06] last:after:hidden",
+        "after:bg-border last:after:hidden",
         "relative",
         interactive &&
-          "ds-press cursor-pointer hover:bg-foreground/[0.025] active:bg-foreground/[0.05]",
+          "ds-press cursor-pointer hover:bg-foreground/[0.03] active:bg-foreground/[0.06]",
       )}
     >
       {icon ? (
         <span
           className={cn(
-            "grid size-9 shrink-0 place-items-center rounded-[12px]",
-            "bg-foreground/[0.05] ring-1 ring-inset ring-foreground/[0.06]",
+            "grid size-9 shrink-0 place-items-center rounded-[10px]",
+            "bg-foreground/[0.05]",
             "[&_svg]:size-[18px]",
             destructive ? "text-destructive" : "text-foreground/80",
           )}

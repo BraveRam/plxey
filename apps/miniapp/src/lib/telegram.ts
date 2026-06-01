@@ -60,6 +60,21 @@ function applyTheme(): void {
   set("--primary-foreground", tp.button_text_color);
   set("--ring", tp.button_color);
 
+  // The flat design is border-load-bearing: cards have no shadow, so the 1px
+  // hairline is the only thing separating a card from the page. Telegram may
+  // send secondary_bg_color == bg_color (or omit it), collapsing --card onto
+  // --background. So derive --border/--input from the *resolved* palette — a
+  // fixed step toward the text color — instead of leaving them at the static
+  // defaults, guaranteeing the hairline stays visible in every theme.
+  root.style.setProperty(
+    "--border",
+    "color-mix(in oklch, var(--foreground) 12%, var(--card))",
+  );
+  root.style.setProperty(
+    "--input",
+    "color-mix(in oklch, var(--foreground) 12%, var(--card))",
+  );
+
   root.classList.toggle("dark", WebApp.colorScheme === "dark");
   if (tp.bg_color) {
     WebApp.setHeaderColor("secondary_bg_color");

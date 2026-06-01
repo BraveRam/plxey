@@ -135,7 +135,7 @@ export function OwnersTable() {
               haptic.tap();
               setPage((p) => Math.max(1, p - 1));
             }}
-            className="flex items-center gap-1 rounded-lg px-3 py-1.5 text-[13px] font-semibold text-muted-foreground ring-1 ring-inset ring-foreground/[0.08] transition-colors hover:text-foreground disabled:opacity-40"
+            className="flex items-center gap-1 rounded-lg border border-border px-3 py-1.5 text-[13px] font-semibold text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40"
           >
             <ChevronLeft className="size-4" /> Prev
           </button>
@@ -149,7 +149,7 @@ export function OwnersTable() {
               haptic.tap();
               setPage((p) => p + 1);
             }}
-            className="flex items-center gap-1 rounded-lg px-3 py-1.5 text-[13px] font-semibold text-muted-foreground ring-1 ring-inset ring-foreground/[0.08] transition-colors hover:text-foreground disabled:opacity-40"
+            className="flex items-center gap-1 rounded-lg border border-border px-3 py-1.5 text-[13px] font-semibold text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40"
           >
             Next <ChevronRight className="size-4" />
           </button>

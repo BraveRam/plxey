@@ -69,7 +69,7 @@ function UsageBar({
           ) : null}
         </span>
       </div>
-      <div className="h-2.5 overflow-hidden rounded-full bg-foreground/[0.06] ring-1 ring-inset ring-foreground/[0.06]">
+      <div className="h-2.5 overflow-hidden rounded-full bg-foreground/[0.06]">
         <div
           className="h-full rounded-full bg-primary transition-[width] duration-700 ease-[cubic-bezier(0.32,0.72,0,1)]"
           style={{

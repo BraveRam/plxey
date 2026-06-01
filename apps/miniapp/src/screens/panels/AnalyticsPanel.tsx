@@ -15,7 +15,7 @@ import type { BotAnalytics, StatsBucket } from "@/types";
 
 function Stat({ label, value }: { label: string; value: number }) {
   return (
-    <div className="rounded-lg bg-muted/60 p-3 text-center">
+    <div className="rounded-lg bg-foreground/[0.04] p-3 text-center">
       <p className="text-2xl font-bold tabular-nums">{value}</p>
       <p className="text-xs text-muted-foreground">{label}</p>
     </div>

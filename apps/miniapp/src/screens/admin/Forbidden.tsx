@@ -12,7 +12,7 @@ export function Forbidden() {
   return (
     <Screen eyebrow={<>Restricted</>} title="Admin only">
       <Bezel innerClassName="flex flex-col items-center gap-3 p-8 text-center">
-        <div className="rounded-full bg-destructive/12 p-3 text-destructive ring-1 ring-inset ring-destructive/25">
+        <div className="rounded-full border border-destructive/25 bg-destructive/10 p-3 text-destructive">
           <ShieldX className="size-6" />
         </div>
         <p className="max-w-[34ch] text-[14px] leading-snug text-muted-foreground">

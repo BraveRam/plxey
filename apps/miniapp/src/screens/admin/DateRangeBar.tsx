@@ -37,11 +37,11 @@ export function DateRangeBar({ value, onChange }: DateRangeBarProps) {
               onClick={() => selectPreset(c.key)}
               aria-pressed={active}
               className={cn(
-                "shrink-0 rounded-full px-3.5 py-1.5 text-[13px] font-semibold tracking-tight",
-                "ring-1 ring-inset transition-colors duration-200",
+                "shrink-0 rounded-full border px-3.5 py-1.5 text-[13px] font-semibold tracking-tight",
+                "transition-colors duration-200",
                 active
-                  ? "bg-primary text-primary-foreground ring-primary/30"
-                  : "bg-foreground/[0.04] text-muted-foreground ring-foreground/[0.06] hover:text-foreground",
+                  ? "border-primary bg-primary text-primary-foreground"
+                  : "border-border bg-transparent text-muted-foreground hover:bg-foreground/[0.04] hover:text-foreground",
               )}
             >
               {c.label}

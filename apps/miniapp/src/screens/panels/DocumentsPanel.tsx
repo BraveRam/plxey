@@ -120,7 +120,7 @@ export function DocumentsPanel({ botId }: { botId: string }) {
       </Button>
 
       {processingCount > 0 ? (
-        <div className="flex items-center gap-2 rounded-lg bg-muted px-3 py-2 text-sm text-muted-foreground">
+        <div className="flex items-center gap-2 rounded-lg bg-foreground/[0.05] px-3 py-2 text-sm text-muted-foreground">
           <Loader2 className="size-4 animate-spin" />
           {processingCount} document{processingCount > 1 ? "s" : ""} processing —
           this updates automatically.
@@ -133,7 +133,7 @@ export function DocumentsPanel({ botId }: { botId: string }) {
         <div className="space-y-2">
           {docs.map((doc) => (
             <Card key={doc.id} className="flex items-center gap-3 p-3">
-              <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+              <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-foreground/[0.05] text-muted-foreground">
                 <FileText className="size-5" />
               </div>
               <div className="min-w-0 flex-1">

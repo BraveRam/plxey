@@ -9,13 +9,12 @@ function Switch({
   return (
     <SwitchPrimitive.Root
       className={cn(
-        "peer relative inline-flex h-7 w-12 shrink-0 cursor-pointer items-center rounded-full",
-        "transition-[background-color,box-shadow] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)]",
-        "ring-1 ring-inset ring-foreground/[0.08]",
-        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40",
+        "peer relative inline-flex h-7 w-12 shrink-0 cursor-pointer items-center rounded-full border border-transparent",
+        "transition-[background-color] duration-200 ease-[cubic-bezier(0.32,0.72,0,1)]",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30",
         "disabled:cursor-not-allowed disabled:opacity-50",
-        "data-[state=checked]:bg-primary data-[state=checked]:shadow-[0_0_0_3px_color-mix(in_oklch,var(--primary)_25%,transparent)]",
-        "data-[state=unchecked]:bg-foreground/[0.1]",
+        "data-[state=checked]:bg-primary",
+        "data-[state=unchecked]:bg-foreground/[0.14]",
         className,
       )}
       {...props}
@@ -23,8 +22,8 @@ function Switch({
       <SwitchPrimitive.Thumb
         className={cn(
           "pointer-events-none block size-6 translate-x-0.5 rounded-full bg-white",
-          "shadow-[0_2px_4px_rgb(0_0_0/0.18),0_0_0_1px_rgb(0_0_0/0.04)]",
-          "transition-transform duration-300 ease-[cubic-bezier(0.32,0.72,0,1)]",
+          "shadow-[0_1px_2px_rgb(0_0_0/0.15)]",
+          "transition-transform duration-200 ease-[cubic-bezier(0.32,0.72,0,1)]",
           "data-[state=checked]:translate-x-[22px]",
         )}
       />

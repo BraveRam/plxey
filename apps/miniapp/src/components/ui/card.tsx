@@ -5,12 +5,8 @@ function Card({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
   return (
     <div
       className={cn(
-        // Floating surface with gentle inner highlight + ambient shadow.
-        // Wrap in `<Bezel>` for the full double-bezel treatment.
-        "relative rounded-[var(--radius)] bg-card text-card-foreground",
-        "shadow-[var(--ds-soft-shadow)] ring-1 ring-foreground/[0.04]",
-        "before:pointer-events-none before:absolute before:inset-x-3 before:top-0 before:h-px",
-        "before:bg-gradient-to-r before:from-transparent before:via-foreground/10 before:to-transparent",
+        // Flat hairline surface — 1px border, no shadow/ring.
+        "relative rounded-[var(--radius)] border border-border bg-card text-card-foreground",
         className,
       )}
       {...props}

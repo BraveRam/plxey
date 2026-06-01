@@ -15,7 +15,7 @@
  * override of the shadcn surface vars.
  */
 :root {
-  --radius: 1.25rem;
+  --radius: 0.875rem;
 
   --background: oklch(0.985 0 0);
   --foreground: oklch(0.145 0 0);
@@ -37,19 +37,16 @@
   --input: oklch(0.92 0 0);
   --ring: oklch(0.708 0 0);
 
-  /* --- Premium design system layer ----------------------------------- */
-  --ds-bezel-outer: rgb(0 0 0 / 0.04);
-  --ds-bezel-ring: rgb(0 0 0 / 0.06);
-  --ds-inner-highlight: rgb(255 255 255 / 0.65);
-  --ds-soft-shadow:
-    0 1px 1px rgb(0 0 0 / 0.02),
-    0 6px 18px -8px rgb(0 0 0 / 0.10),
-    0 20px 40px -16px rgb(0 0 0 / 0.06);
+  /* --- Minimal design layer ------------------------------------------ */
+  /* Surfaces are flat: --card fill + 1px --border, no rings, no shadows.
+     The two vars below are kept (as no-ops / a single soft shadow) so any
+     stray reference degrades gracefully to the flat look. --ds-island-shadow
+     is the ONE allowed shadow, reserved for floating elements (bottom CTA). */
+  --ds-soft-shadow: none;
+  --ds-inner-highlight: transparent;
   --ds-island-shadow:
-    0 1px 1px rgb(0 0 0 / 0.04),
-    0 10px 30px -6px rgb(0 0 0 / 0.18),
-    0 30px 60px -20px rgb(0 0 0 / 0.18);
-  --ds-noise-opacity: 0.025;
+    0 1px 2px rgb(0 0 0 / 0.05),
+    0 12px 32px -16px rgb(0 0 0 / 0.22);
 
   /* Spring-ish cubic-bezier — never use linear/ease-in-out. */
   --ds-ease: cubic-bezier(0.32, 0.72, 0, 1);
@@ -77,18 +74,11 @@
   --input: oklch(1 0 0 / 12%);
   --ring: oklch(0.556 0 0);
 
-  --ds-bezel-outer: rgb(255 255 255 / 0.04);
-  --ds-bezel-ring: rgb(255 255 255 / 0.06);
-  --ds-inner-highlight: rgb(255 255 255 / 0.08);
-  --ds-soft-shadow:
-    0 1px 1px rgb(0 0 0 / 0.4),
-    0 10px 30px -10px rgb(0 0 0 / 0.6),
-    0 30px 60px -20px rgb(0 0 0 / 0.5);
+  --ds-soft-shadow: none;
+  --ds-inner-highlight: transparent;
   --ds-island-shadow:
-    0 1px 1px rgb(0 0 0 / 0.5),
-    0 14px 40px -6px rgb(0 0 0 / 0.7),
-    0 40px 70px -20px rgb(0 0 0 / 0.55);
-  --ds-noise-opacity: 0.04;
+    0 1px 2px rgb(0 0 0 / 0.4),
+    0 16px 40px -16px rgb(0 0 0 / 0.6);
 }
 
 @theme inline {
@@ -112,11 +102,11 @@
   --color-input: var(--input);
   --color-ring: var(--ring);
 
-  --radius-sm: calc(var(--radius) - 12px);
-  --radius-md: calc(var(--radius) - 8px);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) + 8px);
-  --radius-2xl: calc(var(--radius) + 16px);
+  --radius-xl: calc(var(--radius) + 2px);
+  --radius-2xl: calc(var(--radius) + 4px);
 
   --font-sans:
     "Plus Jakarta Sans", "Geist", var(--tg-font, ui-sans-serif), system-ui,
@@ -149,55 +139,41 @@
   }
 }
 
-/* ----- Ambient page background ------------------------------------ */
-/* Film grain pinned to the viewport so scrolling content does not repaint. */
-.ds-bg-shell::after {
-  content: "";
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  z-index: 0;
-  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 200'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 0.6 0'/></filter><rect width='100%' height='100%' filter='url(%23n)' opacity='0.9'/></svg>");
-  opacity: var(--ds-noise-opacity);
-  mix-blend-mode: overlay;
-}
+/* ----- Page background --------------------------------------------- */
+/* Flat, clean background — no grain, no orbs. `.ds-bg-shell` is kept as a
+ * positioning context only (Screen relies on it being `relative isolate`). */
 
-/* ----- Double-bezel primitive ------------------------------------- */
-/* Outer shell: subtle tinted wrapper. Inner core: actual surface.
- * Concentric rounding handled via calc() so both radii curve together. */
+/* ----- Card primitive (flat hairline) ------------------------------ */
+/* Bezel renders an outer `.ds-bezel` wrapping an inner `.ds-bezel-inner`.
+ * Both share one radius; the card is a single flat surface with a 1px
+ * hairline border and no shadow/ring. Padding comes from the inner via the
+ * component's `innerClassName` (default p-5). */
 .ds-bezel {
   position: relative;
-  padding: 6px;
-  border-radius: calc(var(--radius) + 6px);
-  background: var(--ds-bezel-outer);
-  box-shadow:
-    inset 0 0 0 1px var(--ds-bezel-ring),
-    var(--ds-soft-shadow);
+  border-radius: var(--radius);
+  background: var(--card);
+  border: 1px solid var(--border);
 }
 
 .ds-bezel-inner {
-  background: var(--card);
   border-radius: var(--radius);
-  box-shadow: inset 0 1px 0 0 var(--ds-inner-highlight);
 }
 
 /* ----- Reveal — viewport entrance animation ----------------------- */
+/* Minimal: opacity + a short rise, no blur. */
 .ds-reveal {
   opacity: 0;
-  transform: translateY(20px);
-  filter: blur(8px);
+  transform: translateY(10px);
   transition:
-    opacity 700ms var(--ds-ease),
-    transform 700ms var(--ds-ease),
-    filter 700ms var(--ds-ease);
+    opacity 500ms var(--ds-ease),
+    transform 500ms var(--ds-ease);
 }
 .ds-reveal.is-in {
   opacity: 1;
   transform: translateY(0);
-  filter: blur(0);
 }
 .ds-reveal.is-staggered.is-in {
-  transition-delay: calc(var(--ds-stagger, 0) * 60ms);
+  transition-delay: calc(var(--ds-stagger, 0) * 50ms);
 }
 
 /* Press-down physics for tappable surfaces */
@@ -210,26 +186,13 @@
   transform: scale(0.985);
 }
 
-/* Eyebrow tag — uppercase pill above heroes */
+/* Eyebrow — plain uppercase label above headings (no pill, no dot). */
 .ds-eyebrow {
   display: inline-flex;
   align-items: center;
-  gap: 0.4rem;
-  padding: 0.3rem 0.65rem;
-  border-radius: 999px;
-  font-size: 0.625rem;
+  font-size: 0.6875rem;
   font-weight: 600;
-  letter-spacing: 0.18em;
+  letter-spacing: 0.16em;
   text-transform: uppercase;
   color: var(--muted-foreground);
-  background: color-mix(in oklch, var(--muted-foreground) 12%, transparent);
-  box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--muted-foreground) 18%, transparent);
-}
-.ds-eyebrow::before {
-  content: "";
-  width: 0.35rem;
-  height: 0.35rem;
-  border-radius: 999px;
-  background: var(--primary);
-  box-shadow: 0 0 0 3px color-mix(in oklch, var(--primary) 40%, transparent);
 }

@@ -232,7 +232,7 @@ function BarRow({ label, value, max }: { label: string; value: number; max: numb
       <span className="w-24 shrink-0 truncate text-[12.5px] capitalize text-muted-foreground">
         {label}
       </span>
-      <div className="h-2 flex-1 overflow-hidden rounded-full bg-foreground/[0.05]">
+      <div className="h-2 flex-1 overflow-hidden rounded-full bg-foreground/[0.06]">
         <div
           className="h-full rounded-full bg-primary/70"
           style={{ width: `${pct}%` }}

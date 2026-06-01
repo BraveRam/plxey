@@ -18,14 +18,13 @@ const buttonVariants = cva(
         primary:
           "bg-primary text-primary-foreground shadow-[var(--ds-island-shadow)]",
         outline:
-          "bg-background/60 text-foreground backdrop-blur-md shadow-[var(--ds-soft-shadow)] " +
-          "ring-1 ring-inset ring-foreground/12",
+          "bg-transparent text-foreground border border-border hover:bg-muted/60",
         ghost:
-          "bg-transparent text-foreground hover:bg-foreground/[0.06]",
+          "bg-transparent text-foreground hover:bg-muted/60",
         destructive:
-          "bg-destructive text-destructive-foreground shadow-[var(--ds-island-shadow)]",
+          "bg-destructive text-destructive-foreground",
         secondary:
-          "bg-foreground/[0.06] text-foreground ring-1 ring-inset ring-foreground/10",
+          "bg-muted text-foreground border border-border hover:bg-muted/70",
         link: "text-primary underline-offset-4 hover:underline",
       },
       size: {

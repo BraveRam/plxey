@@ -5,9 +5,8 @@ import { cn } from "@/lib/utils";
 const Tabs = TabsPrimitive.Root;
 
 /**
- * Glass-pill tab strip. The active trigger lifts onto a floating pill
- * inside the strip — closer to iOS segmented control than the default
- * shadcn bar. Used vertically in `BotDetail` to swap between panels.
+ * Minimal segmented control. The active trigger sits on a flat card pill
+ * with a hairline border (no shadow). Used in `BotDetail` to swap panels.
  */
 function TabsList({
   className,
@@ -17,8 +16,7 @@ function TabsList({
     <TabsPrimitive.List
       className={cn(
         "inline-flex h-auto w-full items-stretch justify-between gap-1 rounded-full",
-        "bg-foreground/[0.05] p-1.5 text-muted-foreground",
-        "ring-1 ring-inset ring-foreground/[0.06] shadow-[inset_0_1px_0_0_var(--ds-inner-highlight)]",
+        "border border-border bg-foreground/[0.04] p-1.5 text-muted-foreground",
         className,
       )}
       {...props}
@@ -34,13 +32,11 @@ function TabsTrigger({
     <TabsPrimitive.Trigger
       className={cn(
         "inline-flex flex-1 select-none items-center justify-center gap-1.5",
-        "whitespace-nowrap rounded-full px-3 py-2",
+        "whitespace-nowrap rounded-full border border-transparent px-3 py-2",
         "text-[12px] font-semibold tracking-tight",
-        "transition-[color,background-color,box-shadow,transform] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)]",
+        "transition-[color,background-color,border-color] duration-200 ease-[cubic-bezier(0.32,0.72,0,1)]",
         "focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50",
-        "data-[state=active]:bg-card data-[state=active]:text-foreground",
-        "data-[state=active]:shadow-[0_1px_2px_rgb(0_0_0/0.06),0_8px_20px_-10px_rgb(0_0_0/0.18)]",
-        "data-[state=active]:ring-1 data-[state=active]:ring-foreground/[0.06]",
+        "data-[state=active]:border-border data-[state=active]:bg-card data-[state=active]:text-foreground",
         className,
       )}
       {...props}

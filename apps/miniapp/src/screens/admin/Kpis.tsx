@@ -29,7 +29,7 @@ interface TileProps {
  * stays calm; tabular numerals keep columns aligned. */
 function Tile({ icon, label, value, sub, accent }: TileProps) {
   return (
-    <div className="rounded-2xl bg-foreground/[0.03] p-4 ring-1 ring-inset ring-foreground/[0.06]">
+    <div className="rounded-2xl border border-border bg-card p-4">
       <div className="flex items-center gap-1.5 text-muted-foreground">
         <span className={cn("[&>svg]:size-3.5", accent && "text-primary")}>
           {icon}

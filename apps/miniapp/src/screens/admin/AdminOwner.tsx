@@ -22,7 +22,7 @@ function ownerName(o: AdminOwnerDetail): string {
 
 function Fact({ label, value }: { label: string; value: React.ReactNode }) {
   return (
-    <div className="rounded-xl bg-foreground/[0.03] p-3 ring-1 ring-inset ring-foreground/[0.06]">
+    <div className="rounded-xl border border-border bg-card p-3">
       <p className="text-[10.5px] font-semibold uppercase tracking-[0.13em] text-muted-foreground">
         {label}
       </p>
@@ -137,7 +137,7 @@ export function AdminOwner() {
               {data.subscriptions.map((s, i) => (
                 <li
                   key={i}
-                  className="rounded-xl bg-foreground/[0.03] p-3.5 ring-1 ring-inset ring-foreground/[0.06]"
+                  className="rounded-xl border border-border bg-card p-3.5"
                 >
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-2">
@@ -181,7 +181,7 @@ export function AdminOwner() {
               {data.bots.map((b, i) => (
                 <li
                   key={i}
-                  className="flex items-center justify-between gap-2 rounded-xl bg-foreground/[0.03] px-3.5 py-2.5 ring-1 ring-inset ring-foreground/[0.06]"
+                  className="flex items-center justify-between gap-2 rounded-xl border border-border bg-card px-3.5 py-2.5"
                 >
                   <span className="flex items-center gap-2 text-[13.5px] font-medium">
                     <Bot className="size-4 text-muted-foreground" />

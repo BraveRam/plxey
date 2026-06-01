@@ -50,7 +50,7 @@ export function ConnectBot() {
       <Reveal delay={1}>
         <Bezel innerClassName="p-5">
           <div className="flex items-start gap-3 rounded-2xl bg-foreground/[0.04] p-3.5 text-[13.5px] text-muted-foreground">
-            <span className="grid size-8 shrink-0 place-items-center rounded-xl bg-foreground/[0.06] text-foreground/80">
+            <span className="grid size-8 shrink-0 place-items-center rounded-xl border border-border bg-card text-foreground/80">
               <KeyRound className="size-[16px]" strokeWidth={2} />
             </span>
             <p className="leading-snug">
