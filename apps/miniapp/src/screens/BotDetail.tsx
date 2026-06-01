@@ -2,11 +2,12 @@ import { lazy, Suspense } from "react";
 import { useParams } from "react-router-dom";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Settings2, BookOpen, BarChart3, ShieldCheck } from "lucide-react";
+import { Settings2, BookOpen, BarChart3, ShieldCheck, ArrowUpRight } from "lucide-react";
 import { Avatar } from "@/components/Avatar";
 import { Bezel } from "@/components/Bezel";
 import { Reveal } from "@/components/Reveal";
 import { Badge } from "@/components/ui/badge";
+import { haptic, openTelegramLink } from "@/lib/telegram";
 import { useBack } from "@/hooks/useBack";
 import { useBot, useBots } from "@/hooks/api";
 import { SettingsPanel } from "@/screens/panels/SettingsPanel";
@@ -59,7 +60,25 @@ export function BotDetail() {
           <Avatar name={name} size={92} />
           <div className="space-y-1.5">
             <h1 className="font-display text-[26px] font-bold tracking-[-0.02em]">
-              {bot.botUsername ? `@${bot.botUsername}` : "Bot"}
+              {bot.botUsername ? (
+                <button
+                  type="button"
+                  aria-label={`Open @${bot.botUsername} on Telegram`}
+                  onClick={() => {
+                    haptic.tap();
+                    openTelegramLink(`https://t.me/${bot.botUsername}`);
+                  }}
+                  className="group inline-flex items-center gap-1 transition-colors hover:text-primary active:opacity-80"
+                >
+                  @{bot.botUsername}
+                  <ArrowUpRight
+                    className="size-[18px] translate-y-px text-muted-foreground transition-colors group-hover:text-primary"
+                    strokeWidth={2.5}
+                  />
+                </button>
+              ) : (
+                "Bot"
+              )}
             </h1>
             <div className="flex justify-center">
               <Badge
