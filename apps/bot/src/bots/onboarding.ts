@@ -56,7 +56,6 @@ import {
   broadcastDone,
 } from "../lib/text";
 import { isAdmin } from "./admin-commands";
-import { getOnboardingBotUsername } from "../lib/bot-identity";
 import {
   broadcastAudienceSize,
   runBroadcast,
@@ -582,25 +581,28 @@ export async function createOnboardingBot(): Promise<Bot> {
   });
 
   // Admin-only Mini App opener. Unlisted (kept out of setMyCommands) so
-  // regular owners never see it. Sends a `?startapp=dashboard` deep link;
-  // the Mini App's StartParamRouter maps that to the /admin route, and the
-  // GET /api/admin/* routes re-verify the admin id from initData server-side
-  // (the link alone grants nothing). Reuses the same isAdmin gate as
-  // /broadcast so a non-admin tapping a leaked link still hits a flat 403.
+  // regular owners never see it. Opens the Mini App directly at /admin via a
+  // `web_app` inline button. A `?startapp=` deep link would require a
+  // BotFather-registered *Main* Mini App (which this bot has none of — hence
+  // "this application doesn't exist"); an inline web_app button only needs the
+  // HTTPS URL, works in this private chat, and still delivers signed initData,
+  // so the GET /api/admin/* routes re-verify the admin id server-side (the URL
+  // alone grants nothing). Reuses the same isAdmin gate as /broadcast so a
+  // non-admin who somehow opens it still hits a flat 403.
   bot.command("dashboard", async (ctx) => {
     if (!isAdmin(ctx as unknown as Context)) {
       await ctx.reply(ADMIN_UNAUTHORIZED);
       return;
     }
     const userId = String(ctx.from?.id ?? "");
-    const username = getOnboardingBotUsername();
-    if (!username) {
+    const miniappOrigin = process.env.MINIAPP_ORIGIN;
+    if (!miniappOrigin) {
       await ctx.reply(ADMIN_DASHBOARD_UNAVAILABLE);
       return;
     }
-    const kb = new InlineKeyboard().url(
+    const kb = new InlineKeyboard().webApp(
       ADMIN_DASHBOARD_BUTTON,
-      `https://t.me/${username}?startapp=dashboard`,
+      `${miniappOrigin.replace(/\/$/, "")}/admin`,
     );
     await ctx.reply(ADMIN_DASHBOARD_PROMPT, { reply_markup: kb });
     track(ownerDistinctId(userId), "admin.dashboard.opened");

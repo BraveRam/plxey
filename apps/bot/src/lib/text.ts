@@ -1084,7 +1084,7 @@ export const ADMIN_DASHBOARD_PROMPT =
   "📊 Admin dashboard — revenue, signups, subscriptions, bots, docs and message volume across every tenant, with a searchable per-owner drill-down. Tap to open.";
 export const ADMIN_DASHBOARD_BUTTON = "📊 Open dashboard";
 export const ADMIN_DASHBOARD_UNAVAILABLE =
-  "Dashboard link not ready yet — the bot's username hasn't resolved. Try again in a moment.";
+  "Dashboard unavailable — MINIAPP_ORIGIN isn't set on the bot. Configure it and redeploy.";
 
 // =============================================================================
 // Broadcast (admin → all users)
