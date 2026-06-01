@@ -75,7 +75,21 @@ function applyTheme(): void {
     "color-mix(in oklch, var(--foreground) 12%, var(--card))",
   );
 
-  root.classList.toggle("dark", WebApp.colorScheme === "dark");
+  const isDark = WebApp.colorScheme === "dark";
+  root.classList.toggle("dark", isDark);
+
+  // Telegram dark themes frequently send secondary_bg_color ≈ bg_color, so
+  // flat cards land as near-black on a near-black page. Lift the card/popover
+  // fill a few % toward the text color so cards read as raised *gray*
+  // surfaces. (--border is derived from --card above, so the hairline tracks
+  // the lifted fill.) Light themes already give cards a usable step, so only
+  // dark needs the lift.
+  if (isDark) {
+    const cardLift = "color-mix(in oklch, var(--foreground) 7%, var(--background))";
+    root.style.setProperty("--card", cardLift);
+    root.style.setProperty("--popover", cardLift);
+  }
+
   if (tp.bg_color) {
     WebApp.setHeaderColor("secondary_bg_color");
     WebApp.setBackgroundColor(tp.bg_color);
