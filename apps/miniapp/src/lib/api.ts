@@ -37,8 +37,9 @@ async function request<T>(
   if (!res.ok) {
     let message = `Request failed (${res.status})`;
     try {
-      const body = (await res.json()) as { error?: string };
+      const body = (await res.json()) as { error?: string; reason?: string; limit?: number };
       if (body.error) message = body.error;
+      else if (body.reason) message = body.reason;
     } catch {
       // non-JSON error body; keep the generic message
     }

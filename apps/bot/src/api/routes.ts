@@ -15,7 +15,7 @@ import {
   toPublicBot,
   ownerForBotId,
 } from "../lib/api";
-import { restartErrorMessage } from "../lib/text";
+import { restartErrorMessage, docLimitReached, docTooLarge } from "../lib/text";
 import { isOwnerBanned } from "../lib/banned";
 import { apiLimiter } from "../lib/redis";
 import { clientIp } from "../lib/client-ip";
@@ -29,7 +29,7 @@ import {
   startTrialOnFirstBot,
 } from "../lib/owners";
 import { detectMimeType } from "../bots/document-types";
-import { checkDocumentLimits } from "../bots/document-limits";
+import { checkDocumentLimits, formatBytes } from "../bots/document-limits";
 import { ingestDocument, cancelDocumentIngest } from "../lib/doc-ingest";
 import { getBotStats } from "../lib/analytics-stats";
 import { getBillingSummary } from "../lib/billing-read";
@@ -45,6 +45,7 @@ import { banOwner, unbanOwner } from "../lib/owner-moderation";
 import { registry } from "../bots/registry";
 import { ownerDistinctId, track } from "../lib/analytics";
 import { logger } from "../lib/logger";
+import { quotaErrorMessage } from "./quota-message";
 
 // All Mini App analytics events share the `miniapp.` prefix so they're
 // distinguishable from the bot-side `mgmt.`/`onboarding.` events. Helper
@@ -114,7 +115,7 @@ api.use("*", async (c, next) => {
   }
   const ownerId = String(result.user.id);
   if (await isOwnerBanned(ownerId)) {
-    return c.json({ error: "banned" }, 403);
+    return c.json({ error: "Your account has been suspended." }, 403);
   }
   c.set("ownerId", ownerId);
   await next();
@@ -173,7 +174,7 @@ api.post("/bots", async (c) => {
   // bots in via the Mini App.
   const quota = await checkQuota(ownerId, "bot");
   if (!quota.ok) {
-    return c.json({ error: "quota", reason: quota.reason }, 403);
+    return c.json({ error: quotaErrorMessage(quota, "bot") }, 403);
   }
 
   try {
@@ -403,7 +404,7 @@ api.post("/documents", async (c) => {
   // Plan-cap quota gate (mirrors the bot upload path).
   const quota = await checkQuota(ownerId, "doc", { botId });
   if (!quota.ok) {
-    return c.json({ error: "quota", reason: quota.reason }, 403);
+    return c.json({ error: quotaErrorMessage(quota, "doc") }, 403);
   }
 
   const detectedMime = detectMimeType(file.name, file.type);
@@ -415,7 +416,14 @@ api.post("/documents", async (c) => {
     currentDocCount: existing.length,
   });
   if (!limitCheck.ok) {
-    return c.json({ error: limitCheck.reason, limit: limitCheck.limit }, 400);
+    const error =
+      limitCheck.reason === "too_many"
+        ? docLimitReached(limitCheck.limit)
+        : docTooLarge({
+            size: formatBytes(limitCheck.size),
+            limit: formatBytes(limitCheck.limit),
+          });
+    return c.json({ error }, 400);
   }
 
   const botRow = await db.query.tenantBots.findFirst({
